@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RegReport — Documentation</title>
+<style>
+  :root {
+    --ink: #2B3338; --muted: #6B7780; --red: #8C3A38; --red-bright: #B23A35;
+    --slate: #52616A; --slate-dark: #3A4248; --steel: #7E8C9A; --sand: #C9C7BB;
+    --line: #E4E6E4; --bg: #F4F5F4; --green: #3F7A5E; --amber: #B8862E;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.65; font-size: 15px;
+  }
+  .layout { display: flex; max-width: 1200px; margin: 0 auto; }
+
+  /* Sidebar TOC */
+  nav.toc {
+    width: 250px; flex-shrink: 0; position: sticky; top: 0; align-self: flex-start;
+    height: 100vh; overflow-y: auto; padding: 32px 20px; background: #fff;
+    border-right: 1px solid var(--line);
+  }
+  nav.toc .brand { font-size: 20px; font-weight: 300; letter-spacing: -0.02em; margin-bottom: 4px; }
+  nav.toc .brand b { font-weight: 600; color: var(--red); }
+  nav.toc .tagline { font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--muted); margin-bottom: 24px; }
+  nav.toc a { display: block; color: var(--slate); text-decoration: none; font-size: 13.5px; padding: 5px 0; border-left: 2px solid transparent; padding-left: 12px; transition: all .15s; }
+  nav.toc a:hover { color: var(--red); border-left-color: var(--red); }
+  nav.toc a.sub { font-size: 12.5px; padding-left: 24px; color: var(--muted); }
+  nav.toc .grp { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); font-weight: 600; margin: 22px 0 8px; padding-left: 12px; }
+
+  /* Content */
+  main { flex: 1; padding: 48px 56px; max-width: 900px; background: var(--bg); }
+  h1 { font-size: 34px; font-weight: 300; letter-spacing: -0.02em; margin-bottom: 8px; }
+  h1 + .lead { font-size: 17px; color: var(--muted); font-weight: 300; margin-bottom: 8px; }
+  section { margin-bottom: 48px; scroll-margin-top: 20px; }
+  h2 { font-size: 22px; font-weight: 600; margin: 0 0 18px; padding-bottom: 8px; border-bottom: 1px solid var(--ink); }
+  h2 .num { color: var(--red); font-weight: 600; margin-right: 10px; }
+  h3 { font-size: 16px; font-weight: 600; margin: 28px 0 10px; color: var(--ink); }
+  h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 20px 0 8px; }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 0 0 14px 0; padding-left: 0; list-style: none; }
+  ul li { position: relative; padding-left: 20px; margin-bottom: 7px; }
+  ul li::before { content: ''; position: absolute; left: 2px; top: 9px; width: 6px; height: 6px; background: var(--red); }
+  ol { counter-reset: item; }
+  ol li { position: relative; padding-left: 28px; margin-bottom: 8px; counter-increment: item; }
+  ol li::before { content: counter(item); position: absolute; left: 0; top: 0; width: 19px; height: 19px; background: var(--slate); color: #fff; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+  a { color: var(--red); }
+  strong { color: var(--ink); font-weight: 600; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: #fff; border: 1px solid var(--line); padding: 1px 5px; border-radius: 3px; color: var(--slate-dark); }
+  pre { background: var(--ink); color: #E8EAEA; padding: 18px 20px; border-radius: 6px; overflow-x: auto; margin: 14px 0; font-size: 12.5px; line-height: 1.55; }
+  pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+  pre.ascii { background: #fff; color: var(--slate-dark); border: 1px solid var(--line); }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; background: #fff; border: 1px solid var(--line); }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 12px; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 22px 26px; box-shadow: 0 1px 2px rgba(43,51,56,0.04); margin-bottom: 20px; }
+  .note { border-left: 3px solid var(--red); background: #fff; padding: 14px 18px; margin: 16px 0; border-radius: 0 6px 6px 0; font-size: 14px; }
+  .note .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--red); font-weight: 600; display: block; margin-bottom: 3px; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); color: var(--slate); }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+  .meta-grid .card { margin: 0; }
+  .meta-grid h4 { margin-top: 0; }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+  .cover { margin-bottom: 56px; padding-bottom: 36px; border-bottom: 1px solid var(--ink); }
+  .cover .pills { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+
+  .print-btn { position: fixed; bottom: 24px; right: 24px; background: var(--red); color: #fff; border: none; padding: 12px 22px; border-radius: 99px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(140,58,56,0.3); z-index: 100; }
+  .print-btn:hover { background: var(--red-bright); }
+
+  @media (max-width: 880px) {
+    nav.toc { display: none; }
+    main { padding: 32px 24px; }
+    .meta-grid { grid-template-columns: 1fr; }
+  }
+  @media print {
+    nav.toc, .print-btn { display: none; }
+    body { background: #fff; font-size: 11pt; }
+    main { padding: 0; max-width: 100%; }
+    .layout { display: block; }
+    pre { background: #f4f5f4; color: #2B3338; border: 1px solid var(--line); }
+    section { page-break-inside: avoid; }
+    h2 { page-break-after: avoid; }
+    .card, table, pre { page-break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <div class="brand"><b>Reg</b>Report</div>
+  <div class="tagline">Documentation</div>
+
+  <div class="grp">Application</div>
+  <a href="#overview">1 · Vue d'ensemble</a>
+  <a href="#quickstart">2 · Démarrage rapide</a>
+  <a href="#arch">3 · Architecture dossiers</a>
+  <a href="#dataflow">4 · Flux de données</a>
+  <a href="#model">5 · Modèle de données</a>
+  <a href="#modules">6 · Les modules</a>
+  <a href="#design">7 · Système de design</a>
+  <a href="#persistence">8 · Persistance</a>
+  <a href="#conventions">9 · Conventions</a>
+
+  <div class="grp">Back-end .NET</div>
+  <a href="#be-arch">A · Architecture cible</a>
+  <a href="#be-contract">B · Contrat attendu</a>
+  <a href="#be-project">C · Créer le projet</a>
+  <a href="#be-schema">D · Schéma SQL</a>
+  <a href="#be-endpoints">E · Endpoints REST</a>
+  <a href="#be-security">F · Sécurité</a>
+  <a href="#be-connect">G · Brancher le front</a>
+  <a href="#be-checklist">H · Checklist</a>
+</nav>
+
+<main>
+  <div class="cover">
+    <h1>RegReport — Documentation</h1>
+    <p class="lead">Tableau de bord de <em>regulatory reporting</em> multi-entités : suivi, analyse et comparaison des KPI réglementaires (CET1, LCR, NSFR, Leverage Ratio), des échéances, des reportings quotidiens et des projets.</p>
+    <div class="pills">
+      <span class="pill">React 18 + TypeScript</span>
+      <span class="pill">Vite</span>
+      <span class="pill">Tailwind CSS</span>
+      <span class="pill">Recharts</span>
+      <span class="pill">.NET 8 + EF Core</span>
+      <span class="pill">SQL Server</span>
+    </div>
+  </div>
+
+  <!-- ============ PARTIE 1 — APPLICATION ============ -->
+
+  <section id="overview">
+    <h2><span class="num">1</span>Vue d'ensemble</h2>
+    <table>
+      <tr><td style="width:130px"><strong>Type</strong></td><td>Single Page Application (SPA) React, 100 % front-end</td></tr>
+      <tr><td><strong>Stack</strong></td><td>React 18 + TypeScript, Vite, Tailwind CSS, React Router (hash), Recharts</td></tr>
+      <tr><td><strong>Données</strong></td><td>Aujourd'hui : <code>localStorage</code> du navigateur. Demain : API REST (voir partie back-end)</td></tr>
+      <tr><td><strong>Export</strong></td><td>PDF des rapports KPI (jsPDF + html2canvas, chargés à la demande)</td></tr>
+    </table>
+    <p>L'application est <strong>modulaire</strong> : chaque page correspond à un module métier indépendant, accessible depuis la barre de navigation.</p>
+  </section>
+
+  <section id="quickstart">
+    <h2><span class="num">2</span>Démarrage rapide</h2>
+    <p><strong>Prérequis :</strong> Node.js 18+</p>
+    <pre><code>npm install      # installe les dépendances
+npm run dev      # serveur de dev (http://localhost:5173)
+npm run build    # build de production (dossier dist/)
+npm run preview  # prévisualise le build
+npm run lint     # vérification TypeScript (tsc --noEmit)</code></pre>
+  </section>
+
+  <section id="arch">
+    <h2><span class="num">3</span>Architecture des dossiers</h2>
+    <pre class="ascii"><code>src/
+├── App.tsx                 # Routeur + layout global (header, footer). Pages en lazy-loading.
+├── index.tsx               # Point d'entrée React (montage du DOM)
+├── index.css               # Tailwind + styles de base (puces EFG, animations)
+├── theme.ts                # Palette de couleurs centrale (source de vérité des charts)
+├── types.ts                # Tous les types métier (le « modèle de données »)
+├── constants.ts            # Données initiales (seed) chargées au premier lancement
+├── utils.ts                # Calculs KPI (ratios, waterfalls) et formatage
+├── components.tsx          # Composants UI + charts partagés
+├── context/
+│   └── DataContext.tsx     # État global + persistance (via le repository)
+├── services/
+│   ├── dataRepository.ts   # Couche d'accès aux données (localStorage OU API)
+│   └── diagnosisService.ts # Contrôles de cohérence sur les données KPI
+└── pages/                  # Un composant par route (voir §6)</code></pre>
+  </section>
+
+  <section id="dataflow">
+    <h2><span class="num">4</span>Le flux de données <span style="font-size:13px;color:var(--muted);font-weight:400">(important)</span></h2>
+    <p>C'est le cœur de l'application. Tout passe par un <strong>état central unique</strong>.</p>
+    <pre class="ascii"><code>constants.ts (seed)
+      │
+      ▼
+dataRepository.load() ──► DataContext (state: CentralData) ──► useData() ──► Pages
+      ▲                            │
+      │                            ▼ (modification via setData)
+dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code></pre>
+    <ol>
+      <li><strong>Au démarrage</strong>, <code>DataProvider</code> appelle <code>dataRepository.load()</code>. Le repository choisit sa source selon <code>VITE_API_BASE_URL</code> : vide → <strong>mode local</strong> (lecture <code>localStorage</code> ou seed) ; renseignée → <strong>mode API</strong> (<code>GET {base}/data</code>).</li>
+      <li>Les données sont stockées dans un seul objet <code>CentralData</code> exposé via le hook <strong><code>useData()</code></strong>.</li>
+      <li>Chaque page lit <code>data</code> et le modifie via <strong><code>setData(...)</code></strong>.</li>
+      <li>À chaque modification, un effet <strong>persiste automatiquement</strong> (debounce 400 ms) : <code>localStorage.setItem</code> en local, ou <code>PUT {base}/data</code> en mode API.</li>
+    </ol>
+    <div class="note"><span class="tag">À retenir</span>Aucun composant ne connaît la source des données. Pour passer au back-end, on ne change <strong>que</strong> la variable <code>VITE_API_BASE_URL</code>.</div>
+    <h3>Le hook <code>useData()</code></h3>
+    <pre><code>const {
+  data,            // CentralData : toutes les données de l'app
+  setData,         // pour modifier les données
+  allEntities,     // string[] : entités présentes (dérivé)
+  allDates,        // string[] : dates présentes (dérivé, triées desc.)
+  getKpisForDate,  // (entity, date, currency?) => CalculatedKpis | null
+  isLoading,       // chargement initial en cours
+  loadError,       // erreur de chargement (mode API)
+  mode,            // 'local' | 'api'
+} = useData();</code></pre>
+  </section>
+
+  <section id="model">
+    <h2><span class="num">5</span>Le modèle de données <code>(types.ts)</code></h2>
+    <p>L'objet central est <code>CentralData</code> :</p>
+    <table>
+      <thead><tr><th>Champ</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>kpisHistory</code></td><td><code>KpiHistoryEntry[]</code></td><td>Historique des données brutes par entité/date (capital, RWA, liquidité par devise)</td></tr>
+        <tr><td><code>deadlines</code></td><td><code>Deadline[]</code></td><td>Échéances réglementaires et internes (statut, historique, pièces jointes)</td></tr>
+        <tr><td><code>bilan</code></td><td><code>Bilan</code></td><td>Répartition du bilan par devise</td></tr>
+        <tr><td><code>riskAppetite</code></td><td><code>RiskAppetite</code></td><td>Seuils red/amber par KPI et par entité</td></tr>
+        <tr><td><code>counterpartyRwa</code></td><td><code>CounterpartyRwa[]</code></td><td>RWA par contrepartie/industrie</td></tr>
+        <tr><td><code>largeExposures</code></td><td><code>LargeExposure[]</code></td><td>Grands risques vs limites</td></tr>
+        <tr><td><code>team</code></td><td><code>TeamMember[]</code></td><td>Annuaire de l'équipe</td></tr>
+        <tr><td><code>projects</code> / <code>projectTasks</code></td><td><code>Project[]</code> / <code>ProjectTask[]</code></td><td>Projets et leurs tâches</td></tr>
+        <tr><td><code>diagnosisResults</code></td><td><code>Record&lt;…&gt;</code></td><td>Résultats des contrôles de cohérence (clé <code>entity|date</code>)</td></tr>
+      </tbody>
+    </table>
+    <h3>KPI : données brutes vs données calculées</h3>
+    <ul>
+      <li><strong><code>KpiHistoryEntry</code></strong> = ce qui est saisi/importé (capital CET1, RWA crédit / marché / opérationnel, exposition, liquidité HQLA/NCO par devise…).</li>
+      <li><strong><code>CalculatedKpis</code></strong> = ce qui est dérivé par <code>calculateKpis()</code> :</li>
+    </ul>
+    <table>
+      <tr><td><code>cet1</code></td><td><code>cet1Capital / rwaTotal × 100</code></td></tr>
+      <tr><td><code>lcr</code></td><td><code>hqla / netCashOutflows × 100</code></td></tr>
+      <tr><td><code>nsfr</code></td><td><code>asf / rsf × 100</code></td></tr>
+      <tr><td><code>leverage</code></td><td><code>tier1 / exposure × 100</code></td></tr>
+    </table>
+    <p>C'est <code>getKpisForDate(entity, date, currency)</code> qui fait le pont entre les deux.</p>
+  </section>
+
+  <section id="modules">
+    <h2><span class="num">6</span>Les modules (pages), pas à pas</h2>
+    <table>
+      <thead><tr><th>Route</th><th>Fichier</th><th>Rôle</th></tr></thead>
+      <tbody>
+        <tr><td><code>/</code></td><td><code>HubPage</code></td><td>Accueil : aperçu chiffré, accès aux modules, vue brute des données</td></tr>
+        <tr><td><code>/details</code></td><td><code>KpiDetailsPage</code></td><td>Analyse KPI : tendances, seuils, waterfalls, export PDF</td></tr>
+        <tr><td><code>/daily-reports</code></td><td><code>DailyReportsPage</code></td><td>Reportings quotidiens LCR &amp; grands risques</td></tr>
+        <tr><td><code>/deadlines</code></td><td><code>DeadlinesPage</code></td><td>Calendrier et suivi des échéances</td></tr>
+        <tr><td><code>/projects</code></td><td><code>ProjectsPage</code> + détail</td><td>Projets et tâches</td></tr>
+        <tr><td><code>/team</code></td><td><code>TeamPage</code></td><td>Annuaire de l'équipe</td></tr>
+        <tr><td><code>/business-case</code></td><td><code>BusinessCasePage</code></td><td>Argumentaire ROI</td></tr>
+        <tr><td><code>/datamanagement</code></td><td><code>DataManagementPage</code></td><td>Administration : import/export CSV &amp; JSON, contrôles</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 KPI Analysis <code>/details</code> — le module le plus riche</h3>
+    <ul>
+      <li>Sélection <strong>entité / date / devise / période</strong> et <strong>date de comparaison</strong>.</li>
+      <li>Onglets <strong>Overview / Capital / Liquidity</strong>.</li>
+      <li>Cartes KPI avec <strong>seuils risk-appetite</strong> (red/amber/green) et graphes d'évolution.</li>
+      <li><strong>Waterfalls</strong> : évolution du ratio CET1, du RWA, du LCR entre deux dates.</li>
+      <li>Tables de composition (capital CET1, RWA), top contreparties.</li>
+      <li><strong>Export PDF</strong> du rapport affiché (jsPDF / html2canvas chargés dynamiquement à ce moment-là).</li>
+    </ul>
+
+    <h3>6.4 Deadlines <code>/deadlines</code></h3>
+    <p>Liste triable et calendrier visuel ; chaque échéance a un statut (<code>completed</code> / <code>inprogress</code> / <code>upcoming</code>), un historique de changements et des pièces jointes. Calcul de l'échéance réglementaire (+10 jours ouvrés).</p>
+
+    <h3>6.6 Data Management <code>/datamanagement</code></h3>
+    <ul>
+      <li><strong>Import</strong> CSV/JSON pour KPI, liquidité, contreparties, grands risques… (modes <em>replace</em> ou <em>append/merge</em>).</li>
+      <li><strong>Export</strong> des données et templates CSV.</li>
+      <li><strong>Diagnostic</strong> via <code>diagnosisService.ts</code> (variations anormales, densité RWA élevée, valeurs négatives suspectes…).</li>
+      <li>Réinitialisation des données (<code>localStorage.removeItem</code>).</li>
+    </ul>
+  </section>
+
+  <section id="design">
+    <h2><span class="num">7</span>Le système de design (style « EFG »)</h2>
+    <p>La charte visuelle s'inspire d'une présentation corporate de banque privée : sobre, aérée, titres en graisse légère, une seule couleur d'accent (rouge profond) utilisée avec parcimonie.</p>
+    <ul>
+      <li><strong>Palette</strong> : définie une seule fois dans <code>src/theme.ts</code> (<code>PALETTE</code>, <code>CHART_COLORS</code>, <code>STATUS_COLORS</code>) et reflétée par <em>nom</em> dans <code>tailwind.config.js</code>. Pour changer toute l'identité visuelle, modifier ces deux fichiers.</li>
+      <li><strong>Composants de mise en page</strong> : <code>PageHeader</code>, <code>SectionHeader</code> (titre + suffixe muet), <code>BulletList</code> (puces carrées rouges), <code>Card</code>, <code>Modal</code>, <code>InfoBox</code>, <code>Select</code>, <code>TabButton</code>.</li>
+      <li><strong>Charts</strong> (Recharts) : toutes les couleurs viennent de <code>CHART_COLORS</code> / <code>PALETTE</code>. Grilles en filet clair, hauteurs compactes, rouge réservé à l'emphase / aux totaux.</li>
+    </ul>
+  </section>
+
+  <section id="persistence">
+    <h2><span class="num">8</span>Persistance &amp; réinitialisation</h2>
+    <ul>
+      <li><strong>Mode local</strong> : les données vivent dans <code>localStorage</code> sous la clé <code>regReportData</code>. Vider le cache (ou « Reset » dans Admin) revient au seed de <code>constants.ts</code>.</li>
+      <li><strong>Mode API</strong> : voir la partie back-end ci-dessous.</li>
+    </ul>
+  </section>
+
+  <section id="conventions">
+    <h2><span class="num">9</span>Conventions &amp; bonnes pratiques</h2>
+    <ul>
+      <li><strong>TypeScript strict</strong> : <code>npm run lint</code> doit rester vert.</li>
+      <li><strong>Lazy-loading</strong> : chaque page est un chunk séparé. Les libs lourdes (jsPDF, html2canvas) sont importées dynamiquement.</li>
+      <li><strong>Couleurs</strong> : ne jamais coder un hex en dur — utiliser <code>theme.ts</code> (charts) ou les tokens Tailwind <code>brand-*</code> (classNames).</li>
+      <li><strong>Données</strong> : toujours passer par <code>useData()</code> / <code>setData()</code>, jamais lire <code>localStorage</code> directement depuis une page.</li>
+    </ul>
+  </section>
+
+  <hr>
+
+  <!-- ============ PARTIE 2 — BACK-END ============ -->
+
+  <div class="cover" style="margin-bottom:40px">
+    <h1>Connecter un back-end</h1>
+    <p class="lead">.NET 8 + Entity Framework Core + SQL Server</p>
+    <p>Comment remplacer le stockage <code>localStorage</code> par un vrai back-end <strong>ASP.NET Core Web API</strong>, et y brancher le front existant <strong>sans réécrire les composants</strong>. Le front est déjà prêt : <code>dataRepository.ts</code> bascule en mode API dès que <code>VITE_API_BASE_URL</code> est définie.</p>
+  </div>
+
+  <section id="be-arch">
+    <h2><span class="num">A</span>Architecture cible</h2>
+    <pre class="ascii"><code>┌──────────────────┐   HTTPS / JSON   ┌────────────────────────┐      ┌────────────┐
+│ Front React/Vite │ ───────────────► │  ASP.NET Core Web API  │ ───► │ SQL Server │
+│ dataRepository   │ ◄─────────────── │  Controllers + EF Core │ ◄─── │  (MSSQL)   │
+└──────────────────┘                  └────────────────────────┘      └────────────┘
+     mode 'api'                          /api/data, /api/kpis, ...</code></pre>
+    <p>Deux stratégies de stockage, au choix :</p>
+    <ul>
+      <li><strong>Option A — « Document » (démarrage rapide)</strong> : une seule table qui stocke le JSON <code>CentralData</code> complet. Fonctionne immédiatement avec <code>GET/PUT /api/data</code>.</li>
+      <li><strong>Option B — Relationnel (cible)</strong> : un schéma SQL normalisé (une table par ressource) pour requêter, auditer et sécuriser finement.</li>
+    </ul>
+    <div class="note"><span class="tag">Astuce</span>On peut <strong>commencer par A puis migrer vers B</strong> sans toucher au front : le front parle toujours <code>/api/data</code>, c'est le contrôleur qui change d'implémentation.</div>
+  </section>
+
+  <section id="be-contract">
+    <h2><span class="num">B</span>Le contrat que le front attend déjà</h2>
+    <table>
+      <thead><tr><th>Méthode</th><th>Endpoint</th><th>Corps</th><th>Réponse</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET</code></td><td><code>{base}/data</code></td><td>—</td><td><code>CentralData</code> (JSON)</td></tr>
+        <tr><td><code>PUT</code></td><td><code>{base}/data</code></td><td><code>CentralData</code></td><td><code>204 No Content</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note"><span class="tag">Suffisant</span>Implémenter ces deux endpoints suffit pour que toute l'application fonctionne sur le back-end. Les endpoints granulaires sont une amélioration ultérieure.</div>
+  </section>
+
+  <section id="be-project">
+    <h2><span class="num">C</span>Créer le projet .NET</h2>
+    <pre><code># .NET 8 SDK requis
+dotnet new webapi -n RegReport.Api
+cd RegReport.Api
+
+dotnet add package Microsoft.EntityFrameworkCore.SqlServer
+dotnet add package Microsoft.EntityFrameworkCore.Design
+dotnet tool install --global dotnet-ef</code></pre>
+    <p><code>appsettings.json</code> — chaîne de connexion :</p>
+    <pre><code>{
+  "ConnectionStrings": {
+    "Default": "Server=localhost;Database=RegReport;Trusted_Connection=True;TrustServerCertificate=True;"
+  },
+  "Cors": { "AllowedOrigins": [ "http://localhost:5173" ] }
+}</code></pre>
+    <div class="note"><span class="tag">Banque</span>Privilégier l'<strong>authentification intégrée</strong> (<code>Trusted_Connection</code>) ou un <strong>Managed Identity</strong> Azure plutôt qu'un mot de passe en clair.</div>
+    <h3>Option A — Contrôleur <code>/api/data</code> (document)</h3>
+    <pre><code>[ApiController]
+[Route("api/data")]
+public class DataController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    public DataController(AppDbContext db) => _db = db;
+
+    [HttpGet]
+    public async Task&lt;IActionResult&gt; Get()
+    {
+        var doc = await _db.CentralDataDocuments.FindAsync(1);
+        return Content(doc?.Payload ?? "{}", "application/json");
+    }
+
+    [HttpPut]
+    public async Task&lt;IActionResult&gt; Put()
+    {
+        using var reader = new StreamReader(Request.Body);
+        var json = await reader.ReadToEndAsync();
+        var doc = await _db.CentralDataDocuments.FindAsync(1)
+                  ?? _db.CentralDataDocuments.Add(new() { Id = 1 }).Entity;
+        doc.Payload = json;
+        doc.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+}</code></pre>
+  </section>
+
+  <section id="be-schema">
+    <h2><span class="num">D</span>Option B — Schéma relationnel (cible)</h2>
+    <p>Schéma normalisé miroir de <code>types.ts</code>. Les structures imbriquées (liquidité par devise, breakdowns, historique/pièces jointes) sont stockées en <strong>colonnes JSON</strong> (<code>NVARCHAR(MAX)</code>) — SQL Server sait les requêter via <code>JSON_VALUE</code> / <code>OPENJSON</code>.</p>
+    <pre><code>-- KPI bruts (un enregistrement par entité + date)
+CREATE TABLE dbo.KpiHistory (
+    Id           INT IDENTITY PRIMARY KEY,
+    Entity       NVARCHAR(64)  NOT NULL,
+    [Date]       DATE          NOT NULL,
+    Cet1Capital  DECIMAL(18,2) NOT NULL,
+    CreditRWA    DECIMAL(18,2) NOT NULL,
+    MarketRWA    DECIMAL(18,2) NOT NULL,
+    OpRWA        DECIMAL(18,2) NOT NULL,
+    Tier1        DECIMAL(18,2) NOT NULL,
+    Exposure     DECIMAL(18,2) NOT NULL,
+    Cet1CapitalBreakdown NVARCHAR(MAX) NULL,   -- JSON
+    Liquidity            NVARCHAR(MAX) NULL,   -- JSON (par devise)
+    CONSTRAINT UQ_KpiHistory UNIQUE (Entity, [Date])
+);
+
+-- + Deadlines, CounterpartyRwa, LargeExposures, TeamMembers,
+--   Projects, ProjectTasks, AppSettings (clé/valeur JSON)</code></pre>
+    <p>Mappez chaque table à une entité EF Core et exposez un <code>DbSet&lt;&gt;</code> par ressource. Le contrôleur <code>/api/data</code> devient alors un <strong>agrégateur</strong> qui recompose <code>CentralData</code> à partir des tables (et inversement au <code>PUT</code>).</p>
+  </section>
+
+  <section id="be-endpoints">
+    <h2><span class="num">E</span>Endpoints REST granulaires</h2>
+    <p>Pour des chargements partiels, de la pagination et des droits fins, exposez en plus des routes par ressource. <strong>Ces contrôleurs sont déjà fournis dans le projet <code>backend/</code> :</strong></p>
+    <table>
+      <thead><tr><th>Ressource</th><th>Endpoints</th></tr></thead>
+      <tbody>
+        <tr><td>Agrégat</td><td><code>GET/PUT /api/data</code></td></tr>
+        <tr><td>KPI</td><td><code>GET /api/kpis</code>, <code>GET/PUT/DELETE /api/kpis/{entity}/{date}</code></td></tr>
+        <tr><td>Deadlines</td><td><code>GET/POST /api/deadlines</code>, <code>PUT/DELETE /api/deadlines/{id}</code></td></tr>
+        <tr><td>Contreparties</td><td><code>GET/POST/PUT/DELETE /api/counterparty-rwa</code> + <code>PUT bulk/{entity}/{date}</code></td></tr>
+        <tr><td>Grands risques</td><td><code>GET/POST/PUT/DELETE /api/large-exposures</code> + bulk</td></tr>
+        <tr><td>Projets</td><td><code>GET/POST /api/projects</code>, <code>GET /api/projects/{id}/tasks</code></td></tr>
+        <tr><td>Équipe</td><td><code>GET/POST/PUT/DELETE /api/team</code></td></tr>
+        <tr><td>Settings</td><td><code>GET/PUT /api/settings/bilan</code>, <code>GET/PUT /api/settings/risk-appetite[/{entity}]</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="be-security">
+    <h2><span class="num">F</span>Sécurité (recommandé en banque)</h2>
+    <ul>
+      <li><strong>Authentification</strong> : Microsoft Entra ID (Azure AD) via OpenID Connect. API : <code>AddAuthentication().AddJwtBearer(...)</code> + <code>[Authorize]</code>. Front : access token (MSAL.js) injecté dans <code>ApiRepository.headers()</code> (emplacement déjà préparé).</li>
+      <li><strong>HTTPS</strong> obligatoire (<code>app.UseHttpsRedirection()</code>).</li>
+      <li><strong>Audit</strong> : les colonnes <code>UpdatedBy</code> / <code>UpdatedAtUtc</code> tracent les écritures.</li>
+      <li><strong>Validation</strong> du payload côté serveur (DataAnnotations / FluentValidation) avant persistance.</li>
+    </ul>
+  </section>
+
+  <section id="be-connect">
+    <h2><span class="num">G</span>Pointer le front sur l'API — pas à pas</h2>
+    <ol>
+      <li>Lancer l'API .NET (<code>dotnet run</code>) et noter son URL (ex. <code>https://localhost:7042</code>).</li>
+      <li>À la racine du front, créer <strong><code>.env.local</code></strong> (copie de <code>.env.example</code>) :
+        <pre style="margin-top:8px"><code>VITE_API_BASE_URL=https://localhost:7042/api</code></pre>
+      </li>
+      <li>Redémarrer le serveur de dev : <code>npm run dev</code>.</li>
+      <li>Le front passe automatiquement en <strong>mode <code>api</code></strong> : <code>GET /api/data</code> au démarrage, <code>PUT /api/data</code> à chaque modification (debounce 400 ms).</li>
+      <li>Vérifier dans l'onglet <strong>Network</strong> que les appels partent vers l'API. En cas d'échec, un bandeau rouge s'affiche et l'app retombe sur le seed local.</li>
+    </ol>
+    <div class="note"><span class="tag">Revenir en local</span>Vider <code>VITE_API_BASE_URL</code> (ou supprimer <code>.env.local</code>) et redémarrer.</div>
+  </section>
+
+  <section id="be-checklist">
+    <h2><span class="num">H</span>Checklist de migration</h2>
+    <div class="card">
+      <ul style="margin-bottom:0">
+        <li>Projet <code>RegReport.Api</code> créé, packages EF Core ajoutés</li>
+        <li>Chaîne de connexion SQL Server configurée</li>
+        <li>Option A : table <code>CentralDataDocuments</code> + contrôleur <code>/api/data</code></li>
+        <li><code>dotnet ef database update</code> exécuté</li>
+        <li>CORS autorise <code>http://localhost:5173</code></li>
+        <li><code>GET /api/data</code> renvoie un JSON valide (au moins <code>{}</code>)</li>
+        <li><code>.env.local</code> du front pointe sur l'API</li>
+        <li>Les écritures du front se retrouvent en base</li>
+        <li>(Cible) Schéma relationnel + endpoints granulaires</li>
+        <li>(Banque) Auth Entra ID + HTTPS + audit</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    RegReport — Documentation générée pour le projet de regulatory reporting.
+    Pour le détail technique complet, voir <code>docs/APPLICATION.md</code> et <code>docs/BACKEND.md</code> dans le dépôt.
+  </footer>
+</main>
+</div>
+
+<button class="print-btn" onclick="window.print()">⎙ Imprimer / Enregistrer en PDF</button>
+</body>
+</html>
