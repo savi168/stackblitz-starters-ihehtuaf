@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { useData } from '../context/DataContext';
 import { Deadline, Attachment } from '../types';
 import { calculateRegulatoryDeadline, getStatusBadge, getTypeBadge } from '../utils';
-import { Card, PageHeader, BackButton, Select, Modal, SortableHeader } from '../components';
+import { Card, PageHeader, BackButton, Select, Modal, SortableHeader, SectionHeader } from '../components';
 
 
 const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
@@ -48,7 +48,7 @@ const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
         <Card>
             <div className="flex justify-between items-center mb-4">
                 <button onClick={() => changeMonth(-1)} className="p-2 rounded-full hover:bg-gray-100">&lt;</button>
-                <h2 className="text-xl font-bold text-brand-text-primary capitalize">{monthName}</h2>
+                <h2 className="text-lg font-semibold text-brand-text-primary capitalize">{monthName}</h2>
                 <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-gray-100">&gt;</button>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center">
@@ -345,13 +345,13 @@ export const DeadlinesPage: React.FC = () => {
             <Card className="mb-8">
                  <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                      <div className="flex items-center gap-4">
-                        <h2 className="text-xl font-bold text-brand-text-primary">View & Actions</h2>
-                        <div className="bg-gray-200 p-1 rounded-lg flex">
-                             <button onClick={() => setView('table')} className={`px-3 py-1 text-sm font-semibold rounded-md ${view === 'table' ? 'bg-white shadow' : 'text-brand-text-secondary'}`}>Table</button>
-                             <button onClick={() => setView('calendar')} className={`px-3 py-1 text-sm font-semibold rounded-md ${view === 'calendar' ? 'bg-white shadow' : 'text-brand-text-secondary'}`}>Calendar</button>
+                        <h2 className="text-lg font-semibold text-brand-text-primary">View &amp; Actions</h2>
+                        <div className="bg-brand-bg-body p-1 rounded-md flex">
+                             <button onClick={() => setView('table')} className={`px-3 py-1 text-sm font-semibold rounded ${view === 'table' ? 'bg-white shadow-card' : 'text-brand-text-secondary'}`}>Table</button>
+                             <button onClick={() => setView('calendar')} className={`px-3 py-1 text-sm font-semibold rounded ${view === 'calendar' ? 'bg-white shadow-card' : 'text-brand-text-secondary'}`}>Calendar</button>
                         </div>
                      </div>
-                     <button onClick={() => setShowForm(!showForm)} className="bg-brand-primary hover:bg-brand-primary-dark text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                     <button onClick={() => setShowForm(!showForm)} className="bg-brand-primary hover:bg-brand-primary-dark text-white text-sm font-semibold py-2 px-4 rounded-md transition-colors">
                         {showForm ? 'Cancel' : '+ Add Deadline'}
                     </button>
                  </div>
@@ -395,8 +395,8 @@ export const DeadlinesPage: React.FC = () => {
             </Card>
 
             {showForm && (
-                <Card className="mb-8 border-l-4 border-brand-primary">
-                    <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">New Deadline</h2>
+                <Card className="mb-8 border-l-2 border-l-brand-primary">
+                    <SectionHeader title="New Deadline" />
                     <form onSubmit={handleAddDeadline} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="md:col-span-2">
                              <label htmlFor="name" className="block text-sm font-medium text-brand-text-secondary mb-1">Title / Task</label>
@@ -433,7 +433,7 @@ export const DeadlinesPage: React.FC = () => {
                 <Card>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left text-brand-text-secondary">
-                            <thead className="text-xs text-brand-text-primary uppercase bg-gray-100">
+                            <thead className="text-xs text-brand-text-primary uppercase bg-brand-bg-body">
                                 <tr>
                                     <SortableHeader label="Title" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
                                     <th scope="col" className="px-6 py-3">SharePoint</th>

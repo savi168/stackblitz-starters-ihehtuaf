@@ -1,0 +1,19 @@
+# Spin up a local SQL Server for development:
+#   docker compose up -d
+# Connection string (already set in appsettings.Development.json):
+#   Server=localhost,1433;Database=RegReport;User Id=sa;Password=Your_strong_Password123;TrustServerCertificate=True;
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: regreport-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_strong_Password123"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+
+volumes:
+  mssql-data:

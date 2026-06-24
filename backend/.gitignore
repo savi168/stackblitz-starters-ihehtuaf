@@ -1,0 +1,11 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Local config / secrets
+appsettings.*.local.json
+*.db
+
+# Optional local seed
+RegReport.Api/seed.json
