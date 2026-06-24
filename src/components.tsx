@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Bar,
   BarChart,
-  Brush,
   CartesianGrid,
   Cell,
   LabelList,
@@ -298,11 +297,11 @@ export const MultiEntityKpiChart: FC<{ historicalData: CalculatedKpis[], kpiKey:
     return (
         <div>
             <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>
-            <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={data} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-                    <XAxis dataKey="name" />
-                    <YAxis unit="%" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis unit="%" tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]} />
                     <Legend onClick={handleLegendClick} />
                     {entities.map((entity, index) => (
@@ -311,9 +310,9 @@ export const MultiEntityKpiChart: FC<{ historicalData: CalculatedKpis[], kpiKey:
                             type="monotone"
                             dataKey={entity}
                             stroke={COLORS[index % COLORS.length]}
-                            strokeWidth={2}
-                            dot={{ r: 2 }}
-                            activeDot={{ r: 5 }}
+                            strokeWidth={1.5}
+                            dot={false}
+                            activeDot={{ r: 4 }}
                             connectNulls
                             strokeOpacity={opacity[entity] ?? 1}
                         />
@@ -337,14 +336,14 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
   const COLORS = CHART_COLORS;
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={220}>
       <PieChart>
         <Pie
           data={chartData}
           cx="50%"
           cy="50%"
-          innerRadius={60}
-          outerRadius={80}
+          innerRadius={50}
+          outerRadius={65}
           fill={PALETTE.slate}
           paddingAngle={5}
           dataKey="value"
@@ -386,14 +385,14 @@ export const ComparisonBarChart: FC<ComparisonBarChartProps> = memo(({
   );
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={220}>
       <BarChart
         data={chartData}
-        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        margin={{ top: 5, right: 20, left: 5, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-        <XAxis dataKey="entity" />
-        <YAxis unit="%" />
+        <XAxis dataKey="entity" tick={{ fontSize: 11 }} />
+        <YAxis unit="%" tick={{ fontSize: 11 }} />
         <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
         <Legend />
         {threshold && (
@@ -471,8 +470,8 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>
-            <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis
@@ -496,12 +495,11 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
                         dataKey="value"
                         name={kpiKey.toString().toUpperCase()}
                         stroke={PALETTE.red}
-                        strokeWidth={2}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: PALETTE.red }}
-                        activeDot={{ r: 6, stroke: PALETTE.red, fill: PALETTE.red }}
+                        strokeWidth={1.5}
+                        dot={{ r: 2.5, strokeWidth: 1.5, fill: '#fff', stroke: PALETTE.red }}
+                        activeDot={{ r: 4, stroke: PALETTE.red, fill: PALETTE.red }}
                         connectNulls
                     />
-                    <Brush dataKey="name" height={30} stroke={PALETTE.red} y={280} />
                 </LineChart>
             </ResponsiveContainer>
         </div>
@@ -523,11 +521,11 @@ export const BreakdownBarChart: FC<BreakdownBarChartProps> = memo(({
 }) => (
   <div>
     <h4 className="font-semibold text-brand-text-primary mb-2">{title}</h4>
-    <ResponsiveContainer width="100%" height={250}>
+    <ResponsiveContainer width="100%" height={180}>
       <BarChart
         data={data}
         layout="vertical"
-        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
         <XAxis type="number" />
@@ -689,22 +687,22 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
   return (
     <div>
       {title && <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>}
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={240}>
         <BarChart
           data={processedData}
           margin={{
-            top: 30, // Increased top margin for labels
-            right: 30,
-            left: 20,
+            top: 28,
+            right: 20,
+            left: 10,
             bottom: 5,
           }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-          <XAxis dataKey="name" />
-          <YAxis unit={unit} />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+          <YAxis unit={unit} tick={{ fontSize: 11 }} />
           <Tooltip content={<CustomTooltip />} />
           <Bar dataKey="offset" stackId="a" fill="transparent" />
-          <Bar dataKey="value" stackId="a" barSize={150}>
+          <Bar dataKey="value" stackId="a" barSize={48}>
              <LabelList dataKey="value" content={<CustomLabel />} />
             {processedData.map((entry, index) => {
               const color = entry.isTotal
@@ -1079,8 +1077,8 @@ export const HqlaEvolutionChart: FC<{ data: CalculatedKpis[] }> = memo(({ data }
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">HQLA Composition Evolution (m)</h3>
-            <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis />
@@ -1126,8 +1124,8 @@ export const CashflowEvolutionChart: FC<{ data: CalculatedKpis[]; flowType: 'inf
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title} Composition Evolution (30d, m)</h3>
-            <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis />
