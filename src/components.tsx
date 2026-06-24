@@ -21,6 +21,7 @@ import {
 } from 'recharts';
 import { CalculatedKpis, KpiThresholds, CounterpartyRwa, CET1CapitalBreakdown, Deadline } from './types';
 import { formatDate, formatNumber } from './utils';
+import { PALETTE, CHART_COLORS } from './theme';
 
 // --- ERROR BOUNDARY ---
 interface ErrorBoundaryProps {
@@ -73,7 +74,7 @@ export const Card: FC<{ children: ReactNode; className?: string }> = memo(({
   children,
   className = '',
 }) => (
-  <div className={`bg-white p-6 rounded-2xl shadow-lg border border-gray-200 ${className}`}>
+  <div className={`bg-white p-6 rounded-lg shadow-card border border-efg-line ${className}`}>
     {children}
   </div>
 ));
@@ -85,15 +86,41 @@ export const PageHeader: FC<{
   title: string;
   subtitle:string;
 }> = memo(({ icon, title, subtitle }) => (
-  <div className="mb-8">
-    <h1 className="text-4xl font-bold text-brand-text-primary flex items-center gap-3">
-      <span className="text-3xl flex items-center justify-center">{icon}</span>
+  <div className="mb-8 pb-5 border-b border-efg-line">
+    <h1 className="text-3xl md:text-4xl font-light text-brand-text-primary flex items-center gap-3 tracking-tight">
+      {icon && <span className="text-2xl flex items-center justify-center opacity-80">{icon}</span>}
       {title}
     </h1>
-    <p className="text-lg text-brand-text-secondary mt-1">{subtitle}</p>
+    <p className="text-base text-brand-text-secondary mt-2 font-light">{subtitle}</p>
   </div>
 ));
 PageHeader.displayName = 'PageHeader';
+
+/**
+ * Ruled section header in the EFG slide style: a bold-ish title with an optional
+ * light-weight muted suffix (e.g. "(in CHF mn)") above a hairline rule.
+ */
+export const SectionHeader: FC<{
+  title: string;
+  suffix?: string;
+  className?: string;
+}> = memo(({ title, suffix, className = '' }) => (
+  <div className={`mb-5 pb-2 border-b border-brand-text-primary/80 ${className}`}>
+    <h2 className="text-lg font-semibold text-brand-text-primary">
+      {title}
+      {suffix && <span className="ml-2 text-sm font-light text-brand-text-secondary">{suffix}</span>}
+    </h2>
+  </div>
+));
+SectionHeader.displayName = 'SectionHeader';
+
+/** Red-square bullet list, as used in the EFG "Key highlights" panels. */
+export const BulletList: FC<{ items: ReactNode[]; className?: string }> = memo(({ items, className = '' }) => (
+  <ul className={`efg-bullets text-sm text-brand-text-secondary leading-relaxed ${className}`}>
+    {items.map((item, i) => <li key={i}>{item}</li>)}
+  </ul>
+));
+BulletList.displayName = 'BulletList';
 
 export const BackButton: FC = memo(() => {
   const navigate = useNavigate();
@@ -129,12 +156,12 @@ export const InfoBox: FC<{
   className?: string;
 }> = memo(({ children, title, className = '' }) => (
   <div
-    className={`bg-stone-100 border-l-4 border-stone-400 p-4 my-6 rounded-r-lg ${className}`}
+    className={`bg-brand-bg-body border-l-2 border-brand-primary p-4 my-6 rounded-r ${className}`}
   >
     {title && (
-      <h3 className="font-bold text-brand-text-primary mb-1">{title}</h3>
+      <h3 className="font-semibold text-brand-text-primary mb-1">{title}</h3>
     )}
-    <div className="text-sm text-brand-text-secondary">{children}</div>
+    <div className="text-sm text-brand-text-secondary leading-relaxed">{children}</div>
   </div>
 ));
 InfoBox.displayName = 'InfoBox';
@@ -266,14 +293,14 @@ export const MultiEntityKpiChart: FC<{ historicalData: CalculatedKpis[], kpiKey:
         setOpacity(prev => ({ ...prev, [dataKey]: prev[dataKey] === 1 ? 0.2 : 1 }));
     };
 
-    const COLORS = ['#c0504d', '#59473C', '#B8A898', '#7F7F7F']; // Red, Brown, Tan, Grey
+    const COLORS = CHART_COLORS;
 
     return (
         <div>
-            <h3 className="text-lg font-bold text-brand-text-primary mb-4 text-center">{title}</h3>
+            <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>
             <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis unit="%" />
                     <Tooltip formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]} />
@@ -307,7 +334,7 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
     { name: 'Other RWA', value: data.otherRWA || 0 },
   ].filter((d) => d.value > 0);
 
-  const COLORS = ['#8C4D4D', '#59473C', '#B8A898', '#7F7F7F']; // Red, Brown, Tan, Grey
+  const COLORS = CHART_COLORS;
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -318,7 +345,7 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
           cy="50%"
           innerRadius={60}
           outerRadius={80}
-          fill="#8884d8"
+          fill={PALETTE.slate}
           paddingAngle={5}
           dataKey="value"
         >
@@ -364,7 +391,7 @@ export const ComparisonBarChart: FC<ComparisonBarChartProps> = memo(({
         data={chartData}
         margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
       >
-        <CartesianGrid strokeDasharray="3 3" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
         <XAxis dataKey="entity" />
         <YAxis unit="%" />
         <Tooltip formatter={(value: number) => `${value.toFixed(2)}%`} />
@@ -443,10 +470,10 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
 
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-bold text-brand-text-primary mb-4 text-center">{title}</h3>
+            <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>
             <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis
                         domain={[yDomainMin, yDomainMax]}
@@ -468,13 +495,13 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
                         type="monotone"
                         dataKey="value"
                         name={kpiKey.toString().toUpperCase()}
-                        stroke="#c0504d"
+                        stroke={PALETTE.red}
                         strokeWidth={2}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#c0504d' }}
-                        activeDot={{ r: 6, stroke: '#c0504d', fill: '#c0504d' }}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: PALETTE.red }}
+                        activeDot={{ r: 6, stroke: PALETTE.red, fill: PALETTE.red }}
                         connectNulls
                     />
-                    <Brush dataKey="name" height={30} stroke="#c0504d" y={280} />
+                    <Brush dataKey="name" height={30} stroke={PALETTE.red} y={280} />
                 </LineChart>
             </ResponsiveContainer>
         </div>
@@ -502,7 +529,7 @@ export const BreakdownBarChart: FC<BreakdownBarChartProps> = memo(({
         layout="vertical"
         margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
       >
-        <CartesianGrid strokeDasharray="3 3" />
+        <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
         <XAxis type="number" />
         <YAxis dataKey="name" type="category" width={80} />
         <Tooltip formatter={(value: number) => `${formatNumber(value)} mCHF`} />
@@ -623,10 +650,10 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
           <p
             style={{
               color: payload[1]?.payload?.isTotal
-                ? '#1e293b'
+                ? PALETTE.ink
                 : value >= 0
-                ? '#16a34a'
-                : '#dc2626',
+                ? PALETTE.slate
+                : PALETTE.red,
             }}
           >
             {`${formatNumber(value, 2)}${unit}`}
@@ -661,7 +688,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
 
   return (
     <div>
-      {title && <h3 className="text-lg font-bold text-brand-text-primary mb-4 text-center">{title}</h3>}
+      {title && <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>}
       <ResponsiveContainer width="100%" height={300}>
         <BarChart
           data={processedData}
@@ -672,7 +699,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
             bottom: 5,
           }}
         >
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
           <XAxis dataKey="name" />
           <YAxis unit={unit} />
           <Tooltip content={<CustomTooltip />} />
@@ -681,10 +708,10 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
              <LabelList dataKey="value" content={<CustomLabel />} />
             {processedData.map((entry, index) => {
               const color = entry.isTotal
-                ? '#59473C' // Brown for totals
+                ? PALETTE.slateDark // Slate for totals
                 : entry.isNegative
-                ? '#dc2626'
-                : '#16a34a';
+                ? PALETTE.red
+                : PALETTE.slate;
               return <Cell key={`cell-${index}`} fill={color} />;
             })}
           </Bar>
@@ -1040,21 +1067,21 @@ export const HqlaEvolutionChart: FC<{ data: CalculatedKpis[] }> = memo(({ data }
     }
 
     const COLORS = {
-        centralBank: '#59473C', // Brown
-        reverseRepo: '#B8A898', // Tan
-        sovereign: '#8C4D4D', // Red
-        publicSector: '#617983', // Teal
-        other: '#7F7F7F', // Grey
+        centralBank: PALETTE.slate,
+        reverseRepo: PALETTE.steel,
+        sovereign: PALETTE.red,
+        publicSector: PALETTE.mist,
+        other: PALETTE.sand,
     };
 
     const hqlaKeys = Object.keys(COLORS) as (keyof typeof COLORS)[];
 
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-bold text-brand-text-primary mb-4 text-center">HQLA Composition Evolution (m)</h3>
+            <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">HQLA Composition Evolution (m)</h3>
             <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis />
                     <Tooltip formatter={(value: number) => formatNumber(value)} />
@@ -1086,11 +1113,11 @@ export const CashflowEvolutionChart: FC<{ data: CalculatedKpis[]; flowType: 'inf
     }
 
     const COLORS = {
-        bankAndFi: '#59473C', // Brown
-        retail: '#8C4D4D', // Red
-        corporate: '#B8A898', // Tan
-        derivatives: '#617983', // Teal
-        other: '#7F7F7F', // Grey
+        bankAndFi: PALETTE.slate,
+        retail: PALETTE.red,
+        corporate: PALETTE.steel,
+        derivatives: PALETTE.mist,
+        other: PALETTE.sand,
     };
 
     const cashflowKeys = Object.keys(COLORS) as (keyof typeof COLORS)[];
@@ -1098,10 +1125,10 @@ export const CashflowEvolutionChart: FC<{ data: CalculatedKpis[]; flowType: 'inf
 
     return (
         <div className="mt-8 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-bold text-brand-text-primary mb-4 text-center">{title} Composition Evolution (30d, m)</h3>
+            <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title} Composition Evolution (30d, m)</h3>
             <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis />
                     <Tooltip formatter={(value: number) => formatNumber(value)} />

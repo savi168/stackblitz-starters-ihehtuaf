@@ -40,16 +40,35 @@ npm run preview  # preview the production build
 npm run lint     # type-check with tsc --noEmit
 ```
 
+## Documentation
+
+- [`docs/APPLICATION.md`](docs/APPLICATION.md) — application walkthrough: architecture, data flow, modules, design system.
+- [`docs/BACKEND.md`](docs/BACKEND.md) — step-by-step guide to connect a **.NET 8 + EF Core + SQL Server** backend.
+
+## Data source (local vs API)
+
+By default the app runs fully client-side (data in `localStorage`). It is
+**backend-ready**: set `VITE_API_BASE_URL` (see [`.env.example`](.env.example))
+to switch the whole app to a REST API — no component changes needed. The
+switch happens in `src/services/dataRepository.ts`.
+
+```bash
+cp .env.example .env.local   # then set VITE_API_BASE_URL=https://localhost:7042/api
+```
+
 ## Project structure
 
 ```
 src/
   App.tsx              # router + layout (routes are lazy-loaded)
   components.tsx       # shared UI + chart components
+  theme.ts             # central color palette (charts + Tailwind mirror)
   constants.ts         # seed/initial data
-  context/             # DataContext (state + localStorage persistence)
+  context/             # DataContext (global state + persistence)
+  services/
+    dataRepository.ts  # data access layer (localStorage OR REST API)
+    diagnosisService.ts# data consistency checks
   pages/               # one component per route
-  services/            # data diagnosis logic
   types.ts             # domain types
   utils.ts             # KPI calculations & formatting helpers
 ```

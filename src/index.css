@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  /* Airy, light-weight headings to echo the EFG presentation style. */
+  h1, h2, h3 {
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  /* Red square bullet list, as used in the EFG "Key highlights" panels. */
+  .efg-bullets > li {
+    position: relative;
+    padding-left: 1.1rem;
+    margin-bottom: 0.6rem;
+  }
+  .efg-bullets > li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.45em;
+    width: 0.4rem;
+    height: 0.4rem;
+    background-color: #8C3A38;
+  }
+}
+
 @layer utilities {
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
@@ -14,9 +42,9 @@
 }
 
 .risk-indicator-caret {
-  width: 0; 
-  height: 0; 
+  width: 0;
+  height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 8px solid #1e293b; /* slate-800 */
+  border-top: 8px solid #2B3338; /* charcoal */
 }
