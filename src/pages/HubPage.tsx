@@ -39,8 +39,10 @@ export const HubPage: React.FC = () => {
     }> = [
         { icon: '📅', title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'REGULATORY', link: '/deadlines' },
         { icon: '🔍', title: 'KPI Analysis', desc: 'Analysis, historical trends, and risk appetite in one place.', tag: 'ANALYSIS', link: '/details' },
+        { icon: '📈', title: 'Daily Reports', desc: 'View daily/weekly LCR and Large Exposure reports for key entities.', tag: 'MONITORING', link: '/daily-reports' },
         { icon: '🚀', title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'COLLABORATION', link: '/projects' },
         { icon: '👥', title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'PEOPLE', link: '/team' },
+        { icon: '🏆', title: 'Business Case', desc: 'Presentation of ROI, operational benefits, and justification for the tool.', tag: 'STRATEGY', link: '/business-case' },
         { icon: '⚙️', title: 'Data Management', desc: 'Add/modify deadlines, import/export CSV and JSON.', tag: 'ADMIN', link: '/datamanagement' },
     ];
 

@@ -1,10 +1,8 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { useData } from '../context/DataContext';
 import { CalculatedKpis } from '../types';
 import { formatDate, calculateRwaWaterfallData, calculateLcrWaterfallData, calculateCet1RatioEvolutionData, calculateKpis } from '../utils';
-import { Card, PageHeader, BackButton, InfoBox, Select, KpiDetailCard, HistoricalCompositionTable, TopCounterpartiesTable, WaterfallChart, CapitalEvolutionChart, MultiEntityKpiChart, HqlaEvolutionChart, CashflowEvolutionChart, TabButton } from '../components';
+import { Card, PageHeader, BackButton, Select, KpiDetailCard, HistoricalCompositionTable, TopCounterpartiesTable, WaterfallChart, CapitalEvolutionChart, MultiEntityKpiChart, HqlaEvolutionChart, CashflowEvolutionChart, TabButton } from '../components';
 
 export const KpiDetailsPage: React.FC = () => {
     const { allEntities, getKpisForDate, data } = useData();
@@ -81,6 +79,11 @@ export const KpiDetailsPage: React.FC = () => {
         }
         setIsExporting(true);
         try {
+            // Loaded on demand to keep these heavy libraries out of the initial bundle.
+            const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+                import('jspdf'),
+                import('html2canvas'),
+            ]);
             const canvas = await html2canvas(reportRef.current, {
                 scale: 2, // Use a higher scale for better resolution and clarity
                 useCORS: true,

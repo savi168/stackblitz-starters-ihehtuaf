@@ -34,9 +34,13 @@ const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
 
     const firstDayOfMonth = (new Date(year, month, 1).getDay() + 6) % 7; // 0 for Monday, 6 for Sunday
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    // Correctly get today's date based on local timezone, not UTC
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const calendarDays = Array.from({ length: firstDayOfMonth }, () => null).concat(
+
+    const calendarDays: (Date | null)[] = (Array.from({ length: firstDayOfMonth }, () => null) as (Date | null)[]).concat(
         Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1))
     );
     
@@ -54,9 +58,14 @@ const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
                 {calendarDays.map((day, index) => {
                     if (!day) return <div key={`empty-${index}`} className="border rounded-lg border-gray-100"></div>;
 
-                    const dateKey = day.toISOString().split('T')[0];
+                    const yearStr = day.getFullYear();
+                    const monthStr = String(day.getMonth() + 1).padStart(2, '0');
+                    const dayStr = String(day.getDate()).padStart(2, '0');
+                    const dateKey = `${yearStr}-${monthStr}-${dayStr}`;
+
                     const dayDeadlines = deadlinesByDate.get(dateKey) || [];
-                    const isToday = today.toISOString().split('T')[0] === dateKey;
+                    
+                    const isToday = today.getTime() === day.getTime();
 
                     return (
                         <div key={dateKey} className="border rounded-lg p-1 min-h-[120px] flex flex-col bg-white">
@@ -96,8 +105,12 @@ export const DeadlinesPage: React.FC = () => {
     });
     
     const deadlineEntities = useMemo(() => Array.from(new Set(data.deadlines.map(d => d.entity))).sort(), [data.deadlines]);
+    const ownerGroups = useMemo(() => Array.from(new Set(data.deadlines.map(d => d.ownerGroup).filter(Boolean))).sort(), [data.deadlines]);
+    const validators1 = useMemo(() => Array.from(new Set(data.deadlines.map(d => d.validator1).filter(Boolean))).sort(), [data.deadlines]);
+    const validators2 = useMemo(() => Array.from(new Set(data.deadlines.map(d => d.validator2).filter(Boolean))).sort(), [data.deadlines]);
+    const reportingDates = useMemo(() => Array.from(new Set(data.deadlines.map(d => d.endOfPeriod).filter(Boolean))).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()), [data.deadlines]);
 
-    const [filters, setFilters] = useState({ name: '', status: 'all', entity: 'all', type: 'all' });
+    const [filters, setFilters] = useState({ name: '', status: 'all', entity: 'all', type: 'all', ownerGroup: 'all', validator1: 'all', validator2: 'all', reportingDate: 'all' });
     const [sortConfig, setSortConfig] = useState<{ key: keyof Deadline; direction: 'ascending' | 'descending' } | null>({ key: 'dueDate', direction: 'ascending' });
 
     const handleFilterChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -284,14 +297,31 @@ export const DeadlinesPage: React.FC = () => {
         if (filters.type !== 'all') {
             filtered = filtered.filter(d => d.type === filters.type);
         }
-
+        if (filters.ownerGroup !== 'all') {
+            filtered = filtered.filter(d => d.ownerGroup === filters.ownerGroup);
+        }
+        if (filters.validator1 !== 'all') {
+            filtered = filtered.filter(d => d.validator1 === filters.validator1);
+        }
+        if (filters.validator2 !== 'all') {
+            filtered = filtered.filter(d => d.validator2 === filters.validator2);
+        }
+        if (filters.reportingDate !== 'all') {
+            filtered = filtered.filter(d => d.endOfPeriod === filters.reportingDate);
+        }
 
         if (sortConfig !== null) {
             filtered.sort((a, b) => {
-                if (a[sortConfig.key] < b[sortConfig.key]) {
+                const valA = a[sortConfig.key];
+                const valB = b[sortConfig.key];
+
+                if (valA === null || valA === undefined) return 1;
+                if (valB === null || valB === undefined) return -1;
+                
+                if (valA < valB) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
-                if (a[sortConfig.key] > b[sortConfig.key]) {
+                if (valA > valB) {
                     return sortConfig.direction === 'ascending' ? 1 : -1;
                 }
                 return 0;
@@ -333,6 +363,10 @@ export const DeadlinesPage: React.FC = () => {
                              <option value="all">All Entities</option>
                              {deadlineEntities.map(e => <option key={e} value={e}>{e}</option>)}
                         </Select>
+                        <Select label="Reporting Date" name="reportingDate" value={filters.reportingDate} onChange={handleFilterChange}>
+                            <option value="all">All Reporting Dates</option>
+                            {reportingDates.map(d => <option key={d} value={d}>{d}</option>)}
+                        </Select>
                         <Select label="Type" name="type" value={filters.type} onChange={handleFilterChange}>
                             <option value="all">All Types</option>
                             <option value="regulatory">Regulatory</option>
@@ -343,6 +377,18 @@ export const DeadlinesPage: React.FC = () => {
                             <option value="completed">Completed</option>
                             <option value="inprogress">In Progress</option>
                             <option value="upcoming">Upcoming</option>
+                        </Select>
+                        <Select label="Owner Group" name="ownerGroup" value={filters.ownerGroup} onChange={handleFilterChange}>
+                            <option value="all">All Owners</option>
+                            {ownerGroups.map(e => <option key={e} value={e}>{e}</option>)}
+                        </Select>
+                        <Select label="Validator 1" name="validator1" value={filters.validator1} onChange={handleFilterChange}>
+                            <option value="all">All Validator 1</option>
+                            {validators1.map(e => <option key={e} value={e}>{e}</option>)}
+                        </Select>
+                        <Select label="Validator 2" name="validator2" value={filters.validator2} onChange={handleFilterChange}>
+                            <option value="all">All Validator 2</option>
+                            {validators2.map(e => <option key={e} value={e}>{e}</option>)}
                         </Select>
                      </div>
                  )}
@@ -390,12 +436,14 @@ export const DeadlinesPage: React.FC = () => {
                             <thead className="text-xs text-brand-text-primary uppercase bg-gray-100">
                                 <tr>
                                     <SortableHeader label="Title" sortKey="name" sortConfig={sortConfig} onSort={handleSort} />
+                                    <th scope="col" className="px-6 py-3">SharePoint</th>
                                     <SortableHeader label="Reporting Date" sortKey="endOfPeriod" sortConfig={sortConfig} onSort={handleSort} />
                                     <SortableHeader label="Internal Deadline" sortKey="dueDate" sortConfig={sortConfig} onSort={handleSort} />
                                     <th scope="col" className="px-6 py-3">Regulatory Deadline</th>
                                     <SortableHeader label="Entity" sortKey="entity" sortConfig={sortConfig} onSort={handleSort} />
                                     <SortableHeader label="Owner Group" sortKey="ownerGroup" sortConfig={sortConfig} onSort={handleSort} />
                                     <SortableHeader label="Validator 1" sortKey="validator1" sortConfig={sortConfig} onSort={handleSort} />
+                                    <SortableHeader label="Validator 2" sortKey="validator2" sortConfig={sortConfig} onSort={handleSort} />
                                     <SortableHeader label="Type" sortKey="type" sortConfig={sortConfig} onSort={handleSort} />
                                     <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={handleSort} />
                                     <th scope="col" className="px-6 py-3">Actions</th>
@@ -405,12 +453,31 @@ export const DeadlinesPage: React.FC = () => {
                                 {filteredAndSortedDeadlines.map(d => (
                                     <tr key={d.id} className="bg-white border-b hover:bg-gray-50">
                                         <td className="px-6 py-4 font-medium text-brand-text-primary">{d.name}</td>
+                                        <td className="px-6 py-4">
+                                            {d.path && d.path.startsWith('shp/') ? (
+                                                <a 
+                                                    href={`https://inside.efgz.efg.corp/${d.path}/EditForm.aspx?ID=${d.id}`}
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="text-brand-primary hover:underline inline-flex items-center gap-1 text-sm"
+                                                    aria-label={`Open SharePoint link for ${d.name}`}
+                                                >
+                                                    <span>Open</span>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                    </svg>
+                                                </a>
+                                            ) : (
+                                                <span className="text-gray-400">N/A</span>
+                                            )}
+                                        </td>
                                         <td className="px-6 py-4">{d.endOfPeriod}</td>
                                         <td className="px-6 py-4">{d.dueDate}</td>
                                         <td className="px-6 py-4 font-semibold text-brand-text-primary">{calculateRegulatoryDeadline(d.dueDate)}</td>
                                         <td className="px-6 py-4">{d.entity}</td>
                                         <td className="px-6 py-4">{d.ownerGroup}</td>
                                         <td className="px-6 py-4">{d.validator1}</td>
+                                        <td className="px-6 py-4">{d.validator2}</td>
                                         <td className="px-6 py-4">
                                             <select
                                                 value={d.type}

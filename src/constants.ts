@@ -31,7 +31,7 @@ export const centralData: CentralData = {
             attachments: [],
             endOfPeriod: "2025-10-31",
             dueDate: "2025-11-04",
-            entity: "LIE",
+            entity: "Liechtenstein",
             controlNumber: "R.R.02",
             frequency: "Monthly",
             ownerGroup: "ICS_FIN_Owner_R.R_LI1",
@@ -148,7 +148,23 @@ export const centralData: CentralData = {
                 }
             }
         },
-        { entity: "Lean", date: "2025-09-30", cet1Capital: 850, creditRWA: 5500, marketRWA: 1200, opRWA: 800, otherRWA: 0, tier1: 900, exposure: 18000, liquidity: { "TOT": { hqla: 2000, netCashOutflows: 1400, asf: 8000, rsf: 6500 } } }
+        { entity: "Lean", date: "2025-09-30", cet1Capital: 850, creditRWA: 5500, marketRWA: 1200, opRWA: 800, otherRWA: 0, tier1: 900, exposure: 18000, liquidity: { "TOT": { hqla: 2000, netCashOutflows: 1400, asf: 8000, rsf: 6500 } } },
+        { 
+            entity: "Liechtenstein", date: "2025-09-30", cet1Capital: 600, creditRWA: 3000, marketRWA: 500, opRWA: 400, otherRWA: 100, tier1: 650, exposure: 12000,
+            liquidity: { "TOT": { hqla: 1500, netCashOutflows: 1100, asf: 7000, rsf: 6000 } }
+        },
+        { 
+            entity: "Liechtenstein", date: "2025-09-29", cet1Capital: 602, creditRWA: 3010, marketRWA: 500, opRWA: 400, otherRWA: 100, tier1: 652, exposure: 12050,
+            liquidity: { "TOT": { hqla: 1480, netCashOutflows: 1150, asf: 7000, rsf: 6000 } }
+        },
+        { 
+            entity: "Hong Kong", date: "2025-09-30", cet1Capital: 1200, creditRWA: 6000, marketRWA: 1000, opRWA: 800, otherRWA: 200, tier1: 1300, exposure: 24000,
+            liquidity: { "TOT": { hqla: 3000, netCashOutflows: 2200, asf: 14000, rsf: 12000 } }
+        },
+        { 
+            entity: "Hong Kong", date: "2025-09-29", cet1Capital: 1205, creditRWA: 6010, marketRWA: 1000, opRWA: 800, otherRWA: 200, tier1: 1305, exposure: 24050,
+            liquidity: { "TOT": { hqla: 2950, netCashOutflows: 2280, asf: 14000, rsf: 12000 } }
+        }
     ],
     bilan: { chf: 45000, eur: 28000, usd: 15000, gbp: 3500, other: 2500 },
     riskAppetite: {
@@ -190,5 +206,16 @@ export const centralData: CentralData = {
   
       // Older data for Group to test filtering
       ...Array.from({ length: 5 }, (_, i) => ({ entity: "Group", date: "2025-08-31", counterpartyName: `Global Bank ${i + 1}`, industry: "Bank" as const, rwa: 245 - i * 8 })),
+  ],
+  largeExposures: [
+    { entity: "Liechtenstein", date: "2025-09-30", counterparty: "Global Investment Bank A", exposureValue: 85, limit: 100 },
+    { entity: "Liechtenstein", date: "2025-09-30", counterparty: "Major Swiss Bank", exposureValue: 70, limit: 100 },
+    { entity: "Liechtenstein", date: "2025-09-30", counterparty: "EU Sovereign Fund", exposureValue: 120, limit: 150 },
+    { entity: "Hong Kong", date: "2025-09-30", counterparty: "APAC Wealth Management", exposureValue: 210, limit: 250 },
+    { entity: "Hong Kong", date: "2025-09-30", counterparty: "China Construction Bank", exposureValue: 180, limit: 250 },
+    { entity: "Hong Kong", date: "2025-09-30", counterparty: "Singapore Sovereign Fund", exposureValue: 150, limit: 200 },
+    { entity: "Liechtenstein", date: "2025-09-29", counterparty: "Global Investment Bank A", exposureValue: 82, limit: 100 },
+    { entity: "Liechtenstein", date: "2025-09-29", counterparty: "Major Swiss Bank", exposureValue: 71, limit: 100 },
+    { entity: "Hong Kong", date: "2025-09-29", counterparty: "APAC Wealth Management", exposureValue: 205, limit: 250 },
   ]
 };

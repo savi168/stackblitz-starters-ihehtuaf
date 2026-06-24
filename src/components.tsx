@@ -1,4 +1,4 @@
-import React, { FC, ReactNode, SelectHTMLAttributes, useMemo, useState, useEffect, Component, ErrorInfo, memo } from 'react';
+import { FC, ReactNode, useMemo, useState, useEffect, Component, ErrorInfo, memo, SelectHTMLAttributes } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Bar,
@@ -73,7 +73,7 @@ export const Card: FC<{ children: ReactNode; className?: string }> = memo(({
   children,
   className = '',
 }) => (
-  <div className={`bg-white p-6 rounded-2xl shadow-lg border border-slate-200 ${className}`}>
+  <div className={`bg-white p-6 rounded-2xl shadow-lg border border-gray-200 ${className}`}>
     {children}
   </div>
 ));
@@ -81,13 +81,13 @@ Card.displayName = 'Card';
 
 
 export const PageHeader: FC<{
-  icon: string;
+  icon: ReactNode;
   title: string;
   subtitle:string;
 }> = memo(({ icon, title, subtitle }) => (
   <div className="mb-8">
     <h1 className="text-4xl font-bold text-brand-text-primary flex items-center gap-3">
-      <span className="text-3xl">{icon}</span>
+      <span className="text-3xl flex items-center justify-center">{icon}</span>
       {title}
     </h1>
     <p className="text-lg text-brand-text-secondary mt-1">{subtitle}</p>
@@ -129,7 +129,7 @@ export const InfoBox: FC<{
   className?: string;
 }> = memo(({ children, title, className = '' }) => (
   <div
-    className={`bg-blue-50 border-l-4 border-brand-primary p-4 my-6 rounded-r-lg ${className}`}
+    className={`bg-stone-100 border-l-4 border-stone-400 p-4 my-6 rounded-r-lg ${className}`}
   >
     {title && (
       <h3 className="font-bold text-brand-text-primary mb-1">{title}</h3>
@@ -266,7 +266,7 @@ export const MultiEntityKpiChart: FC<{ historicalData: CalculatedKpis[], kpiKey:
         setOpacity(prev => ({ ...prev, [dataKey]: prev[dataKey] === 1 ? 0.2 : 1 }));
     };
 
-    const COLORS = ['#2563eb', '#475569', '#94a3b8', '#64748b'];
+    const COLORS = ['#c0504d', '#59473C', '#B8A898', '#7F7F7F']; // Red, Brown, Tan, Grey
 
     return (
         <div>
@@ -307,7 +307,7 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
     { name: 'Other RWA', value: data.otherRWA || 0 },
   ].filter((d) => d.value > 0);
 
-  const COLORS = ['#2563eb', '#64748b', '#475569', '#94a3b8'];
+  const COLORS = ['#8C4D4D', '#59473C', '#B8A898', '#7F7F7F']; // Red, Brown, Tan, Grey
 
   return (
     <ResponsiveContainer width="100%" height={300}>
@@ -322,7 +322,7 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
           paddingAngle={5}
           dataKey="value"
         >
-          {chartData.map((entry, index) => (
+          {chartData.map((_, index) => (
             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
@@ -468,13 +468,13 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
                         type="monotone"
                         dataKey="value"
                         name={kpiKey.toString().toUpperCase()}
-                        stroke="#2563eb"
+                        stroke="#c0504d"
                         strokeWidth={2}
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#2563eb' }}
-                        activeDot={{ r: 6, stroke: '#2563eb', fill: '#2563eb' }}
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff', stroke: '#c0504d' }}
+                        activeDot={{ r: 6, stroke: '#c0504d', fill: '#c0504d' }}
                         connectNulls
                     />
-                    <Brush dataKey="name" height={30} stroke="#2563eb" y={280} />
+                    <Brush dataKey="name" height={30} stroke="#c0504d" y={280} />
                 </LineChart>
             </ResponsiveContainer>
         </div>
@@ -638,7 +638,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
   };
     
     const CustomLabel = (props: any) => {
-        const { x, y, width, height, index, value } = props;
+        const { x, y, width, height, index } = props;
         const entry = processedData[index];
         const originalEntry = data.find(d => d.name === entry.name);
 
@@ -681,7 +681,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
              <LabelList dataKey="value" content={<CustomLabel />} />
             {processedData.map((entry, index) => {
               const color = entry.isTotal
-                ? '#475569'
+                ? '#59473C' // Brown for totals
                 : entry.isNegative
                 ? '#dc2626'
                 : '#16a34a';
@@ -815,7 +815,7 @@ export const KpiDetailCard: FC<KpiDetailCardProps> = memo(({ icon, title, kpiDat
                 <span className="text-2xl">{icon}</span> {title}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="md:col-span-1 p-4 rounded-lg bg-brand-primary text-white flex flex-col justify-center">
+                <div className="md:col-span-1 p-4 rounded-lg bg-brand-secondary text-white flex flex-col justify-center">
                      <p className="text-lg text-white/80">{title}</p>
                      <p className={`text-5xl font-bold`}>{value === 'N/A' ? 'N/A' : `${value}%`}</p>
                 </div>
@@ -828,6 +828,37 @@ export const KpiDetailCard: FC<KpiDetailCardProps> = memo(({ icon, title, kpiDat
             </div>
             
             <RiskAppetiteIndicator thresholds={riskAppetite} currentValue={parseFloat(value)} />
+
+            {kpiKey === 'cet1' && kpiData.cet1CapitalBreakdown && (
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 pt-6 border-t border-gray-200">
+                    <div>
+                        <h4 className="font-semibold text-brand-text-primary mb-2">CET1 Capital Calculation (mCHF)</h4>
+                        <CalculationStatement
+                            items={[
+                                { label: 'Stated Equity', value: kpiData.cet1CapitalBreakdown.equity },
+                                { label: 'P&L', value: kpiData.cet1CapitalBreakdown.pnl },
+                                { label: 'Share Buyback', value: -kpiData.cet1CapitalBreakdown.shareBuyback },
+                                { label: 'Goodwill & Intangibles', value: -kpiData.cet1CapitalBreakdown.goodwillIntangibles },
+                                { label: 'Other Deductions', value: -kpiData.cet1CapitalBreakdown.otherDeductions },
+                                { label: 'Dividend', value: -(kpiData.cet1CapitalBreakdown.dividend || 0) },
+                                { label: 'Total CET1 Capital', value: kpiData.cet1Capital, isTotal: true },
+                            ].filter(item => item.value !== 0 || item.label.includes('Total'))}
+                        />
+                    </div>
+                    <div>
+                        <h4 className="font-semibold text-brand-text-primary mb-2">Total RWA Calculation (mCHF)</h4>
+                        <CalculationStatement
+                            items={[
+                                { label: 'Credit RWA', value: kpiData.creditRWA },
+                                { label: 'Market RWA', value: kpiData.marketRWA },
+                                { label: 'Operational RWA', value: kpiData.opRWA },
+                                { label: 'Other RWA', value: kpiData.otherRWA || 0 },
+                                { label: 'Total RWA', value: kpiData.rwaTotal, isTotal: true },
+                            ].filter(item => item.value !== 0 || item.label.includes('Total'))}
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="mt-6">
                 {children}
@@ -966,7 +997,7 @@ export const TopCounterpartiesTable: FC<{ data: CounterpartyRwa[] }> = memo(({ d
                 </Select>
             </div>
             <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-brand-text-secondary">
+                <table>
                     <thead className="text-xs text-brand-text-primary uppercase bg-gray-100">
                         <tr>
                             <th className="px-6 py-3 w-16">Rank</th>
@@ -975,22 +1006,23 @@ export const TopCounterpartiesTable: FC<{ data: CounterpartyRwa[] }> = memo(({ d
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredData.map((d, index) => (
+                        {filteredData.length > 0 ? filteredData.map((d, index) => (
                             <tr key={`${d.counterpartyName}-${index}`} className="bg-white border-b hover:bg-gray-50">
                                 <td className="px-6 py-4 font-medium text-brand-text-primary text-center">{index + 1}</td>
                                 <td className="px-6 py-4 font-medium text-brand-text-primary">{d.counterpartyName}</td>
                                 <td className="px-6 py-4 text-right font-mono">{formatNumber(d.rwa)}</td>
                             </tr>
-                        ))}
+                        )) : (
+                            <tr>
+                                <td colSpan={3} className="text-center py-8 text-brand-text-secondary">
+                                    No counterparties found for the selected industry.
+                                </td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
-                 {filteredData.length === 0 && (
-                    <div className="text-center py-8 text-brand-text-secondary">
-                        No counterparties found for the selected industry.
-                    </div>
-                )}
-            </div>
-        </div>
+              </div>
+          </div>
     );
 });
 TopCounterpartiesTable.displayName = 'TopCounterpartiesTable';
@@ -1008,11 +1040,11 @@ export const HqlaEvolutionChart: FC<{ data: CalculatedKpis[] }> = memo(({ data }
     }
 
     const COLORS = {
-        centralBank: '#475569', // slate-600
-        reverseRepo: '#94a3b8', // slate-400
-        sovereign: '#2563eb', // blue-600
-        publicSector: '#60a5fa', // blue-400
-        other: '#64748b', // slate-500
+        centralBank: '#59473C', // Brown
+        reverseRepo: '#B8A898', // Tan
+        sovereign: '#8C4D4D', // Red
+        publicSector: '#617983', // Teal
+        other: '#7F7F7F', // Grey
     };
 
     const hqlaKeys = Object.keys(COLORS) as (keyof typeof COLORS)[];
@@ -1054,11 +1086,11 @@ export const CashflowEvolutionChart: FC<{ data: CalculatedKpis[]; flowType: 'inf
     }
 
     const COLORS = {
-        bankAndFi: '#475569', // slate-600
-        retail: '#2563eb', // blue-600
-        corporate: '#94a3b8', // slate-400
-        derivatives: '#60a5fa', // blue-400
-        other: '#64748b', // slate-500
+        bankAndFi: '#59473C', // Brown
+        retail: '#8C4D4D', // Red
+        corporate: '#B8A898', // Tan
+        derivatives: '#617983', // Teal
+        other: '#7F7F7F', // Grey
     };
 
     const cashflowKeys = Object.keys(COLORS) as (keyof typeof COLORS)[];
