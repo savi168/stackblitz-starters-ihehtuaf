@@ -1,4 +1,5 @@
 
+
 import { KpiHistoryEntry, CalculatedKpis, Deadline, KpiThresholds, LiquidityDataPoint } from './types';
 
 export const formatNumber = (num: number, digits: number = 0): string => {
@@ -64,14 +65,15 @@ export const calculateKpis = (kpi: KpiHistoryEntry, currency: string = 'TOT'): C
         } else if (currency === 'TOT') {
             // Aggregate all currencies if TOT is not pre-calculated
             liquidityData = Object.values(kpi.liquidity).reduce((acc, curr) => {
-                // Fix: Narrowed the key type to only include numeric properties of LiquidityDataPoint, resolving the type error with the `+=` operator.
-                (Object.keys(acc) as ('hqla' | 'netCashOutflows' | 'asf' | 'rsf')[]).forEach(key => {
-                     if (typeof curr[key] === 'number') {
-                        acc[key] += curr[key]!;
+                const numericKeys: (keyof LiquidityDataPoint)[] = ['hqla', 'netCashOutflows', 'asf', 'rsf'];
+                numericKeys.forEach(key => {
+                    const val = curr[key];
+                    if (typeof val === 'number') {
+                        (acc[key] as number) = (acc[key] as number || 0) + val;
                     }
                 });
                 return acc;
-            }, { hqla: 0, netCashOutflows: 0, asf: 0, rsf: 0 });
+            }, { hqla: 0, netCashOutflows: 0, asf: 0, rsf: 0 } as LiquidityDataPoint);
         } else {
             liquidityData = kpi.liquidity[currency] || {};
         }
@@ -132,7 +134,7 @@ export const calculateRegulatoryDeadline = (dueDateStr: string): string => {
 export const getStatusBadge = (status: Deadline['status']) => {
     switch (status) {
         case 'completed': return 'bg-green-100 text-green-800';
-        case 'inprogress': return 'bg-blue-100 text-blue-800';
+        case 'inprogress': return 'bg-orange-100 text-orange-800';
         case 'upcoming': return 'bg-yellow-100 text-yellow-800';
         default: return 'bg-gray-100 text-gray-800';
     }

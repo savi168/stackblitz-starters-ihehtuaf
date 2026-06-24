@@ -10,14 +10,14 @@ export default {
         sans: ['Inter', 'sans-serif'],
       },
       colors: {
-        'brand-primary': '#2563eb', // blue-600
-        'brand-primary-dark': '#1d4ed8', // blue-700
-        'brand-secondary': '#475569', // slate-600
-        'brand-secondary-dark': '#334155', // slate-700
-        'brand-accent': '#94a3b8', // slate-400
-        'brand-text-primary': '#1e293b', // slate-800
-        'brand-text-secondary': '#64748b', // slate-500
-        'brand-bg-body': '#e2e8f0', // slate-200
+        'brand-primary': '#c0504d', // A brighter, more distinct Red
+        'brand-primary-dark': '#8C4D4D', // The previous "Deep Red"
+        'brand-secondary': '#59473C', // Brown
+        'brand-secondary-dark': '#45372e', // Darker Brown
+        'brand-accent': '#B8A898', // Tan
+        'brand-text-primary': '#262626', // Charcoal
+        'brand-text-secondary': '#7F7F7F', // Medium Grey
+        'brand-bg-body': '#F5F2EF', // Off-white/Light Tan
       }
     }
   },

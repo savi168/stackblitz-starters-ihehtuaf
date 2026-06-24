@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData, LOCAL_STORAGE_KEY } from '../context/DataContext';
-import { Deadline, KpiHistoryEntry, CounterpartyRwa, RiskAppetite, LiquidityDataPoint, LiquidityByCurrency } from '../types';
+import { Deadline, KpiHistoryEntry, CounterpartyRwa, RiskAppetite, LiquidityDataPoint, LiquidityByCurrency, DiagnosisResult } from '../types';
 import { parseDateToYmd, formatDate } from '../utils';
 import { Card, PageHeader, BackButton, InfoBox, Select, Modal } from '../components';
+import { diagnoseKpiData } from '../services/diagnosisService';
 
 // --- DATA MANAGEMENT HELPERS ---
 
@@ -414,6 +415,14 @@ export const DataManagementPage: React.FC = () => {
     
         const finalKpi: KpiHistoryEntry = sanitizeKpiObject(editableKpi);
 
+        // Run diagnosis
+        const previousDate = data.kpisHistory
+            .filter(k => k.entity === finalKpi.entity && k.date < finalKpi.date)
+            .sort((a, b) => b.date.localeCompare(a.date))[0];
+        
+        const diagnosis = diagnoseKpiData(finalKpi, previousDate);
+        const diagKey = `${finalKpi.entity}|${finalKpi.date}`;
+
         if (isCreating) {
             const entity = finalKpi.entity;
             const date = newKpiDate;
@@ -423,7 +432,11 @@ export const DataManagementPage: React.FC = () => {
             if (exists) return alert(`❌ An entry for ${entity} on ${date} already exists. Please choose a different date or edit the existing entry.`);
 
             const newEntry: KpiHistoryEntry = { ...finalKpi, entity, date };
-            setData(prev => ({ ...prev, kpisHistory: [...prev.kpisHistory, newEntry] }));
+            setData(prev => ({ 
+                ...prev, 
+                kpisHistory: [...prev.kpisHistory, newEntry],
+                diagnosisResults: { ...prev.diagnosisResults, [diagKey]: diagnosis }
+            }));
             alert(`✅ New KPI entry for ${entity} on ${date} created.`);
             setIsCreating(false);
             setEditableKpi(null);
@@ -435,7 +448,11 @@ export const DataManagementPage: React.FC = () => {
                 const newHistory = prevData.kpisHistory.map(entry => 
                     (entry.entity === selectedEntity && entry.date === selectedDate) ? finalKpi : entry
                 );
-                return { ...prevData, kpisHistory: newHistory };
+                return { 
+                    ...prevData, 
+                    kpisHistory: newHistory,
+                    diagnosisResults: { ...prevData.diagnosisResults, [diagKey]: diagnosis }
+                };
             });
             alert(`✅ KPI data for ${selectedEntity} on ${formatDate(selectedDate)} has been updated.`);
         }
@@ -542,25 +559,39 @@ export const DataManagementPage: React.FC = () => {
                         const importAction = () => {
                             if (importMode === 'replace') {
                                 const fullEntries = parsedKpis.map(k => ({...createBlankKpiEntry(), ...k} as KpiHistoryEntry));
-                                setData(prev => ({ ...prev, kpisHistory: fullEntries }));
+                                // Re-diagnose all
+                                const newDiagnosis: Record<string, DiagnosisResult[]> = {};
+                                fullEntries.forEach((k) => {
+                                    const prev = fullEntries.filter(p => p.entity === k.entity && p.date < k.date).sort((a,b) => b.date.localeCompare(a.date))[0];
+                                    newDiagnosis[`${k.entity}|${k.date}`] = diagnoseKpiData(k, prev);
+                                });
+                                setData(prev => ({ ...prev, kpisHistory: fullEntries, diagnosisResults: { ...prev.diagnosisResults, ...newDiagnosis } }));
                                 setImportResult({ success: true, message: `✅ ${fullEntries.length} KPI entries imported. All previous data was replaced.` });
                             } else { // append/merge
                                 let updatedCount = 0;
                                 let addedCount = 0;
                                 const mergedKpis = [...data.kpisHistory];
+                                const newDiagnosis = { ...(data.diagnosisResults || {}) };
 
                                 parsedKpis.forEach(newKpi => {
                                     const existingIndex = mergedKpis.findIndex(k => k.entity === newKpi.entity && k.date === newKpi.date);
+                                    let entry: KpiHistoryEntry;
                                     if (existingIndex !== -1) {
                                         mergedKpis[existingIndex] = { ...mergedKpis[existingIndex], ...newKpi };
+                                        entry = mergedKpis[existingIndex];
                                         updatedCount++;
                                     } else {
-                                        mergedKpis.push({ ...createBlankKpiEntry(), ...newKpi } as KpiHistoryEntry);
+                                        entry = { ...createBlankKpiEntry(), ...newKpi } as KpiHistoryEntry;
+                                        mergedKpis.push(entry);
                                         addedCount++;
                                     }
+                                    
+                                    // Diagnose the affected entry
+                                    const prev = mergedKpis.filter(p => p.entity === entry.entity && p.date < entry.date).sort((a,b) => b.date.localeCompare(a.date))[0];
+                                    newDiagnosis[`${entry.entity}|${entry.date}`] = diagnoseKpiData(entry, prev);
                                 });
                                 
-                                setData(prev => ({ ...prev, kpisHistory: mergedKpis }));
+                                setData(prev => ({ ...prev, kpisHistory: mergedKpis, diagnosisResults: newDiagnosis }));
                                 setImportResult({ success: true, message: `✅ Import complete! ${addedCount} capital entries added, ${updatedCount} entries updated.`});
                             }
                         };
@@ -583,7 +614,6 @@ export const DataManagementPage: React.FC = () => {
                         
                         const importAction = () => {
                             if (importMode === 'replace') {
-                                const newHistory: KpiHistoryEntry[] = [];
                                 const groupedByEntityDate = new Map<string, KpiHistoryEntry>();
 
                                 parsedLiquidity.forEach(item => {
@@ -615,7 +645,7 @@ export const DataManagementPage: React.FC = () => {
                                     group.liquidity[item.currency] = item.data;
                                 });
 
-                                for (const [key, group] of groupedByEntityDate.entries()) {
+                                for (const group of groupedByEntityDate.values()) {
                                     const existingIndex = mergedKpis.findIndex(k => k.entity === group.entity && k.date === group.date);
                                     if (existingIndex !== -1) {
                                         mergedKpis[existingIndex].liquidity = { ...(mergedKpis[existingIndex].liquidity || {}), ...group.liquidity };
@@ -1091,6 +1121,43 @@ export const DataManagementPage: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+
+                        {editableKpi && (
+                            <div className="mt-8 mb-4 p-4 bg-brand-bg-body border border-brand-accent rounded-xl">
+                                <h3 className="text-md font-bold text-brand-text-primary mb-3 flex items-center gap-2">
+                                    🔍 Data Diagnosis (High Level Controls)
+                                </h3>
+                                {(!selectedEntity || !selectedDate) && isCreating === false ? (
+                                    <p className="text-sm text-brand-text-secondary italic">Select an entry to see diagnosis results.</p>
+                                ) : (
+                                    (() => {
+                                        const diagResults = data.diagnosisResults?.[`${editableKpi.entity}|${editableKpi.date}`] || [];
+                                        if (diagResults.length === 0) {
+                                            return <p className="text-sm text-green-600 font-medium">✅ All standard checks passed. No major anomalies detected.</p>;
+                                        }
+                                        return (
+                                            <div className="space-y-2">
+                                                {diagResults.map((r, idx) => (
+                                                    <div key={idx} className={`p-3 rounded-lg border-l-4 text-sm flex gap-3 items-start ${
+                                                        r.severity === 'error' ? 'bg-red-50 border-red-500 text-red-800' : 
+                                                        r.severity === 'warning' ? 'bg-amber-50 border-amber-500 text-amber-800' : 
+                                                        'bg-blue-50 border-blue-500 text-blue-800'
+                                                    }`}>
+                                                        <span className="text-lg">
+                                                            {r.severity === 'error' ? '❌' : r.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                                                        </span>
+                                                        <div>
+                                                            <div className="font-bold">{r.category}</div>
+                                                            <div>{r.message}</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()
+                                )}
+                            </div>
+                        )}
 
                         <div className="mt-8 flex justify-end gap-4">
                             {!isCreating && (

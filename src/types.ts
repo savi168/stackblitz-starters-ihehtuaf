@@ -129,6 +129,14 @@ export interface CounterpartyRwa {
   rwa: number; // in millions
 }
 
+export interface LargeExposure {
+  entity: string;
+  date: string;
+  counterparty: string;
+  exposureValue: number; // in millions
+  limit: number; // in millions
+}
+
 export interface TeamMember {
     id: number;
     name: string;
@@ -152,15 +160,24 @@ export interface ProjectTask {
     itTicket?: string;
 }
 
+export interface DiagnosisResult {
+  severity: 'info' | 'warning' | 'error';
+  category: string;
+  message: string;
+  field?: string;
+}
+
 export interface CentralData {
   deadlines: Deadline[];
   kpisHistory: KpiHistoryEntry[];
   bilan: Bilan;
   riskAppetite: RiskAppetite;
   counterpartyRwa: CounterpartyRwa[];
+  largeExposures: LargeExposure[];
   team: TeamMember[];
   projects: Project[];
   projectTasks: ProjectTask[];
+  diagnosisResults?: Record<string, DiagnosisResult[]>; // Key: entity|date
 }
 
 export interface CalculatedKpis extends Omit<KpiHistoryEntry, 'liquidity'>, Partial<LiquidityDataPoint> {
