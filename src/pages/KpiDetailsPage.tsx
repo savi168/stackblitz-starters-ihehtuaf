@@ -130,6 +130,36 @@ export const KpiDetailsPage: React.FC = () => {
             const pageContentHeight = pdfHeight - margin * 2;
             const gap = 14;
 
+            // --- Report header (vector text → always crisp, independent of the
+            // chart capture) identifying the report context. ---
+            const sectionLabel = activeTab === 'capital' ? 'Capital Adequacy'
+                : activeTab === 'liquidity' ? `Liquidity — ${activeCurrency}`
+                : 'Overview';
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            pdf.setTextColor(140, 58, 56);                 // brand red
+            pdf.text('REGULATORY REPORTING', margin, margin + 3);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(16);
+            pdf.setTextColor(43, 51, 56);                  // ink
+            pdf.text(`KPI Report — ${sectionLabel}`, margin, margin + 21);
+            pdf.setFontSize(8);
+            pdf.setTextColor(107, 119, 128);               // muted
+            pdf.text(`Generated ${new Date().toLocaleDateString()}`, margin, margin + 31);
+
+            const metaRight = pdfWidth - margin;
+            pdf.setFontSize(9);
+            pdf.setTextColor(43, 51, 56);
+            pdf.text(`Entity:  ${entity}`, metaRight, margin + 3, { align: 'right' });
+            pdf.text(`Reporting date:  ${formatDate(date)}`, metaRight, margin + 15, { align: 'right' });
+            if (compareKpiData) {
+                pdf.setTextColor(107, 119, 128);
+                pdf.text(`Compared to:  ${formatDate(compareKpiData.date)}`, metaRight, margin + 27, { align: 'right' });
+            }
+            pdf.setDrawColor(43, 51, 56);
+            pdf.setLineWidth(0.6);
+            pdf.line(margin, margin + 37, pdfWidth - margin, margin + 37);
+
             // Each section card is captured on its own so a card is never split
             // across a page boundary unless it is taller than a whole page.
             const inner = reportRef.current.querySelector('.animate-fade-in')?.firstElementChild;
@@ -137,8 +167,8 @@ export const KpiDetailsPage: React.FC = () => {
                 ? Array.from(inner.children) as HTMLElement[]
                 : [reportRef.current];
 
-            let cursorY = margin;
-            let pageIsEmpty = true;
+            let cursorY = margin + 48;
+            let pageIsEmpty = false;
 
             for (const block of blocks) {
                 const canvas = await renderBlock(block);
@@ -172,6 +202,17 @@ export const KpiDetailsPage: React.FC = () => {
                     cursorY = pdfHeight;
                     pageIsEmpty = false;
                 }
+            }
+
+            // --- Footer on every page: report identity + pagination ---
+            const totalPages = pdf.getNumberOfPages();
+            for (let p = 1; p <= totalPages; p++) {
+                pdf.setPage(p);
+                pdf.setFont('helvetica', 'normal');
+                pdf.setFontSize(8);
+                pdf.setTextColor(107, 119, 128);
+                pdf.text(`${entity}  ·  ${formatDate(date)}`, margin, pdfHeight - 10);
+                pdf.text(`Page ${p} / ${totalPages}`, pdfWidth - margin, pdfHeight - 10, { align: 'right' });
             }
 
             pdf.save(`KPI_Report_${entity}_${date}.pdf`);
