@@ -84,9 +84,9 @@ export const KpiDetailsPage: React.FC = () => {
                 import('jspdf'),
                 import('html2canvas'),
             ]);
-            // Render at a high pixel density so text and charts stay crisp.
-            // Cap at 3x so very long reports don't exhaust memory.
-            const scale = Math.min(3, Math.max(2, window.devicePixelRatio || 1) + 1);
+            // Render at ~350 DPI equivalent so text and charts stay crisp.
+            // Cap at 4x to keep memory in check on long reports.
+            const scale = Math.min(4, Math.max(3, window.devicePixelRatio || 1));
             const canvas = await html2canvas(reportRef.current, {
                 scale,
                 useCORS: true,
@@ -94,7 +94,9 @@ export const KpiDetailsPage: React.FC = () => {
                 windowWidth: reportRef.current.scrollWidth,
             });
 
-            const imgData = canvas.toDataURL('image/jpeg', 0.98);
+            // PNG is lossless — unlike JPEG it keeps text edges and thin chart
+            // lines razor-sharp (JPEG compression was the source of the blur).
+            const imgData = canvas.toDataURL('image/png');
             const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
 
             const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -110,14 +112,16 @@ export const KpiDetailsPage: React.FC = () => {
             let heightLeft = imgHeight;
             let position = margin;
 
-            pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+            // 'MEDIUM' is a lossless deflate level — it shrinks the PNG without
+            // touching image quality.
+            pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'MEDIUM');
             heightLeft -= pageContentHeight;
 
             // Add subsequent pages, shifting the same tall image upward each time.
             while (heightLeft > 0) {
                 pdf.addPage();
                 position -= pageContentHeight;
-                pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'MEDIUM');
                 heightLeft -= pageContentHeight;
             }
 
