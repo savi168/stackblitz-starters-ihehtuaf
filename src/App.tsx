@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
   { to: '/projects', label: 'Projects' },
+  { to: '/cockpit', label: 'Backend' },
   { to: '/datamanagement', label: 'Admin' },
 ];
 
@@ -23,6 +24,7 @@ const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m 
 const TeamPage = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })));
 const BusinessCasePage = lazy(() => import('./pages/BusinessCasePage').then(m => ({ default: m.BusinessCasePage })));
+const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
 
 const PageLoader: React.FC = () => (
   <div className="flex items-center justify-center py-24 text-brand-text-secondary">
@@ -79,6 +81,7 @@ const App: React.FC = () => {
                   <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
                   <Route path="/team" element={<TeamPage />} />
                   <Route path="/business-case" element={<BusinessCasePage />} />
+                  <Route path="/cockpit" element={<BackendCockpitPage />} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

@@ -41,6 +41,7 @@ export const HubPage: React.FC = () => {
         { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects' },
         { title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'People', link: '/team' },
         { title: 'Business Case', desc: 'ROI, operational benefits and justification for the tool.', tag: 'Strategy', link: '/business-case' },
+        { title: 'Backend Cockpit', desc: 'Connection status, live tables, schema and API map; reboot and insert data.', tag: 'Backend', link: '/cockpit' },
         { title: 'Data Management', desc: 'Add / modify deadlines, import / export CSV and JSON.', tag: 'Admin', link: '/datamanagement' },
     ];
 

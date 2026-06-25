@@ -18,6 +18,12 @@ export const DataContext = React.createContext<{
     loadError: string | null;
     /** 'local' (browser storage) or 'api' (REST backend). */
     mode: 'local' | 'api';
+    /** Base URL of the REST API when in 'api' mode. */
+    apiBaseUrl?: string;
+    /** Re-fetch the central data from the configured source (reboot/reconnect). */
+    reload: () => Promise<void>;
+    /** Timestamp (ms) of the last successful load from the source. */
+    lastSyncedAt: number | null;
 }>({
     data: initialData,
     setData: () => {},
@@ -27,12 +33,16 @@ export const DataContext = React.createContext<{
     isLoading: true,
     loadError: null,
     mode: dataRepository.mode,
+    apiBaseUrl: dataRepository.baseUrl,
+    reload: async () => {},
+    lastSyncedAt: null,
 });
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [data, setData] = useState<CentralData>(initialData);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
     // Skip persisting the data that was just loaded (only persist real edits).
     const skipNextSave = useRef(true);
 
@@ -40,7 +50,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => {
         let cancelled = false;
         dataRepository.load()
-            .then(loaded => { if (!cancelled) setData(loaded); })
+            .then(loaded => { if (!cancelled) { setData(loaded); setLastSyncedAt(Date.now()); } })
             .catch(err => {
                 if (!cancelled) {
                     console.error('Failed to load data', err);
@@ -49,6 +59,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             })
             .finally(() => { if (!cancelled) setIsLoading(false); });
         return () => { cancelled = true; };
+    }, []);
+
+    // Re-fetch from the source on demand (cockpit "reboot"/reconnect). Does not
+    // persist — the next render's save is suppressed so a reload can't echo back.
+    const reload = useCallback(async () => {
+        setLoadError(null);
+        try {
+            const loaded = await dataRepository.load();
+            skipNextSave.current = true;
+            setData(loaded);
+            setLastSyncedAt(Date.now());
+        } catch (err) {
+            console.error('Failed to reload data', err);
+            setLoadError(err instanceof Error ? err.message : String(err));
+            throw err;
+        }
     }, []);
 
     // Debounced persistence of user edits.
@@ -78,7 +104,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         loadError,
         mode: dataRepository.mode,
-    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError]);
+        apiBaseUrl: dataRepository.baseUrl,
+        reload,
+        lastSyncedAt,
+    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError, reload, lastSyncedAt]);
 
     if (isLoading) {
         return (

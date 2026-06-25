@@ -14,6 +14,8 @@ import { centralData as seedData } from '../constants';
  */
 export interface DataRepository {
   readonly mode: 'local' | 'api';
+  /** Base URL of the REST API when in 'api' mode (undefined in 'local' mode). */
+  readonly baseUrl?: string;
   /** Load the full central data document. */
   load(): Promise<CentralData>;
   /** Persist the full central data document. */
@@ -46,8 +48,11 @@ class LocalStorageRepository implements DataRepository {
 
 class ApiRepository implements DataRepository {
   readonly mode = 'api' as const;
+  readonly baseUrl: string;
 
-  constructor(private readonly baseUrl: string) {}
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
 
   private headers(): HeadersInit {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
