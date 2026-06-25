@@ -1,15 +1,6 @@
 import React from 'react';
 import { Card, PageHeader, BackButton, SectionHeader, BulletList } from '../components';
-import {
-    Trophy,
-    Clock,
-    ShieldCheck,
-    Database,
-    Workflow,
-    ArrowRight,
-    FileCheck,
-    Zap,
-} from 'lucide-react';
+import { Trophy, ArrowRight } from 'lucide-react';
 
 export const BusinessCasePage: React.FC = () => {
     return (

@@ -87,74 +87,91 @@ export const KpiDetailsPage: React.FC = () => {
             // Render at ~350 DPI equivalent so text and charts stay crisp.
             // Cap at 4x to keep memory in check on long reports.
             const scale = Math.min(4, Math.max(3, window.devicePixelRatio || 1));
-            const canvas = await html2canvas(reportRef.current, {
-                scale,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                windowWidth: reportRef.current.scrollWidth,
-                onclone: (clonedDoc) => {
-                    // 1) The report is wrapped in `.animate-fade-in` (opacity 0→1).
-                    // Cloning the DOM restarts that animation, so html2canvas was
-                    // snapshotting the content mid-fade — translucent and washed
-                    // out. Kill all animations/transitions in the clone so the
-                    // capture is taken at full opacity. THIS is the real fix for
-                    // the "blurry"/faded look.
-                    const reset = clonedDoc.createElement('style');
-                    reset.textContent =
-                        '*,*::before,*::after{animation:none!important;' +
-                        'transition:none!important;opacity:1!important;}';
-                    clonedDoc.head.appendChild(reset);
 
-                    // 2) html2canvas 1.4.1 mis-parses Tailwind's modern
-                    // `rgb(r g b / <alpha>)` colour syntax, so re-apply solid
-                    // brand colours on the cloned DOM only. The on-screen render
-                    // is untouched.
-                    const paint = (selector: string, styles: Partial<CSSStyleDeclaration>) => {
-                        clonedDoc.querySelectorAll<HTMLElement>(selector).forEach((el) => {
-                            Object.assign(el.style, styles);
-                        });
-                    };
-                    paint('.text-brand-text-primary', { color: '#2B3338' });
-                    paint('.text-brand-text-secondary', { color: '#6B7780' });
-                    paint('.text-brand-primary', { color: '#8C3A38' });
-                    paint('.bg-brand-secondary', { backgroundColor: '#52616A', color: '#FFFFFF' });
-                    paint('.bg-brand-primary', { backgroundColor: '#8C3A38', color: '#FFFFFF' });
-                    paint('.bg-brand-bg-body', { backgroundColor: '#F4F5F4' });
-                    paint('.bg-gray-50', { backgroundColor: '#F9FAFB' });
-                    paint('.text-white', { color: '#FFFFFF' });
-                    paint('.text-white\\/80', { color: '#E6E9EA' });
-                },
-            });
+            // Fixes applied to the *cloned* DOM only (the on-screen render is
+            // untouched), reused for every section capture:
+            //  1) Kill the `.animate-fade-in` animation — cloning restarts it and
+            //     html2canvas would otherwise snapshot the content mid-fade
+            //     (translucent / washed out).
+            //  2) Re-apply solid brand colours: html2canvas 1.4.1 mis-parses
+            //     Tailwind's `rgb(r g b / <alpha>)` syntax.
+            const onclone = (clonedDoc: Document) => {
+                const reset = clonedDoc.createElement('style');
+                reset.textContent =
+                    '*,*::before,*::after{animation:none!important;' +
+                    'transition:none!important;opacity:1!important;}';
+                clonedDoc.head.appendChild(reset);
 
-            // PNG is lossless — unlike JPEG it keeps text edges and thin chart
-            // lines razor-sharp (JPEG compression was the source of the blur).
-            const imgData = canvas.toDataURL('image/png');
+                const paint = (selector: string, styles: Partial<CSSStyleDeclaration>) => {
+                    clonedDoc.querySelectorAll<HTMLElement>(selector).forEach((el) => {
+                        Object.assign(el.style, styles);
+                    });
+                };
+                paint('.text-brand-text-primary', { color: '#2B3338' });
+                paint('.text-brand-text-secondary', { color: '#6B7780' });
+                paint('.text-brand-primary', { color: '#8C3A38' });
+                paint('.bg-brand-secondary', { backgroundColor: '#52616A', color: '#FFFFFF' });
+                paint('.bg-brand-primary', { backgroundColor: '#8C3A38', color: '#FFFFFF' });
+                paint('.bg-brand-bg-body', { backgroundColor: '#F4F5F4' });
+                paint('.bg-gray-50', { backgroundColor: '#F9FAFB' });
+                paint('.text-white', { color: '#FFFFFF' });
+                paint('.text-white\\/80', { color: '#E6E9EA' });
+            };
+
+            const captureWidth = reportRef.current.scrollWidth;
+            const renderBlock = (el: HTMLElement) =>
+                html2canvas(el, { scale, useCORS: true, backgroundColor: '#ffffff', windowWidth: captureWidth, onclone });
+
             const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pdfHeight = pdf.internal.pageSize.getHeight();
             const margin = 20;
-
-            // Keep the capture at full page width (no squeezing) and let it flow
-            // across as many A4 pages as needed — this is what keeps it sharp.
-            const imgWidth = pdfWidth - margin * 2;
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            const contentWidth = pdfWidth - margin * 2;
             const pageContentHeight = pdfHeight - margin * 2;
+            const gap = 14;
 
-            let heightLeft = imgHeight;
-            let position = margin;
+            // Each section card is captured on its own so a card is never split
+            // across a page boundary unless it is taller than a whole page.
+            const inner = reportRef.current.querySelector('.animate-fade-in')?.firstElementChild;
+            const blocks = (inner && inner.children.length > 0)
+                ? Array.from(inner.children) as HTMLElement[]
+                : [reportRef.current];
 
-            // 'MEDIUM' is a lossless deflate level — it shrinks the PNG without
-            // touching image quality.
-            pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'MEDIUM');
-            heightLeft -= pageContentHeight;
+            let cursorY = margin;
+            let pageIsEmpty = true;
 
-            // Add subsequent pages, shifting the same tall image upward each time.
-            while (heightLeft > 0) {
-                pdf.addPage();
-                position -= pageContentHeight;
-                pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'MEDIUM');
-                heightLeft -= pageContentHeight;
+            for (const block of blocks) {
+                const canvas = await renderBlock(block);
+                const imgData = canvas.toDataURL('image/png');
+                const imgHeight = (canvas.height * contentWidth) / canvas.width;
+
+                if (imgHeight <= pageContentHeight) {
+                    // Whole block fits on a page — start a new one if it won't
+                    // fit in the remaining space.
+                    if (!pageIsEmpty && cursorY + imgHeight > pdfHeight - margin) {
+                        pdf.addPage();
+                        cursorY = margin;
+                        pageIsEmpty = true;
+                    }
+                    pdf.addImage(imgData, 'PNG', margin, cursorY, contentWidth, imgHeight, undefined, 'MEDIUM');
+                    cursorY += imgHeight + gap;
+                    pageIsEmpty = false;
+                } else {
+                    // Block taller than a page — give it its own page(s) and slice.
+                    if (!pageIsEmpty) { pdf.addPage(); cursorY = margin; }
+                    let pos = margin;
+                    let drawn = pageContentHeight;
+                    pdf.addImage(imgData, 'PNG', margin, pos, contentWidth, imgHeight, undefined, 'MEDIUM');
+                    while (drawn < imgHeight) {
+                        pdf.addPage();
+                        pos -= pageContentHeight;
+                        pdf.addImage(imgData, 'PNG', margin, pos, contentWidth, imgHeight, undefined, 'MEDIUM');
+                        drawn += pageContentHeight;
+                    }
+                    // Mark page full so the next block starts fresh (no blank page).
+                    cursorY = pdfHeight;
+                    pageIsEmpty = false;
+                }
             }
 
             pdf.save(`KPI_Report_${entity}_${date}.pdf`);
@@ -254,7 +271,6 @@ export const KpiDetailsPage: React.FC = () => {
                                     </Card>
                                 )}
                                 <KpiDetailCard
-                                    icon="🏦"
                                     title="CET1 Ratio - Common Equity Tier 1"
                                     kpiData={kpiData}
                                     kpiKey="cet1"
@@ -262,7 +278,6 @@ export const KpiDetailsPage: React.FC = () => {
                                     historicalData={kpiHistory}
                                 />
                                 <KpiDetailCard
-                                    icon="📊"
                                     title="Leverage Ratio"
                                     kpiData={kpiData}
                                     kpiKey="leverage"
@@ -300,7 +315,6 @@ export const KpiDetailsPage: React.FC = () => {
                                     </Card>
                                 )}
                                 <KpiDetailCard
-                                    icon="💧"
                                     title={`LCR - Liquidity Coverage Ratio (${activeCurrency})`}
                                     kpiData={kpiData}
                                     kpiKey="lcr"
@@ -312,7 +326,6 @@ export const KpiDetailsPage: React.FC = () => {
                                     <CashflowEvolutionChart data={kpiHistory} flowType="outflows" />
                                 </KpiDetailCard>
                                 <KpiDetailCard
-                                    icon="⏱️"
                                     title={`NSFR - Net Stable Funding Ratio (${activeCurrency})`}
                                     kpiData={kpiData}
                                     kpiKey="nsfr"

@@ -795,7 +795,7 @@ RiskAppetiteIndicator.displayName = 'RiskAppetiteIndicator';
 
 
 interface KpiDetailCardProps {
-    icon: string;
+    icon?: string;
     title: string;
     kpiData: CalculatedKpis;
     kpiKey: keyof CalculatedKpis;
@@ -804,8 +804,13 @@ interface KpiDetailCardProps {
     children?: ReactNode;
 }
 
-export const KpiDetailCard: FC<KpiDetailCardProps> = memo(({ icon, title, kpiData, kpiKey, riskAppetite, historicalData, children }) => {
+export const KpiDetailCard: FC<KpiDetailCardProps> = memo(({ title, kpiData, kpiKey, riskAppetite, historicalData, children }) => {
     const value = kpiData[kpiKey] as string;
+
+    const ratioLabel = useMemo(() => {
+        const map: Record<string, string> = { cet1: 'CET1 Ratio', leverage: 'Leverage Ratio', lcr: 'LCR', nsfr: 'NSFR' };
+        return map[kpiKey as string] ?? (kpiKey as string).toUpperCase();
+    }, [kpiKey]);
 
     const detailItems = useMemo(() => {
         switch (kpiKey) {
@@ -836,22 +841,22 @@ export const KpiDetailCard: FC<KpiDetailCardProps> = memo(({ icon, title, kpiDat
 
     return (
         <Card>
-            <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent flex items-center gap-3">
-                <span className="text-2xl">{icon}</span> {title}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="md:col-span-1 p-4 rounded-lg bg-brand-secondary text-white flex flex-col justify-center">
-                     <p className="text-lg text-white/80">{title}</p>
-                     <p className={`text-5xl font-bold`}>{value === 'N/A' ? 'N/A' : `${value}%`}</p>
+            <SectionHeader title={title} />
+            <div className="grid grid-cols-1 md:grid-cols-3 border border-efg-line rounded-lg overflow-hidden mb-6 divide-y md:divide-y-0 md:divide-x divide-efg-line">
+                <div className="bg-brand-secondary text-white px-5 py-7 text-center flex flex-col justify-center">
+                    <p className="text-[11px] uppercase tracking-[0.15em] text-white/70 mb-2">{ratioLabel}</p>
+                    <p className="text-4xl font-light leading-none">
+                        {value === 'N/A' ? 'N/A' : <>{value}<span className="text-2xl align-top ml-0.5">%</span></>}
+                    </p>
                 </div>
                 {detailItems.map(item => (
-                     <div key={item.label} className="p-4 rounded-lg bg-gray-50 border">
-                        <p className="text-sm text-brand-text-secondary">{item.label}</p>
-                        <p className="text-2xl font-bold text-brand-text-primary">{item.value}</p>
+                    <div key={item.label} className="bg-white px-5 py-7 text-center flex flex-col justify-center">
+                        <p className="text-[11px] uppercase tracking-[0.15em] text-brand-text-secondary mb-2">{item.label}</p>
+                        <p className="text-2xl font-light text-brand-text-primary leading-none">{item.value}</p>
                     </div>
                 ))}
             </div>
-            
+
             <RiskAppetiteIndicator thresholds={riskAppetite} currentValue={parseFloat(value)} />
 
             {kpiKey === 'cet1' && kpiData.cet1CapitalBreakdown && (
