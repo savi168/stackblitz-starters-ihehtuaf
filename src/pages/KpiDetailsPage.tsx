@@ -92,6 +92,24 @@ export const KpiDetailsPage: React.FC = () => {
                 useCORS: true,
                 backgroundColor: '#ffffff',
                 windowWidth: reportRef.current.scrollWidth,
+                // html2canvas 1.4.1 mis-parses Tailwind's modern
+                // `rgb(r g b / <alpha>)` colour syntax, which makes brand-tinted
+                // backgrounds (e.g. the KPI value box) render as transparent.
+                // Re-apply solid colours on the *cloned* DOM only — the on-screen
+                // render is untouched.
+                onclone: (clonedDoc) => {
+                    const paint = (selector: string, styles: Partial<CSSStyleDeclaration>) => {
+                        clonedDoc.querySelectorAll<HTMLElement>(selector).forEach((el) => {
+                            Object.assign(el.style, styles);
+                        });
+                    };
+                    paint('.bg-brand-secondary', { backgroundColor: '#52616A', color: '#FFFFFF' });
+                    paint('.bg-brand-primary', { backgroundColor: '#8C3A38', color: '#FFFFFF' });
+                    paint('.bg-brand-bg-body', { backgroundColor: '#F4F5F4' });
+                    paint('.bg-gray-50', { backgroundColor: '#F9FAFB' });
+                    paint('.text-white', { color: '#FFFFFF' });
+                    paint('.text-white\\/80', { color: 'rgba(255,255,255,0.85)' });
+                },
             });
 
             // PNG is lossless — unlike JPEG it keeps text edges and thin chart
