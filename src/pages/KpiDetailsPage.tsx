@@ -92,23 +92,37 @@ export const KpiDetailsPage: React.FC = () => {
                 useCORS: true,
                 backgroundColor: '#ffffff',
                 windowWidth: reportRef.current.scrollWidth,
-                // html2canvas 1.4.1 mis-parses Tailwind's modern
-                // `rgb(r g b / <alpha>)` colour syntax, which makes brand-tinted
-                // backgrounds (e.g. the KPI value box) render as transparent.
-                // Re-apply solid colours on the *cloned* DOM only — the on-screen
-                // render is untouched.
                 onclone: (clonedDoc) => {
+                    // 1) The report is wrapped in `.animate-fade-in` (opacity 0→1).
+                    // Cloning the DOM restarts that animation, so html2canvas was
+                    // snapshotting the content mid-fade — translucent and washed
+                    // out. Kill all animations/transitions in the clone so the
+                    // capture is taken at full opacity. THIS is the real fix for
+                    // the "blurry"/faded look.
+                    const reset = clonedDoc.createElement('style');
+                    reset.textContent =
+                        '*,*::before,*::after{animation:none!important;' +
+                        'transition:none!important;opacity:1!important;}';
+                    clonedDoc.head.appendChild(reset);
+
+                    // 2) html2canvas 1.4.1 mis-parses Tailwind's modern
+                    // `rgb(r g b / <alpha>)` colour syntax, so re-apply solid
+                    // brand colours on the cloned DOM only. The on-screen render
+                    // is untouched.
                     const paint = (selector: string, styles: Partial<CSSStyleDeclaration>) => {
                         clonedDoc.querySelectorAll<HTMLElement>(selector).forEach((el) => {
                             Object.assign(el.style, styles);
                         });
                     };
+                    paint('.text-brand-text-primary', { color: '#2B3338' });
+                    paint('.text-brand-text-secondary', { color: '#6B7780' });
+                    paint('.text-brand-primary', { color: '#8C3A38' });
                     paint('.bg-brand-secondary', { backgroundColor: '#52616A', color: '#FFFFFF' });
                     paint('.bg-brand-primary', { backgroundColor: '#8C3A38', color: '#FFFFFF' });
                     paint('.bg-brand-bg-body', { backgroundColor: '#F4F5F4' });
                     paint('.bg-gray-50', { backgroundColor: '#F9FAFB' });
                     paint('.text-white', { color: '#FFFFFF' });
-                    paint('.text-white\\/80', { color: 'rgba(255,255,255,0.85)' });
+                    paint('.text-white\\/80', { color: '#E6E9EA' });
                 },
             });
 
