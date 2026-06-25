@@ -1,7 +1,15 @@
 import React, { lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Link } from 'react-router-dom';
+import { HashRouter, Routes, Route, Link, NavLink } from 'react-router-dom';
 import { DataProvider } from './context/DataContext';
 import { ErrorBoundary } from './components';
+
+const NAV_ITEMS = [
+  { to: '/details', label: 'KPI Analysis' },
+  { to: '/daily-reports', label: 'Daily Reports' },
+  { to: '/deadlines', label: 'Deadlines' },
+  { to: '/projects', label: 'Projects' },
+  { to: '/datamanagement', label: 'Admin' },
+];
 
 // --- LAZY-LOADED PAGES ---
 // Each page (and its heavy chart/PDF dependencies) is split into its own chunk
@@ -28,22 +36,37 @@ const App: React.FC = () => {
   return (
     <DataProvider>
       <HashRouter>
-        <div className="min-h-screen bg-brand-bg-body text-brand-text-primary">
-          <header className="bg-white shadow-md sticky top-0 z-40">
-            <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
-              <Link to="/" className="text-2xl font-bold text-brand-primary hover:text-brand-primary-dark">
-                📊 RegReport
+        <div className="min-h-screen flex flex-col bg-brand-bg-body text-brand-text-primary">
+          <header className="bg-white border-b border-efg-line sticky top-0 z-40">
+            <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
+              <Link to="/" className="flex items-center gap-2 group">
+                <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
+                  Reg<span className="text-brand-primary">Report</span>
+                </span>
+                <span className="hidden sm:inline text-xs uppercase tracking-widest text-brand-text-secondary border-l border-efg-line pl-2">
+                  Regulatory Reporting
+                </span>
               </Link>
-              <div className="space-x-4">
-                 <Link to="/details" className="text-brand-text-secondary hover:text-brand-primary font-semibold">KPI Analysis</Link>
-                 <Link to="/daily-reports" className="text-brand-text-secondary hover:text-brand-primary font-semibold">Daily Reports</Link>
-                 <Link to="/deadlines" className="text-brand-text-secondary hover:text-brand-primary font-semibold">Deadlines</Link>
-                 <Link to="/projects" className="text-brand-text-secondary hover:text-brand-primary font-semibold">Projects</Link>
-                 <Link to="/datamanagement" className="text-brand-text-secondary hover:text-brand-primary font-semibold">Admin</Link>
+              <div className="flex items-center gap-1 sm:gap-2">
+                {NAV_ITEMS.map(item => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={({ isActive }) =>
+                      `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
+                        isActive
+                          ? 'border-brand-primary text-brand-primary'
+                          : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
+                      }`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
               </div>
             </nav>
           </header>
-          <main>
+          <main className="flex-1">
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
@@ -60,6 +83,12 @@ const App: React.FC = () => {
               </Suspense>
             </ErrorBoundary>
           </main>
+          <footer className="border-t border-efg-line bg-white">
+            <div className="container mx-auto px-6 py-3 flex flex-col sm:flex-row justify-between items-center gap-1 text-xs text-brand-text-secondary">
+              <span>RegReport · Regulatory Reporting Dashboard</span>
+              <span>Multi-entity regulatory KPI control center</span>
+            </div>
+          </footer>
         </div>
       </HashRouter>
     </DataProvider>

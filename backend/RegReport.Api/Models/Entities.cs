@@ -1,0 +1,219 @@
+using System.Text.Json.Serialization;
+
+namespace RegReport.Api.Models;
+
+// These types mirror the TypeScript domain model in the frontend (src/types.ts).
+// Property names serialize to camelCase (ASP.NET Core default), matching the
+// JSON the frontend sends and expects.
+
+// ---- Nested value objects (stored as JSON columns) ----
+
+public class Cet1CapitalBreakdown
+{
+    public double Equity { get; set; }
+    public double Pnl { get; set; }
+    public double ShareBuyback { get; set; }
+    public double GoodwillIntangibles { get; set; }
+    public double OtherDeductions { get; set; }
+    public double ToBeDefined { get; set; }
+    public double? Dividend { get; set; }
+}
+
+public class CashflowBreakdown
+{
+    public double BankAndFi { get; set; }
+    public double Retail { get; set; }
+    public double Corporate { get; set; }
+    public double Derivatives { get; set; }
+    public double Other { get; set; }
+}
+
+public class NetCashOutflowsBreakdown
+{
+    public CashflowBreakdown? Inflows { get; set; }
+    public CashflowBreakdown? Outflows { get; set; }
+}
+
+public class HqlaBreakdown
+{
+    public double CentralBank { get; set; }
+    public double ReverseRepo { get; set; }
+    public double Sovereign { get; set; }
+    public double PublicSector { get; set; }
+    public double Other { get; set; }
+}
+
+public class LiquidityDataPoint
+{
+    public double? Hqla { get; set; }
+    public double? NetCashOutflows { get; set; }
+    public double? Asf { get; set; }
+    public double? Rsf { get; set; }
+    public NetCashOutflowsBreakdown? NetCashOutflowsBreakdown { get; set; }
+    public HqlaBreakdown? HqlaBreakdown { get; set; }
+}
+
+public class StatusLog
+{
+    public string Timestamp { get; set; } = "";
+    public string OldStatus { get; set; } = "";
+    public string NewStatus { get; set; } = "";
+}
+
+public class Attachment
+{
+    public string Name { get; set; } = "";
+    public string DataUrl { get; set; } = "";
+    public string Type { get; set; } = "";
+}
+
+public class KpiThresholds
+{
+    public double Red { get; set; }
+    public double Amber { get; set; }
+}
+
+public class EntityThresholds
+{
+    public KpiThresholds? Cet1 { get; set; }
+    public KpiThresholds? Lcr { get; set; }
+    public KpiThresholds? Nsfr { get; set; }
+    public KpiThresholds? Leverage { get; set; }
+}
+
+public class Bilan
+{
+    public double Chf { get; set; }
+    public double Eur { get; set; }
+    public double Usd { get; set; }
+    public double Gbp { get; set; }
+    public double Other { get; set; }
+}
+
+public class DiagnosisResult
+{
+    public string Severity { get; set; } = "info";
+    public string Category { get; set; } = "";
+    public string Message { get; set; } = "";
+    public string? Field { get; set; }
+}
+
+// ---- Persisted entities ----
+
+public class KpiHistoryEntry
+{
+    // Surrogate key for the DB only; not part of the API shape.
+    [JsonIgnore] public int Id { get; set; }
+
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+
+    public double Cet1Capital { get; set; }
+    public double CreditRWA { get; set; }
+    public double MarketRWA { get; set; }
+    public double OpRWA { get; set; }
+    public double OtherRWA { get; set; }
+    public double Tier1 { get; set; }
+    public double Exposure { get; set; }
+
+    public Cet1CapitalBreakdown? Cet1CapitalBreakdown { get; set; }
+    // Liquidity keyed by currency (e.g. "TOT", "CHF", "EUR").
+    public Dictionary<string, LiquidityDataPoint>? Liquidity { get; set; }
+}
+
+public class Deadline
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Status { get; set; } = "upcoming";   // completed | inprogress | upcoming
+    public string Type { get; set; } = "regulatory";    // regulatory | internal
+    public string Comments { get; set; } = "";
+    public List<StatusLog> History { get; set; } = new();
+    public List<Attachment> Attachments { get; set; } = new();
+
+    public string EndOfPeriod { get; set; } = "";
+    public string DueDate { get; set; } = "";
+    public string Entity { get; set; } = "";
+    public string ControlNumber { get; set; } = "";
+    public string Frequency { get; set; } = "";
+    public string OwnerGroup { get; set; } = "";
+    public string Validator1 { get; set; } = "";
+    public string Validator2 { get; set; } = "";
+    public bool OwnerApproved { get; set; }
+    public bool Validation1Approved { get; set; }
+    public bool Validation2Approved { get; set; }
+    public bool SignedOffWithException { get; set; }
+    public string LightFull { get; set; } = "";          // Light | Full | ''
+    public string ItemType { get; set; } = "";
+    public string Path { get; set; } = "";
+}
+
+public class CounterpartyRwa
+{
+    [JsonIgnore] public int Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string CounterpartyName { get; set; } = "";
+    public string Industry { get; set; } = "";
+    public double Rwa { get; set; }
+}
+
+public class LargeExposure
+{
+    [JsonIgnore] public int Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Counterparty { get; set; } = "";
+    public double ExposureValue { get; set; }
+    public double Limit { get; set; }
+}
+
+public class TeamMember
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Role { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string? Phone { get; set; }
+}
+
+public class Project
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+}
+
+public class ProjectTask
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public string Title { get; set; } = "";
+    public string Assignee { get; set; } = "";
+    public string Status { get; set; } = "To Do";   // To Do | In Progress | Done
+    public string? ItTicket { get; set; }
+}
+
+// Small singletons (bilan, riskAppetite, diagnosisResults) live in a key/value
+// table as JSON to avoid over-modelling rarely-changing settings.
+public class AppSetting
+{
+    public string Key { get; set; } = "";
+    public string Value { get; set; } = "{}";
+}
+
+// ---- Aggregate returned/accepted by /api/data (mirrors CentralData) ----
+
+public class CentralData
+{
+    public List<Deadline> Deadlines { get; set; } = new();
+    public List<KpiHistoryEntry> KpisHistory { get; set; } = new();
+    public Bilan Bilan { get; set; } = new();
+    public Dictionary<string, EntityThresholds> RiskAppetite { get; set; } = new();
+    public List<CounterpartyRwa> CounterpartyRwa { get; set; } = new();
+    public List<LargeExposure> LargeExposures { get; set; } = new();
+    public List<TeamMember> Team { get; set; } = new();
+    public List<Project> Projects { get; set; } = new();
+    public List<ProjectTask> ProjectTasks { get; set; } = new();
+    public Dictionary<string, List<DiagnosisResult>>? DiagnosisResults { get; set; }
+}

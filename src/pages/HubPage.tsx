@@ -47,9 +47,9 @@ export const HubPage: React.FC = () => {
     ];
 
     const StatCard: React.FC<{label: string, value: string | number}> = ({label, value}) => (
-        <div className="bg-white p-5 rounded-xl border-l-4 border-brand-primary text-center shadow-sm">
-            <div className="text-sm text-brand-text-secondary uppercase tracking-wider">{label}</div>
-            <div className="text-3xl font-bold text-brand-text-primary mt-1">{value}</div>
+        <div className="bg-white p-5 rounded-lg border border-efg-line border-l-2 border-l-brand-primary text-center shadow-card">
+            <div className="text-xs text-brand-text-secondary uppercase tracking-widest">{label}</div>
+            <div className="text-3xl font-light text-brand-text-primary mt-1">{value}</div>
         </div>
     );
     
@@ -92,13 +92,13 @@ export const HubPage: React.FC = () => {
 
                     if(m.link) {
                         return (
-                             <Link to={m.link} key={m.title} className="block bg-white p-6 rounded-2xl shadow-lg border-l-4 border-brand-primary transform hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">
+                             <Link to={m.link} key={m.title} className="block bg-white p-6 rounded-lg shadow-card border border-efg-line border-l-2 border-l-brand-primary transform hover:-translate-y-0.5 hover:shadow-md transition-all duration-300">
                                 {content}
                             </Link>
                         )
                     }
                     return (
-                        <div key={m.title} onClick={() => m.alertMsg && alert(m.alertMsg)} className="bg-white p-6 rounded-2xl shadow-lg border-l-4 border-gray-300 transform transition-all duration-300 cursor-not-allowed opacity-60">
+                        <div key={m.title} onClick={() => m.alertMsg && alert(m.alertMsg)} className="bg-white p-6 rounded-lg shadow-card border border-efg-line border-l-2 border-l-gray-300 transform transition-all duration-300 cursor-not-allowed opacity-60">
                             {content}
                         </div>
                     )

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useData } from '../context/DataContext';
 import { CalculatedKpis } from '../types';
 import { formatDate, calculateRwaWaterfallData, calculateLcrWaterfallData, calculateCet1RatioEvolutionData, calculateKpis } from '../utils';
-import { Card, PageHeader, BackButton, Select, KpiDetailCard, HistoricalCompositionTable, TopCounterpartiesTable, WaterfallChart, CapitalEvolutionChart, MultiEntityKpiChart, HqlaEvolutionChart, CashflowEvolutionChart, TabButton } from '../components';
+import { Card, PageHeader, BackButton, Select, SectionHeader, KpiDetailCard, HistoricalCompositionTable, TopCounterpartiesTable, WaterfallChart, CapitalEvolutionChart, MultiEntityKpiChart, HqlaEvolutionChart, CashflowEvolutionChart, TabButton } from '../components';
 
 export const KpiDetailsPage: React.FC = () => {
     const { allEntities, getKpisForDate, data } = useData();
@@ -142,7 +142,7 @@ export const KpiDetailsPage: React.FC = () => {
             <BackButton />
             <PageHeader icon="🔍" title="KPI Analysis" subtitle="Detailed breakdown, historical trends and risk appetite" />
             
-            <div className="mb-6 border-b border-gray-200">
+            <div className="mb-6 border-b border-efg-line">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     <TabButton label="Overview" isActive={activeTab === 'overview'} onClick={handleSetOverviewTab} />
                     <TabButton label="Capital Adequacy" isActive={activeTab === 'capital'} onClick={handleSetCapitalTab} />
@@ -172,9 +172,9 @@ export const KpiDetailsPage: React.FC = () => {
                             <button
                                 onClick={handleExportPdf}
                                 disabled={isExporting}
-                                className="w-full bg-brand-secondary hover:bg-brand-secondary-dark text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:bg-gray-400"
+                                className="w-full bg-brand-secondary hover:bg-brand-secondary-dark text-white text-sm font-semibold py-3 px-4 rounded-md transition-colors disabled:bg-gray-400"
                             >
-                                {isExporting ? 'Exporting...' : '📄 Export PDF'}
+                                {isExporting ? 'Exporting…' : 'Export PDF'}
                             </button>
                         </div>
                     </div>
@@ -187,7 +187,7 @@ export const KpiDetailsPage: React.FC = () => {
                         {activeTab === 'overview' && (
                             <div className="space-y-8">
                                <Card>
-                                   <h2 className="text-xl font-bold text-brand-text-primary mb-4">Multi-Entity Ratio Evolution (Last 12 Months)</h2>
+                                   <SectionHeader title="Multi-Entity Ratio Evolution" suffix="(last 12 months)" />
                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                                         <MultiEntityKpiChart historicalData={allKpisHistoryLast12m} kpiKey="cet1" title="CET1 Ratio" />
                                         <MultiEntityKpiChart historicalData={allKpisHistoryLast12m} kpiKey="leverage" title="Leverage Ratio" />
@@ -201,7 +201,7 @@ export const KpiDetailsPage: React.FC = () => {
                             <div className="space-y-8">
                                  {compareKpiData && (
                                     <Card>
-                                        <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">🔎 Variance Analysis ({formatDate(compareKpiData.date)} vs {formatDate(kpiData.date)})</h2>
+                                        <SectionHeader title="Variance Analysis" suffix={`${formatDate(compareKpiData.date)} vs ${formatDate(kpiData.date)}`} />
                                         <div className="space-y-12">
                                             {cet1EvolutionData ? (
                                                 <CapitalEvolutionChart data={cet1EvolutionData} />
@@ -231,16 +231,12 @@ export const KpiDetailsPage: React.FC = () => {
                                     historicalData={kpiHistory}
                                 />
                                 <Card>
-                                    <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">
-                                        📜 Historical Composition
-                                    </h2>
+                                    <SectionHeader title="Historical Composition" suffix="(mCHF)" />
                                     <HistoricalCompositionTable historicalData={kpiHistory} />
                                 </Card>
 
                                 <Card>
-                                    <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">
-                                        🏆 Top 20 Counterparty RWA
-                                    </h2>
+                                    <SectionHeader title="Top 20 Counterparty RWA" suffix="(mCHF)" />
                                     <TopCounterpartiesTable data={counterpartyData} />
                                 </Card>
                             </div>
@@ -248,7 +244,7 @@ export const KpiDetailsPage: React.FC = () => {
                         {activeTab === 'liquidity' && kpiData && (
                              <div className="space-y-8">
                                 <Card className="!p-4">
-                                    <div className="bg-gray-100 p-2 rounded-lg flex items-center gap-2 flex-wrap">
+                                    <div className="bg-brand-bg-body p-2 rounded-md flex items-center gap-2 flex-wrap">
                                         <span className="text-sm font-semibold mr-2">Currency:</span>
                                         {availableCurrencies.map(c => (
                                             <TabButton key={c} label={c} isActive={activeCurrency === c} onClick={() => setActiveCurrency(c)} isSubTab={true} />
@@ -258,7 +254,7 @@ export const KpiDetailsPage: React.FC = () => {
 
                                 {compareKpiData && (
                                     <Card>
-                                        <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">🔎 Variance Analysis ({formatDate(compareKpiData.date)} vs {formatDate(kpiData.date)})</h2>
+                                        <SectionHeader title="Variance Analysis" suffix={`${formatDate(compareKpiData.date)} vs ${formatDate(kpiData.date)}`} />
                                         <div className="mt-6">
                                            <WaterfallChart title="LCR Variance (%)" data={lcrWaterfallData} unit="%" />
                                         </div>

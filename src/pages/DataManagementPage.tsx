@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useData, LOCAL_STORAGE_KEY } from '../context/DataContext';
 import { Deadline, KpiHistoryEntry, CounterpartyRwa, RiskAppetite, LiquidityDataPoint, LiquidityByCurrency, DiagnosisResult } from '../types';
 import { parseDateToYmd, formatDate } from '../utils';
-import { Card, PageHeader, BackButton, InfoBox, Select, Modal } from '../components';
+import { Card, PageHeader, BackButton, InfoBox, Select, Modal, SectionHeader } from '../components';
 import { diagnoseKpiData } from '../services/diagnosisService';
 
 // --- DATA MANAGEMENT HELPERS ---
@@ -946,7 +946,7 @@ export const DataManagementPage: React.FC = () => {
             )}
             
             <Card className="mb-8">
-                <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">⚠️ Application State</h2>
+                <SectionHeader title="Application State" suffix="browser localStorage" />
                 <InfoBox>
                     The application automatically saves all your changes to your browser's local storage. You can reset the application to its original state, but be aware that this action is irreversible.
                 </InfoBox>
@@ -959,11 +959,11 @@ export const DataManagementPage: React.FC = () => {
             </Card>
 
             <Card className="mb-8">
-                <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">📤 Import & Export</h2>
+                <SectionHeader title="Import & Export" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-12">
                     {/* Column 1: Imports */}
                     <div>
-                        <h3 className="text-lg font-semibold text-brand-text-primary mb-3">Import Data</h3>
+                        <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-4">Import Data</h3>
                         <div className="space-y-6">
                             <div>
                                 <h4 className="font-semibold text-brand-text-primary mb-2">Master Data</h4>
@@ -1000,7 +1000,7 @@ export const DataManagementPage: React.FC = () => {
                     </div>
                     {/* Column 2: Exports */}
                      <div>
-                        <h3 className="text-lg font-semibold text-brand-text-primary mb-3">Export Data & Templates</h3>
+                        <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-4">Export Data &amp; Templates</h3>
                         <div className="space-y-3 mt-4">
                              <button onClick={downloadJson} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💾 Download All Data (JSON)</button>
                              <hr className="my-4"/>
@@ -1019,7 +1019,7 @@ export const DataManagementPage: React.FC = () => {
             </Card>
 
             <Card className="mb-8">
-                <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">📝 KPI Editor</h2>
+                <SectionHeader title="KPI Editor" />
                 <InfoBox>Select an entity and date to edit, or create a new entry. Liquidity values are edited for the 'TOT' currency aggregate only.</InfoBox>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 items-end">
                     {isCreating ? (
@@ -1061,7 +1061,7 @@ export const DataManagementPage: React.FC = () => {
                     <form onSubmit={handleSaveKpi}>
                         <div className="space-y-6">
                             <div>
-                                <h3 className="text-lg font-semibold text-brand-text-primary mb-3 border-b pb-2">Core Ratios</h3>
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-3 pb-2 border-b border-efg-line">Core Ratios</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <KpiInput label="CET1 Capital" path="cet1Capital" value={editableKpi.cet1Capital} onChange={handleKpiChange} />
                                     <KpiInput label="Credit RWA" path="creditRWA" value={editableKpi.creditRWA} onChange={handleKpiChange} />
@@ -1078,7 +1078,7 @@ export const DataManagementPage: React.FC = () => {
                             </div>
                             
                             <div>
-                                <h3 className="text-lg font-semibold text-brand-text-primary mb-3 border-b pb-2 mt-4">CET1 Capital Breakdown</h3>
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-3 pb-2 border-b border-efg-line mt-4">CET1 Capital Breakdown</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <KpiInput label="Equity" path="cet1CapitalBreakdown.equity" value={editableKpi.cet1CapitalBreakdown?.equity ?? ''} onChange={handleKpiChange} />
                                     <KpiInput label="PNL" path="cet1CapitalBreakdown.pnl" value={editableKpi.cet1CapitalBreakdown?.pnl ?? ''} onChange={handleKpiChange} />
@@ -1091,7 +1091,7 @@ export const DataManagementPage: React.FC = () => {
                             </div>
 
                             <div>
-                                <h3 className="text-lg font-semibold text-brand-text-primary mb-3 border-b pb-2 mt-4">HQLA Breakdown (TOT)</h3>
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-3 pb-2 border-b border-efg-line mt-4">HQLA Breakdown (TOT)</h3>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <KpiInput label="Central Bank" path="liquidity.TOT.hqlaBreakdown.centralBank" value={editableKpi.liquidity?.TOT?.hqlaBreakdown?.centralBank ?? ''} onChange={handleKpiChange} />
                                     <KpiInput label="Reverse Repo" path="liquidity.TOT.hqlaBreakdown.reverseRepo" value={editableKpi.liquidity?.TOT?.hqlaBreakdown?.reverseRepo ?? ''} onChange={handleKpiChange} />
@@ -1102,7 +1102,7 @@ export const DataManagementPage: React.FC = () => {
                             </div>
                             
                             <div>
-                                <h3 className="text-lg font-semibold text-brand-text-primary mb-3 border-b pb-2 mt-4">Net Cash Outflows Breakdown (TOT)</h3>
+                                <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-3 pb-2 border-b border-efg-line mt-4">Net Cash Outflows Breakdown (TOT)</h3>
                                 <h4 className="font-semibold text-brand-text-secondary mt-4 mb-2">Inflows</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <KpiInput label="Bank and FI" path="liquidity.TOT.netCashOutflowsBreakdown.inflows.bankAndFi" value={editableKpi.liquidity?.TOT?.netCashOutflowsBreakdown?.inflows.bankAndFi ?? ''} onChange={handleKpiChange} />
@@ -1181,7 +1181,7 @@ export const DataManagementPage: React.FC = () => {
             </Card>
 
             <Card className="mb-8">
-                <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">🎯 Risk Appetite Management</h2>
+                <SectionHeader title="Risk Appetite" suffix="Red / Amber thresholds by entity (%)" />
                 <InfoBox>Set Red and Amber thresholds for each entity. Values should be percentages (e.g., 8 for 8%).</InfoBox>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1241,7 +1241,7 @@ export const DataManagementPage: React.FC = () => {
             </Card>
 
             <Card>
-                <h2 className="text-xl font-bold text-brand-text-primary mb-4 pb-2 border-b-2 border-brand-accent">💾 JSON Data Editor</h2>
+                <SectionHeader title="JSON Data Editor" suffix="advanced" />
                 <InfoBox>
                     This is an advanced feature. Editing this JSON directly can break the application if the structure is not respected.
                 </InfoBox>
