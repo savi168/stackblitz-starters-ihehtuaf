@@ -84,40 +84,43 @@ export const KpiDetailsPage: React.FC = () => {
                 import('jspdf'),
                 import('html2canvas'),
             ]);
+            // Render at a high pixel density so text and charts stay crisp.
+            // Cap at 3x so very long reports don't exhaust memory.
+            const scale = Math.min(3, Math.max(2, window.devicePixelRatio || 1) + 1);
             const canvas = await html2canvas(reportRef.current, {
-                scale: 2, // Use a higher scale for better resolution and clarity
+                scale,
                 useCORS: true,
-                backgroundColor: '#ffffff', // Use a standard white background for the export
+                backgroundColor: '#ffffff',
+                windowWidth: reportRef.current.scrollWidth,
             });
-            // Use JPEG format for significant file size reduction with high quality
-            const imgData = canvas.toDataURL('image/jpeg', 0.95); 
-            const pdf = new jsPDF({
-                orientation: 'portrait',
-                unit: 'pt',
-                format: 'a4',
-            });
-            
+
+            const imgData = canvas.toDataURL('image/jpeg', 0.98);
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
             const pdfWidth = pdf.internal.pageSize.getWidth();
             const pdfHeight = pdf.internal.pageSize.getHeight();
-            const canvasWidth = canvas.width;
-            const canvasHeight = canvas.height;
-            const ratio = canvasWidth / canvasHeight;
+            const margin = 20;
 
-            // Calculate dimensions to fit the PDF page with a margin
-            const imgWidth = pdfWidth - 40; // 20pt margin on each side
-            const imgHeight = imgWidth / ratio;
-            
-            let finalHeight = imgHeight;
-            let position = 20;
+            // Keep the capture at full page width (no squeezing) and let it flow
+            // across as many A4 pages as needed — this is what keeps it sharp.
+            const imgWidth = pdfWidth - margin * 2;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            const pageContentHeight = pdfHeight - margin * 2;
 
-            // Check if the content is taller than the page and scale it down if necessary
-            if (imgHeight > pdfHeight - 40) {
-                 finalHeight = pdfHeight - 40;
-                 console.warn("Report content is too long for one page. It will be scaled to fit.");
+            let heightLeft = imgHeight;
+            let position = margin;
+
+            pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+            heightLeft -= pageContentHeight;
+
+            // Add subsequent pages, shifting the same tall image upward each time.
+            while (heightLeft > 0) {
+                pdf.addPage();
+                position -= pageContentHeight;
+                pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                heightLeft -= pageContentHeight;
             }
 
-            // Add the captured image to the PDF
-            pdf.addImage(imgData, 'JPEG', 20, position, imgWidth, finalHeight);
             pdf.save(`KPI_Report_${entity}_${date}.pdf`);
 
         } catch (error) {

@@ -403,7 +403,7 @@ export const ComparisonBarChart: FC<ComparisonBarChartProps> = memo(({
             strokeDasharray="3 3"
           />
         )}
-        <Bar dataKey="value" name={kpiName} fill={color} />
+        <Bar dataKey="value" name={kpiName} maxBarSize={60} fill={color} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -1085,7 +1085,7 @@ export const HqlaEvolutionChart: FC<{ data: CalculatedKpis[] }> = memo(({ data }
                     <Tooltip formatter={(value: number) => formatNumber(value)} />
                     <Legend />
                     {hqlaKeys.map(key => (
-                         <Bar key={key} dataKey={key} stackId="a" fill={COLORS[key]} name={key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}/>
+                         <Bar key={key} dataKey={key} stackId="a" maxBarSize={44} fill={COLORS[key]} name={key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}/>
                     ))}
                 </BarChart>
             </ResponsiveContainer>
@@ -1132,11 +1132,12 @@ export const CashflowEvolutionChart: FC<{ data: CalculatedKpis[]; flowType: 'inf
                     <Tooltip formatter={(value: number) => formatNumber(value)} />
                     <Legend />
                     {cashflowKeys.map(key => (
-                         <Bar 
-                            key={key} 
-                            dataKey={key} 
-                            stackId="a" 
-                            fill={COLORS[key]} 
+                         <Bar
+                            key={key}
+                            dataKey={key}
+                            stackId="a"
+                            maxBarSize={44}
+                            fill={COLORS[key]}
                             name={key.replace(/([A-Z])/g, ' $1').replace('And', ' & ').replace(/^./, str => str.toUpperCase())}
                          />
                     ))}
