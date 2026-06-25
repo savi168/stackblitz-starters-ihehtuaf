@@ -81,7 +81,7 @@ Card.displayName = 'Card';
 
 
 export const PageHeader: FC<{
-  icon: ReactNode;
+  icon?: ReactNode;
   title: string;
   subtitle:string;
 }> = memo(({ icon, title, subtitle }) => (
@@ -667,18 +667,25 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
         const entry = processedData[index];
         const originalEntry = data.find(d => d.name === entry.name);
 
-        if (!originalEntry || entry.isTotal) {
-            return null; // Don't show labels for totals
-        }
+        if (!originalEntry) return null;
 
         const originalValue = originalEntry.value;
         const formattedValue = `${formatNumber(originalValue, 2)}${unit}`;
-        
-        const yPos = originalValue >= 0 ? y - 8 : y + height + 18;
-        const textAnchor = "middle";
 
+        // Totals (start/end bars) start from 0; show their absolute value above
+        // the bar in a stronger ink so the opening and closing figures are read
+        // directly off the chart.
+        if (entry.isTotal) {
+            return (
+                <text x={x + width / 2} y={y - 8} fill="#2B3338" textAnchor="middle" fontSize={11} fontWeight={700}>
+                    {formattedValue}
+                </text>
+            );
+        }
+
+        const yPos = originalValue >= 0 ? y - 8 : y + height + 18;
         return (
-            <text x={x + width / 2} y={yPos} fill="#52616A" textAnchor={textAnchor} fontSize={10} fontWeight={600}>
+            <text x={x + width / 2} y={yPos} fill="#52616A" textAnchor="middle" fontSize={10} fontWeight={600}>
                 {formattedValue}
             </text>
         );
@@ -691,7 +698,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
         <BarChart
           data={processedData}
           margin={{
-            top: 28,
+            top: 34,
             right: 20,
             left: 10,
             bottom: 5,
@@ -733,9 +740,12 @@ export const CapitalEvolutionChart: FC<CapitalEvolutionChartProps> = memo(({
 }) => {
   const waterfallData = useMemo(() => {
     const items = [];
-    items.push({ name: formatDate(data.startData.date), value: data.startData.cet1Ratio });
+    // startData.date / endData.date are already formatted by
+    // calculateCet1RatioEvolutionData — don't re-format (double-formatting via
+    // new Date("Aug 2025") + getUTCMonth() shifted the label back one month).
+    items.push({ name: data.startData.date, value: data.startData.cet1Ratio });
     items.push(...data.deltas);
-    items.push({ name: formatDate(data.endData.date), value: data.endData.cet1Ratio });
+    items.push({ name: data.endData.date, value: data.endData.cet1Ratio });
     return items;
   }, [data]);
 
@@ -931,7 +941,7 @@ export const HistoricalCompositionTable: FC<{ historicalData: CalculatedKpis[] }
     return (
         <div className="space-y-8">
             <div>
-                <h3 className="text-lg font-bold text-brand-text-primary mb-4">CET1 Capital Composition (mCHF)</h3>
+                <h3 className="text-base font-semibold text-brand-text-primary mb-4">CET1 Capital Composition (mCHF)</h3>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left text-brand-text-secondary">
                         <thead className="text-xs text-brand-text-primary uppercase bg-gray-100">
@@ -963,7 +973,7 @@ export const HistoricalCompositionTable: FC<{ historicalData: CalculatedKpis[] }
                 </div>
             </div>
             <div>
-                 <h3 className="text-lg font-bold text-brand-text-primary mb-4">RWA Composition (mCHF)</h3>
+                 <h3 className="text-base font-semibold text-brand-text-primary mb-4">RWA Composition (mCHF)</h3>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left text-brand-text-secondary">
                         <thead className="text-xs text-brand-text-primary uppercase bg-gray-100">

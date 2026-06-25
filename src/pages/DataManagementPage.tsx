@@ -929,7 +929,7 @@ export const DataManagementPage: React.FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="⚙️" title="Data Management" subtitle="Import, export, and manage application data" />
+            <PageHeader title="Data Management" subtitle="Import, export, and manage application data" />
             
             <Modal isOpen={!!confirmation} onClose={() => setConfirmation(null)} title={confirmation?.title || ''}>
                 <div className="text-brand-text-secondary">{confirmation?.message}</div>

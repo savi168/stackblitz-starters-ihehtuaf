@@ -340,7 +340,7 @@ export const DeadlinesPage: React.FC = () => {
     return (
          <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="📅" title="Calendar & Deadlines" subtitle="Tracking of regulatory and internal deadlines" />
+            <PageHeader title="Calendar & Deadlines" subtitle="Tracking of regulatory and internal deadlines" />
             
             <Card className="mb-8">
                  <div className="flex justify-between items-center mb-4 flex-wrap gap-4">

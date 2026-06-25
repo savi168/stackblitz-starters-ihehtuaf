@@ -196,7 +196,7 @@ export const KpiDetailsPage: React.FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="🔍" title="KPI Analysis" subtitle="Detailed breakdown, historical trends and risk appetite" />
+            <PageHeader title="KPI Analysis" subtitle="Detailed breakdown, historical trends and risk appetite" />
             
             <div className="mb-6 border-b border-efg-line">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">

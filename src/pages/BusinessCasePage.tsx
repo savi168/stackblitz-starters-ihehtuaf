@@ -1,12 +1,12 @@
 import React from 'react';
 import { Card, PageHeader, BackButton, SectionHeader, BulletList } from '../components';
-import { Trophy, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export const BusinessCasePage: React.FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon={<Trophy className="text-brand-primary" size={28} />} title="Business Case" subtitle="Strategic value, ROI analysis and operational benefits" />
+            <PageHeader title="Business Case" subtitle="Strategic value, ROI analysis and operational benefits" />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
                 {/* Executive Summary + Benefits */}

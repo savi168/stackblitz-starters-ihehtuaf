@@ -59,7 +59,7 @@ export const ProjectDetailPage: React.FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="🚀" title={project.name} subtitle={project.description} />
+            <PageHeader title={project.name} subtitle={project.description} />
 
             <Card className="mb-6">
                 <SectionHeader title="Project Progress" suffix={`${doneTasks} of ${tasks.length} tasks complete`} />

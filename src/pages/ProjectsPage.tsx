@@ -29,7 +29,7 @@ export const ProjectsPage: React.FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="🚀" title="Projects" subtitle="Manage and track ongoing regulatory improvement projects" />
+            <PageHeader title="Projects" subtitle="Manage and track ongoing regulatory improvement projects" />
 
             <Card>
                 <div className="flex justify-between items-center mb-6">

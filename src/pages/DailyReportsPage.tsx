@@ -156,7 +156,7 @@ export const DailyReportsPage: FC = () => {
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader icon="📈" title="Daily / Weekly Reports" subtitle="LCR and large exposure snapshot by entity" />
+            <PageHeader title="Daily / Weekly Reports" subtitle="LCR and large exposure snapshot by entity" />
 
             <Card className="mb-8">
                 <div className="flex flex-col md:flex-row md:items-end gap-6">
