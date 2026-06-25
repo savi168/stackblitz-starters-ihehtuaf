@@ -4,6 +4,12 @@ REST API backing the RegReport dashboard. Implements the contract the frontend
 expects (`GET/PUT /api/data`) plus granular CRUD endpoints. See
 [`../docs/BACKEND.md`](../docs/BACKEND.md) for the full design rationale.
 
+> **On Windows, starting from scratch?** Follow
+> [`../docs/BACKEND_WINDOWS_QUICKSTART.md`](../docs/BACKEND_WINDOWS_QUICKSTART.md):
+> it uses **SQL Server LocalDB** (no full SQL Server install) and shows how to
+> later point at your company SQL Server by changing only the connection string.
+> The dev connection string in `appsettings.Development.json` is already set to LocalDB.
+
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
