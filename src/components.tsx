@@ -678,7 +678,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
         const textAnchor = "middle";
 
         return (
-            <text x={x + width / 2} y={yPos} fill="#374151" textAnchor={textAnchor} fontSize={14} fontWeight="bold">
+            <text x={x + width / 2} y={yPos} fill="#52616A" textAnchor={textAnchor} fontSize={10} fontWeight={600}>
                 {formattedValue}
             </text>
         );
@@ -702,7 +702,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
           <YAxis unit={unit} tick={{ fontSize: 11 }} />
           <Tooltip content={<CustomTooltip />} />
           <Bar dataKey="offset" stackId="a" fill="transparent" />
-          <Bar dataKey="value" stackId="a" barSize={48}>
+          <Bar dataKey="value" stackId="a" barSize={26} maxBarSize={26}>
              <LabelList dataKey="value" content={<CustomLabel />} />
             {processedData.map((entry, index) => {
               const color = entry.isTotal
@@ -741,7 +741,7 @@ export const CapitalEvolutionChart: FC<CapitalEvolutionChartProps> = memo(({
 
   return (
     <div>
-        <h3 className="text-lg font-bold text-brand-text-primary mb-2 text-center">Evolution CET1 Capital Ratio</h3>
+        <h3 className="text-base font-semibold text-brand-text-primary mb-2 text-center">Evolution CET1 Capital Ratio</h3>
         <WaterfallChart
             title=""
             data={waterfallData}
