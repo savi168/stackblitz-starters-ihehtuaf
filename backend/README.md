@@ -9,6 +9,12 @@ expects (`GET/PUT /api/data`) plus granular CRUD endpoints. See
 > it uses **SQL Server LocalDB** (no full SQL Server install) and shows how to
 > later point at your company SQL Server by changing only the connection string.
 > The dev connection string in `appsettings.Development.json` is already set to LocalDB.
+>
+> **Already have a full SQL Server + SSMS?** Follow
+> [`../docs/BACKEND_FULL_SQLSERVER_SETUP.md`](../docs/BACKEND_FULL_SQLSERVER_SETUP.md)
+> instead — connect SSMS, point the API at it via a gitignored
+> `appsettings.Development.local.json` override (no edits to committed
+> files), and verify the connection live from the in-app **Backend Cockpit**.
 
 ## Prerequisites
 

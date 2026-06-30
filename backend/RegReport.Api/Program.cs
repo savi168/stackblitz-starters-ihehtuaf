@@ -3,6 +3,13 @@ using RegReport.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Per-machine overrides (real SQL Server connection string, etc.) that must
+// never be committed. Matches the appsettings.*.local.json glob in .gitignore.
+builder.Configuration.AddJsonFile(
+    $"appsettings.{builder.Environment.EnvironmentName}.local.json",
+    optional: true,
+    reloadOnChange: true);
+
 // --- Services ---
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
