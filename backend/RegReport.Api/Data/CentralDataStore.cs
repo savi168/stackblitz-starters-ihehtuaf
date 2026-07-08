@@ -31,6 +31,7 @@ public static class CentralDataStore
             ProjectTasks = await db.ProjectTasks.AsNoTracking().ToListAsync(),
             CapitalReports = await db.CapitalReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             LcrReports = await db.LcrReports.AsNoTracking().ToListAsync(),
+            NsfrReports = await db.NsfrReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             Bilan = Get<Bilan>("bilan") ?? new Bilan(),
             RiskAppetite = Get<Dictionary<string, EntityThresholds>>("riskAppetite") ?? new(),
             DiagnosisResults = Get<Dictionary<string, List<DiagnosisResult>>>("diagnosisResults"),
@@ -52,6 +53,8 @@ public static class CentralDataStore
         db.CapitalLineItems.RemoveRange(db.CapitalLineItems);
         db.CapitalReports.RemoveRange(db.CapitalReports);
         db.LcrReports.RemoveRange(db.LcrReports);
+        db.NsfrLineItems.RemoveRange(db.NsfrLineItems);
+        db.NsfrReports.RemoveRange(db.NsfrReports);
         await db.SaveChangesAsync();
 
         // Reset surrogate identity ids so they are auto-generated on insert.
@@ -64,6 +67,11 @@ public static class CentralDataStore
             foreach (var i in r.LineItems) { i.Id = 0; i.CapitalReportId = 0; }
         }
         foreach (var l in data.LcrReports) l.Id = 0;
+        foreach (var n in data.NsfrReports)
+        {
+            n.Id = 0;
+            foreach (var i in n.LineItems) { i.Id = 0; i.NsfrReportId = 0; }
+        }
 
         db.Deadlines.AddRange(data.Deadlines);
         db.KpiHistory.AddRange(data.KpisHistory);
@@ -74,6 +82,7 @@ public static class CentralDataStore
         db.ProjectTasks.AddRange(data.ProjectTasks);
         db.CapitalReports.AddRange(data.CapitalReports);
         db.LcrReports.AddRange(data.LcrReports);
+        db.NsfrReports.AddRange(data.NsfrReports);
 
         Upsert(db, "bilan", data.Bilan);
         Upsert(db, "riskAppetite", data.RiskAppetite);

@@ -62,7 +62,13 @@ export const DEFAULT_IMPORT_MAPPING: Required<ImportMapping> = {
     opRwa: '2.3',
     leverageExposure: '2.6',
   },
-  lcrCodes: { totalOutflows: '182', inflowsBeforeCap: '210', inflowsAfterCap: '212', lcrRatio: '270' },
+  lcrCodes: {
+    totalOutflows: '182', inflowsBeforeCap: '210', inflowsAfterCap: '212', lcrRatio: '270',
+    // weighted flow components (values read from column S)
+    retailOutflows: '81', wholesaleOutflows: '121', derivativesOutflows: '138',
+    reverseRepoInflows: '195', derivativesInflows: '206',
+  },
+  nsfr: { sheet: 'NSFR_G01', totalAsf: '74', totalRsf: '350', ratio: '354' },
   lcrHqlaLabels: {
     cat1: ['Total category 1 assets (adjusted)'],
     cat2a: ['Total category 2a assets (adjusted)'],
@@ -86,4 +92,5 @@ export const resolveMapping = (overrides?: ImportMapping): Required<ImportMappin
   capitalAnchors: { ...DEFAULT_IMPORT_MAPPING.capitalAnchors, ...(overrides?.capitalAnchors || {}) },
   lcrCodes: { ...DEFAULT_IMPORT_MAPPING.lcrCodes, ...(overrides?.lcrCodes || {}) },
   lcrHqlaLabels: { ...DEFAULT_IMPORT_MAPPING.lcrHqlaLabels, ...(overrides?.lcrHqlaLabels || {}) },
+  nsfr: { ...DEFAULT_IMPORT_MAPPING.nsfr, ...(overrides?.nsfr || {}) },
 });

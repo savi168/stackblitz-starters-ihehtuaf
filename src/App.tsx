@@ -4,8 +4,9 @@ import { DataProvider } from './context/DataContext';
 import { ErrorBoundary } from './components';
 
 const NAV_ITEMS = [
+  { to: '/report', label: 'Report' },
   { to: '/details', label: 'KPI Analysis' },
-  { to: '/capital', label: 'Capital' },
+  { to: '/capital', label: 'Workbench' },
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
   { to: '/projects', label: 'Projects' },
@@ -27,6 +28,7 @@ const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m =>
 const BusinessCasePage = lazy(() => import('./pages/BusinessCasePage').then(m => ({ default: m.BusinessCasePage })));
 const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
 const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
+const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
 
 const PageLoader: React.FC = () => (
   <div className="flex items-center justify-center py-24 text-brand-text-secondary">
@@ -85,6 +87,7 @@ const App: React.FC = () => {
                   <Route path="/business-case" element={<BusinessCasePage />} />
                   <Route path="/cockpit" element={<BackendCockpitPage />} />
                   <Route path="/capital" element={<CapitalWorkbenchPage />} />
+                  <Route path="/report" element={<ManagementReportPage />} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

@@ -203,6 +203,10 @@ export interface CapitalReport {
   source: 'manual' | 'excel';
   fileName?: string;
   importedAt?: string; // ISO timestamp
+  /** Forward-looking scenario (management projection), not an actual position. */
+  isProjection?: boolean;
+  /** Management commentary ("Active capital management" bullets, one per line). */
+  comments?: string;
   keyMetrics: CapitalKeyMetrics;
   lineItems: CapitalLineItem[];
 }
@@ -241,7 +245,14 @@ export interface ImportMapping {
     leverageExposure?: string;
   };
   /** SNB row codes (column E) of the LCR sheets. */
-  lcrCodes?: { totalOutflows?: string; inflowsBeforeCap?: string; inflowsAfterCap?: string; lcrRatio?: string };
+  lcrCodes?: {
+    totalOutflows?: string; inflowsBeforeCap?: string; inflowsAfterCap?: string; lcrRatio?: string;
+    // weighted flow components (column S)
+    retailOutflows?: string; wholesaleOutflows?: string; derivativesOutflows?: string;
+    reverseRepoInflows?: string; derivativesInflows?: string;
+  };
+  /** NSFR_G form anchors. */
+  nsfr?: { sheet?: string; totalAsf?: string; totalRsf?: string; ratio?: string };
   /** Column-Y labels of the weighted HQLA totals (first match wins). */
   lcrHqlaLabels?: { cat1?: string[]; cat2a?: string[]; cat2b?: string[]; total?: string[] };
 }
@@ -265,6 +276,44 @@ export interface LcrReport {
   inflowsAfterCap: number;
   netOutflows: number;
   lcrRatio: number; // %
+  // Weighted flow components (management-report detail; optional).
+  retailOutflows?: number;
+  wholesaleOutflows?: number;
+  derivativesOutflows?: number;
+  reverseRepoInflows?: number;
+  derivativesInflows?: number;
+  /** Commentary (HQLA comments…), usually set on the TOT row. */
+  comments?: string;
+}
+
+// ---- NSFR detail (relational: one report per entity+date) ----
+
+export type NsfrSection = 'asf' | 'rsf' | 'rsfOff';
+
+export interface NsfrLineItem {
+  id: number;
+  section: NsfrSection;
+  /** SNB row code in the NSFR_G01 form (column E). */
+  code: string;
+  label: string;
+  /** Raw balance amounts by residual maturity bucket, mCHF. */
+  amountLt6m: number;
+  amount6mTo1y: number;
+  amountGte1y: number;
+}
+
+export interface NsfrReport {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  source: 'manual' | 'excel';
+  fileName?: string;
+  /** Weighted totals from the form (mCHF) and the resulting ratio (%). */
+  totalAsf: number;
+  totalRsf: number;
+  nsfrRatio: number;
+  comments?: string;
+  lineItems: NsfrLineItem[];
 }
 
 export interface CentralData {
@@ -281,6 +330,7 @@ export interface CentralData {
   // Optional so data saved before these existed still loads.
   capitalReports?: CapitalReport[];
   lcrReports?: LcrReport[];
+  nsfrReports?: NsfrReport[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }

@@ -219,5 +219,6 @@ export const centralData: CentralData = {
     { entity: "Hong Kong", date: "2025-09-29", counterparty: "APAC Wealth Management", exposureValue: 205, limit: 250 },
   ],
   capitalReports: [],
-  lcrReports: []
+  lcrReports: [],
+  nsfrReports: []
 };

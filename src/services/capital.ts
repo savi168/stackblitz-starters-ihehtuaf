@@ -7,6 +7,7 @@ import {
   KpiHistoryEntry,
   LcrReport,
   LiquidityByCurrency,
+  NsfrReport,
 } from '../types';
 
 /**
@@ -182,13 +183,25 @@ const buildBreakdown = (report: CapitalReport, summary: CapitalSummary): CET1Cap
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
-const buildLiquidity = (lcrReports: LcrReport[], existing?: LiquidityByCurrency): LiquidityByCurrency => {
+const buildLiquidity = (
+  lcrReports: LcrReport[],
+  nsfr: NsfrReport | undefined,
+  existing?: LiquidityByCurrency,
+): LiquidityByCurrency => {
   const liquidity: LiquidityByCurrency = { ...(existing || {}) };
   for (const r of lcrReports) {
     liquidity[r.currency] = {
       ...(liquidity[r.currency] || {}),
       hqla: round2(r.totalHqla),
       netCashOutflows: round2(r.netOutflows),
+    };
+  }
+  // NSFR feeds the aggregate (TOT) asf/rsf used by the existing NSFR KPI.
+  if (nsfr) {
+    liquidity.TOT = {
+      ...(liquidity.TOT || {}),
+      asf: round2(nsfr.totalAsf),
+      rsf: round2(nsfr.totalRsf),
     };
   }
   return liquidity;
@@ -202,7 +215,8 @@ const buildLiquidity = (lcrReports: LcrReport[], existing?: LiquidityByCurrency)
 export const projectToKpiHistory = (data: CentralData, entity: string, date: string): KpiHistoryEntry[] => {
   const capital = (data.capitalReports || []).find(r => r.entity === entity && r.date === date);
   const lcrs = (data.lcrReports || []).filter(r => r.entity === entity && r.date === date);
-  if (!capital && lcrs.length === 0) return data.kpisHistory;
+  const nsfr = (data.nsfrReports || []).find(r => r.entity === entity && r.date === date);
+  if (!capital && lcrs.length === 0 && !nsfr) return data.kpisHistory;
 
   const existing = data.kpisHistory.find(k => k.entity === entity && k.date === date);
   const entry: KpiHistoryEntry = existing
@@ -221,8 +235,8 @@ export const projectToKpiHistory = (data: CentralData, entity: string, date: str
     if (s.leverageExposure != null) entry.exposure = round2(s.leverageExposure);
     entry.cet1CapitalBreakdown = buildBreakdown(capital, s);
   }
-  if (lcrs.length > 0) {
-    entry.liquidity = buildLiquidity(lcrs, entry.liquidity);
+  if (lcrs.length > 0 || nsfr) {
+    entry.liquidity = buildLiquidity(lcrs, nsfr, entry.liquidity);
   }
 
   const others = data.kpisHistory.filter(k => !(k.entity === entity && k.date === date));

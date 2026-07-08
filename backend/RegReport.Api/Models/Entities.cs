@@ -218,6 +218,10 @@ public class CapitalReport
     public string Source { get; set; } = "manual";  // manual | excel
     public string? FileName { get; set; }
     public string? ImportedAt { get; set; }
+    // Forward-looking scenario (management projection), not an actual position.
+    public bool? IsProjection { get; set; }
+    // Management commentary shown on the Management Report (one bullet per line).
+    public string? Comments { get; set; }
     // KM1 figures as reported; computed values are derived from LineItems.
     public CapitalKeyMetrics? KeyMetrics { get; set; }
     public List<CapitalLineItem> LineItems { get; set; } = new();
@@ -255,6 +259,45 @@ public class LcrReport
     public double InflowsAfterCap { get; set; }
     public double NetOutflows { get; set; }
     public double LcrRatio { get; set; }            // %
+    // Weighted flow components (management-report detail; optional).
+    public double? RetailOutflows { get; set; }
+    public double? WholesaleOutflows { get; set; }
+    public double? DerivativesOutflows { get; set; }
+    public double? ReverseRepoInflows { get; set; }
+    public double? DerivativesInflows { get; set; }
+    // Commentary (HQLA comments…), usually set on the TOT row.
+    public string? Comments { get; set; }
+}
+
+// ---- NSFR detail (relational: one report per entity+date) ----
+
+public class NsfrReport
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Source { get; set; } = "manual";  // manual | excel
+    public string? FileName { get; set; }
+    // Weighted totals from the NSFR_G form (mCHF) and the resulting ratio (%).
+    public double TotalAsf { get; set; }
+    public double TotalRsf { get; set; }
+    public double NsfrRatio { get; set; }
+    public string? Comments { get; set; }
+    public List<NsfrLineItem> LineItems { get; set; } = new();
+}
+
+public class NsfrLineItem
+{
+    public long Id { get; set; }
+    [JsonIgnore] public long NsfrReportId { get; set; }
+    public string Section { get; set; } = "asf";    // asf | rsf | rsfOff
+    // SNB row code in the NSFR_G01 form (column E).
+    public string Code { get; set; } = "";
+    public string Label { get; set; } = "";
+    // Raw balance amounts by residual maturity bucket, mCHF.
+    public double AmountLt6m { get; set; }
+    public double Amount6mTo1y { get; set; }
+    public double AmountGte1y { get; set; }
 }
 
 // Small singletons (bilan, riskAppetite, diagnosisResults) live in a key/value
@@ -281,6 +324,7 @@ public class CentralData
     public Dictionary<string, List<DiagnosisResult>>? DiagnosisResults { get; set; }
     public List<CapitalReport> CapitalReports { get; set; } = new();
     public List<LcrReport> LcrReports { get; set; } = new();
+    public List<NsfrReport> NsfrReports { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

@@ -52,6 +52,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...d,
         capitalReports: d.capitalReports ?? [],
         lcrReports: d.lcrReports ?? [],
+        nsfrReports: d.nsfrReports ?? [],
     });
 
     // Initial load from the configured repository (localStorage or API).

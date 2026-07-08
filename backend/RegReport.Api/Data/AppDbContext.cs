@@ -21,6 +21,8 @@ public class AppDbContext : DbContext
     public DbSet<CapitalReport> CapitalReports => Set<CapitalReport>();
     public DbSet<CapitalLineItem> CapitalLineItems => Set<CapitalLineItem>();
     public DbSet<LcrReport> LcrReports => Set<LcrReport>();
+    public DbSet<NsfrReport> NsfrReports => Set<NsfrReport>();
+    public DbSet<NsfrLineItem> NsfrLineItems => Set<NsfrLineItem>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -85,6 +87,22 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.Entity, x.Date, x.Currency }).IsUnique();
+        });
+
+        b.Entity<NsfrReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date }).IsUnique();
+            e.HasMany(x => x.LineItems)
+                .WithOne()
+                .HasForeignKey(x => x.NsfrReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<NsfrLineItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.NsfrReportId);
         });
 
         b.Entity<AppSetting>().HasKey(x => x.Key);

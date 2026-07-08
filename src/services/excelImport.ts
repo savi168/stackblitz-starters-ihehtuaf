@@ -1,5 +1,8 @@
 import * as XLSX from 'xlsx';
-import { CapitalKeyMetrics, CapitalLineItem, CapitalRowMap, ImportMapping, LcrReport } from '../types';
+import {
+  CapitalKeyMetrics, CapitalLineItem, CapitalRowMap, ImportMapping,
+  LcrReport, NsfrLineItem, NsfrSection,
+} from '../types';
 import { newItemId } from './capital';
 import { resolveMapping } from './importMapping';
 
@@ -41,7 +44,17 @@ export interface ParsedLcr {
   reports: Omit<LcrReport, 'id' | 'entity'>[];
 }
 
-export type ParsedImport = ParsedCapital | ParsedLcr;
+export interface ParsedNsfr {
+  kind: 'nsfr';
+  fileName: string;
+  date: string; // YYYY-MM-DD
+  totalAsf: number;
+  totalRsf: number;
+  nsfrRatio: number; // %
+  lineItems: NsfrLineItem[];
+}
+
+export type ParsedImport = ParsedCapital | ParsedLcr | ParsedNsfr;
 
 // --- Generic helpers --------------------------------------------------------
 
@@ -116,9 +129,10 @@ const codeMap = (ws: Sheet, col: string, maxRow = 900): Map<string, number> => {
 
 // --- Detection ---------------------------------------------------------------
 
-export const detectFileType = (wb: XLSX.WorkBook, m: Required<ImportMapping>): 'capital' | 'lcr' | null => {
+export const detectFileType = (wb: XLSX.WorkBook, m: Required<ImportMapping>): 'capital' | 'lcr' | 'nsfr' | null => {
   if (wb.SheetNames.includes(m.sheets.km1!) && wb.SheetNames.includes(m.sheets.cap!)) return 'capital';
   if (wb.SheetNames.some(n => /^LCR_G\d+_[A-Z]{3}\.MELD$/.test(n))) return 'lcr';
+  if (wb.SheetNames.includes(m.nsfr.sheet!)) return 'nsfr';
   return null;
 };
 
@@ -128,8 +142,9 @@ export const parseWorkbook = (buffer: ArrayBuffer, fileName: string, mappingOver
   const kind = detectFileType(wb, mapping);
   if (kind === 'capital') return parseCapital(wb, fileName, mapping);
   if (kind === 'lcr') return parseLcr(wb, fileName, mapping);
+  if (kind === 'nsfr') return parseNsfr(wb, fileName, mapping);
   throw new Error(
-    `Unrecognized file: expected a FINMA capital adequacy template ('${mapping.sheets.km1}' + '${mapping.sheets.cap}' sheets) or an SNB LCR_G file (LCR_G01_*.MELD sheets). If the template changed, adjust the import mapping.`
+    `Unrecognized file: expected a FINMA capital adequacy template ('${mapping.sheets.km1}' + '${mapping.sheets.cap}' sheets), an SNB LCR_G file (LCR_G01_*.MELD sheets) or an SNB NSFR_G file ('${mapping.nsfr.sheet}' sheet). If the template changed, adjust the import mapping.`
   );
 };
 
@@ -251,11 +266,16 @@ const parseLcr = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMapping
     const currency = (cell(ws, 'L2') as string) || name.replace(/^LCR_G\d+_([A-Z]{3})\.MELD$/, '$1');
     date = date || toIsoDate(cell(ws, 'L4'));
 
-    // SNB row codes live in column E; amounts (col 01) in column F.
+    // SNB row codes live in column E; amounts (col 01) in column F,
+    // weighted amounts in column S.
     const codes = codeMap(ws, 'E', 800);
     const rowVal = (code: string | undefined): number | undefined => {
       const r = code ? codes.get(code) : undefined;
       return r ? num(cell(ws, `F${r}`)) : undefined;
+    };
+    const weightedVal = (code: string | undefined): number | undefined => {
+      const r = code ? codes.get(code) : undefined;
+      return r ? num(cell(ws, `S${r}`)) : undefined;
     };
     // HQLA weighted totals are labelled in column Y with values in column W.
     const labelled = (labels: string[] | undefined): number | undefined => {
@@ -293,6 +313,12 @@ const parseLcr = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMapping
       lcrRatio: lcrDecimal !== undefined
         ? Math.round(lcrDecimal * 100 * 100) / 100
         : (netOutflows > 0 ? Math.round((totalHqla / netOutflows) * 100 * 100) / 100 : 0),
+      // Weighted flow components for the management-report detail view.
+      retailOutflows: kToM(weightedVal(m.lcrCodes.retailOutflows)) ?? 0,
+      wholesaleOutflows: kToM(weightedVal(m.lcrCodes.wholesaleOutflows)) ?? 0,
+      derivativesOutflows: kToM(weightedVal(m.lcrCodes.derivativesOutflows)) ?? 0,
+      reverseRepoInflows: kToM(weightedVal(m.lcrCodes.reverseRepoInflows)) ?? 0,
+      derivativesInflows: kToM(weightedVal(m.lcrCodes.derivativesInflows)) ?? 0,
     });
   }
 
@@ -306,4 +332,66 @@ const parseLcr = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMapping
 
   for (const r of reports) r.date = date;
   return { kind: 'lcr', fileName, date, reports };
+};
+
+// --- NSFR (NSFR_G) ---------------------------------------------------------------
+
+/**
+ * SNB NSFR_G form: one sheet ('NSFR_G01'), labels in column D, SNB row codes
+ * in column E, raw amounts by maturity bucket in K (<6m), L (6m-1y), M (>=1y),
+ * calculated weighted totals in column V (Total ASF / Total RSF / ratio only).
+ * Sections: A. Available stable funding (rows < RSF header), B.1 on-balance
+ * RSF, B.2 off-balance RSF. Every row carrying an amount becomes a line item.
+ */
+const parseNsfr = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMapping>): ParsedNsfr => {
+  const ws = wb.Sheets[m.nsfr.sheet!];
+  if (!ws) throw new Error(`Sheet '${m.nsfr.sheet}' not found in the NSFR file.`);
+
+  // Cut-off date: B4 on the form ('31.03.2026'), fallback Start!H2.
+  const date =
+    toIsoDate(cell(ws, 'B4')) ||
+    (wb.Sheets['Start'] && toIsoDate(cell(wb.Sheets['Start'], 'H2')));
+  if (!date) throw new Error('Could not read the cut-off date from the NSFR file (NSFR_G01 B4 / Start H2).');
+
+  // Section boundaries: located from the section headers in column D.
+  const rsfStart = findLabelledRow(ws, 'D', ['B. Required stable funding'], 400) ?? 78;
+  const rsfOffStart = findLabelledRow(ws, 'D', ['B.2. Off balance-sheet items'], 400) ?? 336;
+
+  const codes = codeMap(ws, 'E', 400);
+  const totalAsfRow = m.nsfr.totalAsf ? codes.get(m.nsfr.totalAsf) : undefined;
+  const totalRsfRow = m.nsfr.totalRsf ? codes.get(m.nsfr.totalRsf) : undefined;
+  const ratioRow = m.nsfr.ratio ? codes.get(m.nsfr.ratio) : undefined;
+
+  const totalAsf = kToM(totalAsfRow ? num(cell(ws, `V${totalAsfRow}`)) : undefined) ?? 0;
+  const totalRsf = kToM(totalRsfRow ? num(cell(ws, `V${totalRsfRow}`)) : undefined) ?? 0;
+  const ratioDecimal = ratioRow ? num(cell(ws, `V${ratioRow}`)) : undefined;
+  const nsfrRatio = ratioDecimal !== undefined
+    ? Math.round(ratioDecimal * 100 * 100) / 100
+    : (totalRsf > 0 ? Math.round((totalAsf / totalRsf) * 100 * 100) / 100 : 0);
+
+  const totalCodes = new Set([m.nsfr.totalAsf, m.nsfr.totalRsf, m.nsfr.ratio]);
+  const lineItems: NsfrLineItem[] = [];
+  for (const [code, r] of codes) {
+    if (totalCodes.has(code)) continue;
+    const k = kToM(num(cell(ws, `K${r}`)));
+    const l = kToM(num(cell(ws, `L${r}`)));
+    const mm = kToM(num(cell(ws, `M${r}`)));
+    if (k === undefined && l === undefined && mm === undefined) continue;
+    const label = norm(cell(ws, `D${r}`));
+    if (!label) continue;
+    const section: NsfrSection = r < rsfStart ? 'asf' : r < rsfOffStart ? 'rsf' : 'rsfOff';
+    lineItems.push({
+      id: newItemId(),
+      section,
+      code,
+      label,
+      amountLt6m: k ?? 0,
+      amount6mTo1y: l ?? 0,
+      amountGte1y: mm ?? 0,
+    });
+  }
+  // Keep the form's visual order.
+  lineItems.sort((a, b) => (codes.get(a.code)! - codes.get(b.code)!));
+
+  return { kind: 'nsfr', fileName, date, totalAsf, totalRsf, nsfrRatio, lineItems };
 };

@@ -8,6 +8,7 @@ import {
   CapitalSection,
   ImportMapping,
   LcrReport,
+  NsfrReport,
 } from '../types';
 import {
   computeCapitalSummary,
@@ -274,8 +275,14 @@ const ImportPreview: React.FC<{
   const [newEntity, setNewEntity] = useState('');
   const effectiveEntity = newEntity.trim() || entity;
 
+  const title = parsed.kind === 'capital'
+    ? 'Import — Capital Adequacy (FINMA CASABIS)'
+    : parsed.kind === 'lcr'
+      ? 'Import — LCR (SNB LCR_G)'
+      : 'Import — NSFR (SNB NSFR_G)';
+
   return (
-    <Modal isOpen onClose={onCancel} title={parsed.kind === 'capital' ? 'Import — Capital Adequacy (FINMA CASABIS)' : 'Import — LCR (SNB LCR_G)'}>
+    <Modal isOpen onClose={onCancel} title={title}>
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
@@ -288,7 +295,20 @@ const ImportPreview: React.FC<{
           </div>
         </div>
 
-        {parsed.kind === 'capital' ? (
+        {parsed.kind === 'nsfr' && (
+          <div className="border border-efg-line rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-efg-line">
+                <tr><td className="px-4 py-2 text-brand-text-secondary">Total ASF (weighted)</td><td className="px-4 py-2 text-right font-semibold tabular-nums">{fmt(parsed.totalAsf)} mCHF</td></tr>
+                <tr><td className="px-4 py-2 text-brand-text-secondary">Total RSF (weighted)</td><td className="px-4 py-2 text-right tabular-nums">{fmt(parsed.totalRsf)} mCHF</td></tr>
+                <tr><td className="px-4 py-2 text-brand-text-secondary">NSFR ratio</td><td className="px-4 py-2 text-right font-semibold tabular-nums">{fmtPct(parsed.nsfrRatio)}</td></tr>
+                <tr><td className="px-4 py-2 text-brand-text-secondary">Detail line items (ASF / RSF / off-B/S)</td><td className="px-4 py-2 text-right tabular-nums">{parsed.lineItems.length}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {parsed.kind === 'capital' && (
           <div className="border border-efg-line rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <tbody className="divide-y divide-efg-line">
@@ -300,7 +320,8 @@ const ImportPreview: React.FC<{
               </tbody>
             </table>
           </div>
-        ) : (
+        )}
+        {parsed.kind === 'lcr' && (
           <div className="border border-efg-line rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead><tr className="bg-brand-bg-body text-left">
@@ -533,7 +554,107 @@ const MappingEditor: React.FC<{
 
 // --- Page ---------------------------------------------------------------------------
 
-type WorkTab = 'equity' | 'deduction' | 'at1t2' | 'rwa' | 'lcr';
+type WorkTab = 'equity' | 'deduction' | 'at1t2' | 'rwa' | 'lcr' | 'nsfr' | 'comments';
+
+// --- NSFR summary view -------------------------------------------------------------
+
+const SECTION_TITLES: Record<string, string> = {
+  asf: 'A. Available Stable Funding (liabilities & capital)',
+  rsf: 'B.1 Required Stable Funding (on balance-sheet)',
+  rsfOff: 'B.2 Required Stable Funding (off balance-sheet)',
+};
+
+const NsfrView: React.FC<{
+  report: NsfrReport;
+  onChange: (report: NsfrReport) => void;
+  onDelete: () => void;
+}> = ({ report, onChange, onDelete }) => {
+  const sections: Array<'asf' | 'rsf' | 'rsfOff'> = ['asf', 'rsf', 'rsfOff'];
+  return (
+    <div className="space-y-7">
+      <div className="grid grid-cols-3 border border-efg-line rounded-lg overflow-hidden divide-x divide-efg-line">
+        <SummaryTile label="Total ASF (weighted)" value={fmt(report.totalAsf)} sub="mCHF" />
+        <SummaryTile label="Total RSF (weighted)" value={fmt(report.totalRsf)} sub="mCHF" />
+        <SummaryTile label="NSFR Ratio" value={fmtPct(report.nsfrRatio)} sub={report.nsfrRatio >= 100 ? 'above 100% requirement' : 'BELOW 100% requirement'} accent />
+      </div>
+      <p className="text-[12px] text-brand-text-secondary -mt-3">
+        Source: <span className="font-semibold">{report.source === 'excel' ? `Excel — ${report.fileName}` : 'Manual entry'}</span>
+        <button onClick={onDelete} className="ml-4 text-status-red/80 hover:text-status-red underline">delete NSFR report</button>
+      </p>
+      {sections.map(section => {
+        const rows = report.lineItems.filter(i => i.section === section);
+        if (rows.length === 0) return null;
+        const tot = (k: 'amountLt6m' | 'amount6mTo1y' | 'amountGte1y') => rows.reduce((a, r) => a + (r[k] || 0), 0);
+        return (
+          <div key={section}>
+            <SectionHeader title={SECTION_TITLES[section]} suffix="raw amounts by residual maturity, mCHF" />
+            <div className="overflow-x-auto border border-efg-line rounded-lg">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-brand-bg-body text-left">
+                    <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold w-14">Code</th>
+                    <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold">Item</th>
+                    <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold text-right w-32">&lt; 6 months</th>
+                    <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold text-right w-32">6m – 1 year</th>
+                    <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold text-right w-32">≥ 1 year</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-efg-line">
+                  {rows.map(row => (
+                    <tr key={row.id}>
+                      <td className="px-4 py-1.5 font-mono text-[12px] text-brand-text-secondary">{row.code}</td>
+                      <td className="px-4 py-1.5 text-brand-text-primary">{row.label}</td>
+                      {(['amountLt6m', 'amount6mTo1y', 'amountGte1y'] as const).map(k => (
+                        <td key={k} className="px-4 py-1.5 text-right">
+                          <AmountInput
+                            value={row[k]}
+                            onCommit={v => onChange({
+                              ...report,
+                              lineItems: report.lineItems.map(i => (i.id === row.id ? { ...i, [k]: v } : i)),
+                            })}
+                            className="w-28 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-brand-bg-body border-t border-brand-text-primary/30 text-sm font-semibold text-brand-text-primary">
+                    <td className="px-4 py-2.5" colSpan={2}>Total (raw)</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{fmt(tot('amountLt6m'), 1)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{fmt(tot('amount6mTo1y'), 1)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{fmt(tot('amountGte1y'), 1)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-brand-text-secondary italic">
+        Weighted totals (ASF {fmt(report.totalAsf, 0)} / RSF {fmt(report.totalRsf, 0)}) come from the NSFR_G form;
+        the raw bucket amounts above are pre-weighting. Edit the weighted totals directly if needed:
+      </p>
+      <div className="flex gap-4 items-end">
+        {([['totalAsf', 'Total ASF (weighted)'], ['totalRsf', 'Total RSF (weighted)']] as const).map(([k, label]) => (
+          <div key={k}>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">{label}</label>
+            <AmountInput
+              value={report[k]}
+              onCommit={v => {
+                const next = { ...report, [k]: v } as NsfrReport;
+                next.nsfrRatio = next.totalRsf > 0 ? Math.round((next.totalAsf / next.totalRsf) * 10000) / 100 : 0;
+                onChange(next);
+              }}
+              className="w-36 p-2 border border-gray-200 rounded-md text-sm text-right tabular-nums focus:border-brand-primary"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const CapitalWorkbenchPage: React.FC = () => {
   const { data, setData, allEntities } = useData();
@@ -549,15 +670,17 @@ export const CapitalWorkbenchPage: React.FC = () => {
 
   const capitalReports = data.capitalReports || [];
   const lcrReports = data.lcrReports || [];
+  const nsfrReports = data.nsfrReports || [];
 
   // Dates available for the selected entity across reports + KPI history.
   const datesForEntity = useMemo(() => {
     const set = new Set<string>();
     capitalReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
     lcrReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
+    nsfrReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
     data.kpisHistory.filter(k => k.entity === entity).forEach(k => set.add(k.date));
     return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [capitalReports, lcrReports, data.kpisHistory, entity]);
+  }, [capitalReports, lcrReports, nsfrReports, data.kpisHistory, entity]);
 
   const effectiveDate = date || datesForEntity[0] || '';
 
@@ -569,17 +692,22 @@ export const CapitalWorkbenchPage: React.FC = () => {
     () => lcrReports.filter(r => r.entity === entity && r.date === effectiveDate),
     [lcrReports, entity, effectiveDate]
   );
+  const nsfrReport = useMemo(
+    () => nsfrReports.find(r => r.entity === entity && r.date === effectiveDate) || null,
+    [nsfrReports, entity, effectiveDate]
+  );
   const summary = useMemo(() => (report ? computeCapitalSummary(report) : null), [report]);
 
   // --- mutations (all end with re-projecting the aggregated KPI entry) ---
 
   const applyChange = useCallback((mutate: (draft: {
-    capitalReports: CapitalReport[]; lcrReports: LcrReport[];
+    capitalReports: CapitalReport[]; lcrReports: LcrReport[]; nsfrReports: NsfrReport[];
   }) => { entity: string; date: string }) => {
     setData(prev => {
       const draft = {
         capitalReports: [...(prev.capitalReports || [])],
         lcrReports: [...(prev.lcrReports || [])],
+        nsfrReports: [...(prev.nsfrReports || [])],
       };
       const target = mutate(draft);
       const next = { ...prev, ...draft };
@@ -607,6 +735,25 @@ export const CapitalWorkbenchPage: React.FC = () => {
       return { entity, date: effectiveDate };
     });
   }, [applyChange, entity, effectiveDate]);
+
+  const updateNsfr = useCallback((updated: NsfrReport) => {
+    applyChange(draft => {
+      draft.nsfrReports = [
+        ...draft.nsfrReports.filter(r => !(r.entity === updated.entity && r.date === updated.date)),
+        updated,
+      ];
+      return { entity: updated.entity, date: updated.date };
+    });
+  }, [applyChange]);
+
+  const deleteNsfr = useCallback(() => {
+    if (!nsfrReport) return;
+    if (!window.confirm(`Delete the NSFR report for ${entity} — ${effectiveDate}?`)) return;
+    setData(prev => ({
+      ...prev,
+      nsfrReports: (prev.nsfrReports || []).filter(r => !(r.entity === entity && r.date === effectiveDate)),
+    }));
+  }, [nsfrReport, entity, effectiveDate, setData]);
 
   const startManual = () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -652,7 +799,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
         return { entity: targetEntity, date: parsed.date };
       });
       setNotice(`Capital adequacy imported for ${targetEntity} — ${parsed.date} (${parsed.lineItems.length} line items). KPI history updated.`);
-    } else {
+    } else if (parsed.kind === 'lcr') {
       applyChange(draft => {
         draft.lcrReports = [
           ...draft.lcrReports.filter(r => !(r.entity === targetEntity && r.date === parsed.date)),
@@ -661,6 +808,26 @@ export const CapitalWorkbenchPage: React.FC = () => {
         return { entity: targetEntity, date: parsed.date };
       });
       setNotice(`LCR imported for ${targetEntity} — ${parsed.date} (${parsed.reports.length} currencies). KPI history updated.`);
+    } else {
+      const newNsfr: NsfrReport = {
+        id: newItemId(),
+        entity: targetEntity,
+        date: parsed.date,
+        source: 'excel',
+        fileName: parsed.fileName,
+        totalAsf: parsed.totalAsf,
+        totalRsf: parsed.totalRsf,
+        nsfrRatio: parsed.nsfrRatio,
+        lineItems: parsed.lineItems,
+      };
+      applyChange(draft => {
+        draft.nsfrReports = [
+          ...draft.nsfrReports.filter(r => !(r.entity === targetEntity && r.date === parsed.date)),
+          newNsfr,
+        ];
+        return { entity: targetEntity, date: parsed.date };
+      });
+      setNotice(`NSFR imported for ${targetEntity} — ${parsed.date} (ASF ${parsed.totalAsf.toFixed(0)} / RSF ${parsed.totalRsf.toFixed(0)} mCHF, ratio ${parsed.nsfrRatio}%). KPI history updated.`);
     }
     setEntity(targetEntity);
     setDate(parsed.date);
@@ -718,7 +885,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
               disabled={importing}
               className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2.5 px-5 rounded-md transition-colors disabled:opacity-50"
             >
-              {importing ? 'Reading…' : 'Import Excel (CASABIS / LCR_G)'}
+              {importing ? 'Reading…' : 'Import Excel (CASABIS / LCR_G / NSFR_G)'}
             </button>
             <button
               onClick={startManual}
@@ -745,11 +912,22 @@ export const CapitalWorkbenchPage: React.FC = () => {
           </p>
         )}
         {report && (
-          <p className="mt-3 text-[12px] text-brand-text-secondary">
-            Source: <span className="font-semibold">{report.source === 'excel' ? `Excel — ${report.fileName}` : 'Manual entry'}</span>
-            {report.importedAt && <> · imported {new Date(report.importedAt).toLocaleString()}</>}
-            <button onClick={deleteReport} className="ml-4 text-status-red/80 hover:text-status-red underline">delete report</button>
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-brand-text-secondary">
+            <span>
+              Source: <span className="font-semibold">{report.source === 'excel' ? `Excel — ${report.fileName}` : 'Manual entry'}</span>
+              {report.importedAt && <> · imported {new Date(report.importedAt).toLocaleString()}</>}
+            </span>
+            <label className="flex items-center gap-1.5 cursor-pointer" title="Mark this report as a forward-looking projection (shown separately in the Management Report)">
+              <input
+                type="checkbox"
+                checked={!!report.isProjection}
+                onChange={e => updateReport({ ...report, isProjection: e.target.checked || undefined })}
+                className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer"
+              />
+              <span>Projection (forward-looking)</span>
+            </label>
+            <button onClick={deleteReport} className="text-status-red/80 hover:text-status-red underline">delete report</button>
+          </div>
         )}
       </Card>
 
@@ -783,9 +961,11 @@ export const CapitalWorkbenchPage: React.FC = () => {
           <TabButton label="AT1 & T2" isActive={tab === 'at1t2'} onClick={() => setTab('at1t2')} />
           <TabButton label="RWA" isActive={tab === 'rwa'} onClick={() => setTab('rwa')} />
           <TabButton label={`LCR (${entityLcrs.length})`} isActive={tab === 'lcr'} onClick={() => setTab('lcr')} />
+          <TabButton label={`NSFR${nsfrReport ? ' ✓' : ''}`} isActive={tab === 'nsfr'} onClick={() => setTab('nsfr')} />
+          <TabButton label="Comments" isActive={tab === 'comments'} onClick={() => setTab('comments')} />
         </div>
 
-        {tab !== 'lcr' && !report && (
+        {tab !== 'lcr' && tab !== 'nsfr' && !report && (
           <div className="text-center py-12 text-brand-text-secondary">
             <p className="mb-4">No capital report for <span className="font-semibold">{entity}</span>{effectiveDate && <> — {effectiveDate}</>} yet.</p>
             <p className="text-sm">Import the FINMA CASABIS Excel file, or start a manual template with the standard components (share capital, RSU, currency translation, goodwill, deferred tax…).</p>
@@ -815,6 +995,60 @@ export const CapitalWorkbenchPage: React.FC = () => {
         )}
         {tab === 'lcr' && (
           <LcrTable reports={entityLcrs} onChange={updateLcrs} entity={entity} date={effectiveDate || new Date().toISOString().slice(0, 10)} />
+        )}
+        {tab === 'nsfr' && (
+          nsfrReport ? (
+            <NsfrView
+              report={nsfrReport}
+              onChange={updateNsfr}
+              onDelete={deleteNsfr}
+            />
+          ) : (
+            <div className="text-center py-12 text-brand-text-secondary">
+              <p className="mb-4">No NSFR report for <span className="font-semibold">{entity}</span>{effectiveDate && <> — {effectiveDate}</>} yet.</p>
+              <p className="text-sm">Import the SNB <strong>NSFR_G</strong> Excel file (button above) — it fills the ASF/RSF detail, the weighted totals and the ratio, and feeds the NSFR KPI automatically.</p>
+            </div>
+          )
+        )}
+        {tab === 'comments' && (
+          <div className="space-y-6 max-w-3xl">
+            <div>
+              <SectionHeader title="Active capital management" suffix="shown on the Management Report — one bullet per line" />
+              <textarea
+                value={report?.comments || ''}
+                onChange={e => report && updateReport({ ...report, comments: e.target.value })}
+                disabled={!report}
+                rows={5}
+                placeholder={report ? 'e.g.\nShare buyback of CHF 67.5 mn in 2026 to fund employee incentive plans\nYTD net result of 153.6 mn' : 'Create or import a capital report first.'}
+                className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary focus:ring-brand-primary disabled:bg-gray-50"
+              />
+            </div>
+            <div>
+              <SectionHeader title="LCR / HQLA comments" suffix="stored on the TOT currency row" />
+              <textarea
+                value={entityLcrs.find(r => r.currency === 'TOT')?.comments || ''}
+                onChange={e => {
+                  const tot = entityLcrs.find(r => r.currency === 'TOT');
+                  if (tot) updateLcrs(entityLcrs.map(r => (r.id === tot.id ? { ...r, comments: e.target.value } : r)));
+                }}
+                disabled={!entityLcrs.some(r => r.currency === 'TOT')}
+                rows={4}
+                placeholder={entityLcrs.some(r => r.currency === 'TOT') ? 'e.g.\nThe HQLA decreased by CHF -174 mm due to:\n- decrease in central bank reserves by CHF -548 mm' : 'Import or add an LCR TOT row first.'}
+                className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary focus:ring-brand-primary disabled:bg-gray-50"
+              />
+            </div>
+            <div>
+              <SectionHeader title="NSFR comments" />
+              <textarea
+                value={nsfrReport?.comments || ''}
+                onChange={e => nsfrReport && updateNsfr({ ...nsfrReport, comments: e.target.value })}
+                disabled={!nsfrReport}
+                rows={4}
+                placeholder={nsfrReport ? 'e.g.\nThe increase of CHF 337 mm in customer deposits is the main driver of the increase in ASF' : 'Import an NSFR report first.'}
+                className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary focus:ring-brand-primary disabled:bg-gray-50"
+              />
+            </div>
+          </div>
         )}
       </Card>
 
