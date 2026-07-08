@@ -1,5 +1,10 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RegReport.Api.Data;
+using RegReport.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,11 +24,31 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
 // CORS: allow the Vite dev server (and any configured production origins).
+// AllowCredentials is required so the browser sends the Windows-auth handshake
+// (and cookies, if any) on cross-origin calls — hence explicit origins only.
 const string CorsPolicy = "frontend";
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
     ?? new[] { "http://localhost:5173" };
 builder.Services.AddCors(options => options.AddPolicy(CorsPolicy, policy =>
-    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+
+// --- Security (optional): Windows Authentication (Negotiate / Kerberos) ---
+// Off by default (Security:Mode = "None") so the quick-start keeps working.
+// Set Security:Mode = "Windows" to require an authenticated Windows user on
+// every endpoint: reads for everyone ("Reader"), mutations for "Admin" only
+// (Security:AdminUsers / Security:AdminGroups). See docs/SECURITY_WINDOWS_AUTH.md.
+var windowsAuth = string.Equals(builder.Configuration["Security:Mode"], "Windows", StringComparison.OrdinalIgnoreCase);
+if (windowsAuth)
+{
+    builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+    builder.Services.AddAuthorization(options =>
+    {
+        // Every endpoint requires an authenticated user unless [AllowAnonymous].
+        options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
+    });
+    builder.Services.AddSingleton<IClaimsTransformation, RoleClaimsTransformation>();
+    builder.Services.Configure<MvcOptions>(o => o.Filters.Add<MutationsRequireAdminFilter>());
+}
 
 var app = builder.Build();
 
@@ -42,8 +67,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
-// app.UseAuthentication();  // enable when wiring Entra ID / JWT (see docs/BACKEND.md §7)
-// app.UseAuthorization();
+if (windowsAuth)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
+// For Entra ID / JWT instead of Windows auth, see docs/BACKEND.md §7 — the
+// role model (Reader/Admin + MutationsRequireAdminFilter) stays the same.
 app.MapControllers();
 
 app.Run();

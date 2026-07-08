@@ -1,17 +1,19 @@
 import React, { lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Link, NavLink } from 'react-router-dom';
-import { DataProvider } from './context/DataContext';
+import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
+import { DataProvider, useData } from './context/DataContext';
 import { ErrorBoundary } from './components';
 
+// adminOnly modules stay hidden (and their routes blocked) for users without
+// the Admin role — the API enforces the same rule server-side on mutations.
 const NAV_ITEMS = [
   { to: '/report', label: 'Report' },
   { to: '/details', label: 'KPI Analysis' },
-  { to: '/capital', label: 'Workbench' },
+  { to: '/capital', label: 'Workbench', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
   { to: '/projects', label: 'Projects' },
-  { to: '/cockpit', label: 'Backend' },
-  { to: '/datamanagement', label: 'Admin' },
+  { to: '/cockpit', label: 'Backend', adminOnly: true },
+  { to: '/datamanagement', label: 'Admin', adminOnly: true },
 ];
 
 // --- LAZY-LOADED PAGES ---
@@ -36,6 +38,43 @@ const PageLoader: React.FC = () => (
   </div>
 );
 
+/** Blocks a route for non-admin users (UI guard; the API enforces it too). */
+const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAdmin } = useData();
+  return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
+};
+
+const NavBar: React.FC = () => {
+  const { isAdmin, currentUser } = useData();
+  return (
+    <div className="flex items-center gap-1 sm:gap-2">
+      {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map(item => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          className={({ isActive }) =>
+            `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
+              isActive
+                ? 'border-brand-primary text-brand-primary'
+                : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
+            }`
+          }
+        >
+          {item.label}
+        </NavLink>
+      ))}
+      {currentUser.securityMode !== 'None' && (
+        <span
+          title={`Signed in as ${currentUser.name} (${currentUser.roles.join(', ')})`}
+          className="ml-2 pl-2 border-l border-efg-line text-xs text-brand-text-secondary hidden md:inline"
+        >
+          {currentUser.name.split('\\').pop()}{isAdmin ? '' : ' · read-only'}
+        </span>
+      )}
+    </div>
+  );
+};
+
 // --- APP ROUTER ---
 
 const App: React.FC = () => {
@@ -53,23 +92,7 @@ const App: React.FC = () => {
                   Regulatory Reporting
                 </span>
               </Link>
-              <div className="flex items-center gap-1 sm:gap-2">
-                {NAV_ITEMS.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) =>
-                      `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
-                        isActive
-                          ? 'border-brand-primary text-brand-primary'
-                          : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
-                      }`
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
+              <NavBar />
             </nav>
           </header>
           <main className="flex-1">
@@ -80,13 +103,13 @@ const App: React.FC = () => {
                   <Route path="/details" element={<KpiDetailsPage />} />
                   <Route path="/daily-reports" element={<DailyReportsPage />} />
                   <Route path="/deadlines" element={<DeadlinesPage />} />
-                  <Route path="/datamanagement" element={<DataManagementPage />} />
+                  <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
                   <Route path="/team" element={<TeamPage />} />
                   <Route path="/business-case" element={<BusinessCasePage />} />
-                  <Route path="/cockpit" element={<BackendCockpitPage />} />
-                  <Route path="/capital" element={<CapitalWorkbenchPage />} />
+                  <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
+                  <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
                   <Route path="/report" element={<ManagementReportPage />} />
                 </Routes>
               </Suspense>

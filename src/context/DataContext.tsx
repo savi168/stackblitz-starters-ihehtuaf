@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { CentralData, CalculatedKpis } from '../types';
 import { centralData as initialData } from '../constants';
 import { calculateKpis } from '../utils';
-import { dataRepository } from '../services/dataRepository';
+import { CurrentUser, dataRepository } from '../services/dataRepository';
 
 // Re-exported for backwards compatibility (some modules import it from here).
 export { LOCAL_STORAGE_KEY } from '../services/dataRepository';
@@ -24,6 +24,10 @@ export const DataContext = React.createContext<{
     reload: () => Promise<void>;
     /** Timestamp (ms) of the last successful load from the source. */
     lastSyncedAt: number | null;
+    /** Identity & roles as enforced by the API (local mode: admin). */
+    currentUser: CurrentUser;
+    /** Convenience: currentUser has the Admin role. */
+    isAdmin: boolean;
 }>({
     data: initialData,
     setData: () => {},
@@ -36,6 +40,8 @@ export const DataContext = React.createContext<{
     apiBaseUrl: dataRepository.baseUrl,
     reload: async () => {},
     lastSyncedAt: null,
+    currentUser: { name: 'local', roles: ['Reader', 'Admin'], securityMode: 'None' },
+    isAdmin: true,
 });
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -43,8 +49,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+    const [currentUser, setCurrentUser] = useState<CurrentUser>({ name: 'local', roles: ['Reader', 'Admin'], securityMode: 'None' });
     // Skip persisting the data that was just loaded (only persist real edits).
     const skipNextSave = useRef(true);
+    const isAdmin = currentUser.roles.includes('Admin');
+    const isAdminRef = useRef(isAdmin);
+    isAdminRef.current = isAdmin;
 
     // Data saved before newer tables existed lacks their arrays — default them
     // so every consumer (cockpit, workbench) sees consistent lists.
@@ -58,6 +68,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Initial load from the configured repository (localStorage or API).
     useEffect(() => {
         let cancelled = false;
+        dataRepository.currentUser().then(u => { if (!cancelled) setCurrentUser(u); });
         dataRepository.load()
             .then(loaded => { if (!cancelled) { setData(normalize(loaded)); setLastSyncedAt(Date.now()); } })
             .catch(err => {
@@ -86,10 +97,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     }, []);
 
-    // Debounced persistence of user edits.
+    // Debounced persistence of user edits. Readers are read-only: the API
+    // would reject the PUT with 403 anyway, so don't attempt it.
     useEffect(() => {
         if (isLoading) return;
         if (skipNextSave.current) { skipNextSave.current = false; return; }
+        if (!isAdminRef.current) return;
         const handle = setTimeout(() => {
             dataRepository.save(data).catch(err => console.error('Failed to save data', err));
         }, 400);
@@ -116,7 +129,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         apiBaseUrl: dataRepository.baseUrl,
         reload,
         lastSyncedAt,
-    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError, reload, lastSyncedAt]);
+        currentUser,
+        isAdmin,
+    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError, reload, lastSyncedAt, currentUser, isAdmin]);
 
     if (isLoading) {
         return (

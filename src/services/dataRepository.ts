@@ -12,6 +12,13 @@ import { centralData as seedData } from '../constants';
  * Swapping between them requires no changes in the React components — only the
  * VITE_API_BASE_URL environment variable. See docs/BACKEND.md for wiring.
  */
+export interface CurrentUser {
+  name: string;
+  roles: string[];
+  /** 'None' (open) | 'Windows' — as reported by the API. */
+  securityMode: string;
+}
+
 export interface DataRepository {
   readonly mode: 'local' | 'api';
   /** Base URL of the REST API when in 'api' mode (undefined in 'local' mode). */
@@ -20,6 +27,8 @@ export interface DataRepository {
   load(): Promise<CentralData>;
   /** Persist the full central data document. */
   save(data: CentralData): Promise<void>;
+  /** Identity & roles as enforced by the API (local mode: anonymous admin). */
+  currentUser(): Promise<CurrentUser>;
 }
 
 export const LOCAL_STORAGE_KEY = 'regReportData';
@@ -44,6 +53,10 @@ class LocalStorageRepository implements DataRepository {
       console.error('Failed to save data to localStorage', error);
     }
   }
+
+  async currentUser(): Promise<CurrentUser> {
+    return { name: 'local', roles: ['Reader', 'Admin'], securityMode: 'None' };
+  }
 }
 
 class ApiRepository implements DataRepository {
@@ -63,7 +76,9 @@ class ApiRepository implements DataRepository {
   }
 
   async load(): Promise<CentralData> {
-    const res = await fetch(`${this.baseUrl}/data`, { headers: this.headers() });
+    // credentials: 'include' lets the browser run the Windows-auth handshake
+    // (Negotiate/Kerberos) on cross-origin calls when the API requires it.
+    const res = await fetch(`${this.baseUrl}/data`, { headers: this.headers(), credentials: 'include' });
     if (!res.ok) throw new Error(`GET /data failed: ${res.status} ${res.statusText}`);
     return (await res.json()) as CentralData;
   }
@@ -72,9 +87,28 @@ class ApiRepository implements DataRepository {
     const res = await fetch(`${this.baseUrl}/data`, {
       method: 'PUT',
       headers: this.headers(),
+      credentials: 'include',
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`PUT /data failed: ${res.status} ${res.statusText}`);
+  }
+
+  async currentUser(): Promise<CurrentUser> {
+    try {
+      const res = await fetch(`${this.baseUrl}/auth/me`, { credentials: 'include' });
+      if (res.ok) {
+        const me = (await res.json()) as { name?: string; roles?: string[]; securityMode?: string };
+        return {
+          name: me.name || 'unknown',
+          roles: me.roles || [],
+          securityMode: me.securityMode || 'None',
+        };
+      }
+    } catch (err) {
+      console.warn('auth/me not reachable — assuming open API (older backend)', err);
+    }
+    // Older backend without /auth/me, or endpoint unreachable: behave as before.
+    return { name: 'unknown', roles: ['Reader', 'Admin'], securityMode: 'None' };
   }
 }
 
