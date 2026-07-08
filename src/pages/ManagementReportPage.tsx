@@ -5,7 +5,8 @@ import {
 } from 'recharts';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
-import { CET1CapitalBreakdown, LcrReport, NsfrReport } from '../types';
+import { CET1CapitalBreakdown, FinStatementKind, LcrReport, NsfrReport } from '../types';
+import { computeFinSummary, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import { computeCapitalSummary } from '../services/capital';
 import { formatDate } from '../utils';
 import { calculateCet1RatioEvolutionData, calculateKpis } from '../utils';
@@ -1262,6 +1263,129 @@ const NsfrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =
   );
 };
 
+// --- Financial statements tab -----------------------------------------------------------
+
+const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
+  const { data } = useData();
+  const [kind, setKind] = useState<FinStatementKind>('balanceSheet');
+  const [compare, setCompare] = useState('');
+
+  const all = useMemo(
+    () => (data.finStatements || []).filter(s => s.entity === entity && s.kind === kind).sort((a, b) => a.date.localeCompare(b.date)),
+    [data.finStatements, entity, kind]
+  );
+  const current = [...all].reverse().find(s => s.date <= asOf) || all[all.length - 1];
+  const previous = current
+    ? (compare && compare < current.date ? all.find(s => s.date === compare) : undefined)
+      || [...all].reverse().find(s => s.date < current.date)
+    : undefined;
+
+  if (!current) {
+    return (
+      <div>
+        <div className="flex gap-2 mb-6">
+          {(Object.keys(KIND_LABELS) as FinStatementKind[]).map(k => (
+            <TabButton key={k} label={KIND_LABELS[k]} isActive={kind === k} onClick={() => setKind(k)} isSubTab />
+          ))}
+        </div>
+        <p className="text-brand-text-secondary py-10 text-center">
+          No {KIND_LABELS[kind]} for {entity} yet — enter it in the Workbench ({KIND_LABELS[kind]} tab) or import a CSV there.
+        </p>
+      </div>
+    );
+  }
+
+  const curSummary = computeFinSummary(current);
+  const prevSummary = previous ? computeFinSummary(previous) : null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex gap-2">
+          {(Object.keys(KIND_LABELS) as FinStatementKind[]).map(k => (
+            <TabButton key={k} label={KIND_LABELS[k]} isActive={kind === k} onClick={() => setKind(k)} isSubTab />
+          ))}
+        </div>
+        <div className="flex items-end gap-3">
+          {all.length > 1 && (
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
+              <select value={previous?.date || ''} onChange={e => setCompare(e.target.value)}
+                className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+                {all.filter(s => s.date < current.date).map(s => <option key={s.date} value={s.date}>{monthLabel(s.date)}</option>)}
+              </select>
+            </div>
+          )}
+          <AuditButton queries={[{
+            what: `${KIND_LABELS[kind]} (${entity})`,
+            object: 'finStatements (+ line items)',
+            filter: `[entity=${entity}, kind=${kind}, date ∈ {${previous?.date || '—'}, ${current.date}}]`,
+            endpoint: `GET /api/fin-statements?entity=${entity}&kind=${kind}`,
+            sql: `SELECT s.*, i.* FROM FinStatements s\nJOIN FinStatementLineItems i ON i.FinStatementId = s.Id\nWHERE s.Entity = '${entity}' AND s.Kind = '${kind}'`,
+            notes: ['Section totals exclude memo rows.', kind === 'balanceSheet' ? 'Balance check: assets − liabilities − equity = 0.' : kind === 'pnl' ? 'Net profit = Σ income + Σ expenses (expenses negative).' : 'Closing balance = Σ movements (incl. opening balance).'],
+          }]} />
+        </div>
+      </div>
+
+      <Card>
+        <SectionHeader title={`${KIND_LABELS[kind]} — ${entity}`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''} · CHF mn`} />
+        <div className="overflow-x-auto border border-efg-line rounded-lg">
+          <table className="w-full text-xs">
+            <thead className="bg-brand-bg-body">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Item</th>
+                {previous && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(previous.date)}</th>}
+                <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(current.date)}</th>
+                {previous && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Δ</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-efg-line">
+              {KIND_SECTIONS[kind].map(({ key, label }) => {
+                const rows = current.lineItems.filter(i => i.section === key);
+                return (
+                  <React.Fragment key={key}>
+                    <tr className="bg-brand-bg-body">
+                      <td colSpan={previous ? 4 : 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">{label}</td>
+                    </tr>
+                    {rows.map(row => {
+                      const prevRow = previous?.lineItems.find(i => i.section === key && i.label.trim().toLowerCase() === row.label.trim().toLowerCase());
+                      const delta = prevRow ? row.amount - prevRow.amount : null;
+                      return (
+                        <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
+                          <td className={`px-3 py-1.5 ${row.memo ? 'italic text-brand-text-secondary pl-6' : 'text-brand-text-primary'}`}>{row.label}</td>
+                          {previous && <td className="px-3 py-1.5 text-right tabular-nums">{prevRow ? fmt(prevRow.amount, 1) : '—'}</td>}
+                          <td className={`px-3 py-1.5 text-right tabular-nums ${row.amount < 0 ? 'text-status-red' : ''}`}>{fmt(row.amount, 1)}</td>
+                          {previous && <td className={`px-3 py-1.5 text-right tabular-nums ${delta == null ? 'text-brand-text-secondary' : delta >= 0 ? 'text-status-green' : 'text-status-red'}`}>{delta == null ? 'new' : (delta >= 0 ? '+' : '') + fmt(delta, 1)}</td>}
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-brand-bg-body/60 font-semibold border-t border-brand-text-primary/20">
+                      <td className="px-3 py-2">Total {label}</td>
+                      {previous && <td className="px-3 py-2 text-right tabular-nums">{fmt(prevSummary!.sections[key] ?? 0, 1)}</td>}
+                      <td className="px-3 py-2 text-right tabular-nums">{fmt(curSummary.sections[key] ?? 0, 1)}</td>
+                      {previous && <td className="px-3 py-2 text-right tabular-nums">{(() => { const d = (curSummary.sections[key] ?? 0) - (prevSummary!.sections[key] ?? 0); return (d >= 0 ? '+' : '') + fmt(d, 1); })()}</td>}
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+              <tr className="bg-brand-secondary text-white font-semibold">
+                <td className="px-3 py-2">{curSummary.keyFigureLabel}</td>
+                {previous && <td className="px-3 py-2 text-right tabular-nums">{fmt(prevSummary!.keyFigure, 1)}</td>}
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(curSummary.keyFigure, 1)}</td>
+                {previous && <td className="px-3 py-2 text-right tabular-nums">{(() => { const d = curSummary.keyFigure - prevSummary!.keyFigure; return (d >= 0 ? '+' : '') + fmt(d, 1); })()}</td>}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {kind === 'balanceSheet' && !curSummary.balanced && (
+          <p className="text-[12px] text-status-amber mt-2">⚠ The balance sheet does not balance — check the amounts in the Workbench.</p>
+        )}
+        {current.comments && <div className="mt-4"><CommentPanel title="Comments" text={current.comments} /></div>}
+      </Card>
+    </div>
+  );
+};
+
 // --- Overview tab --------------------------------------------------------------------
 
 const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: ReportTab) => void }> = ({ asOf, onDrill }) => {
@@ -1347,7 +1471,7 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
 
 // --- Page ------------------------------------------------------------------------------
 
-type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr';
+type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr' | 'financials';
 
 export const ManagementReportPage: React.FC = () => {
   const { data, allEntities } = useData();
@@ -1397,6 +1521,7 @@ export const ManagementReportPage: React.FC = () => {
           <TabButton label="Capital Adequacy" isActive={tab === 'capital'} onClick={() => setTab('capital')} />
           <TabButton label="LCR" isActive={tab === 'lcr'} onClick={() => setTab('lcr')} />
           <TabButton label="NSFR" isActive={tab === 'nsfr'} onClick={() => setTab('nsfr')} />
+          <TabButton label="Financial Statements" isActive={tab === 'financials'} onClick={() => setTab('financials')} />
         </nav>
       </div>
 
@@ -1405,6 +1530,7 @@ export const ManagementReportPage: React.FC = () => {
         {tab === 'capital' && <CapitalTab entity={entity} asOf={asOf} />}
         {tab === 'lcr' && <LcrTab entity={entity} asOf={asOf} />}
         {tab === 'nsfr' && <NsfrTab entity={entity} asOf={asOf} />}
+        {tab === 'financials' && <FinancialsTab entity={entity} asOf={asOf} />}
       </div>
     </div>
   );

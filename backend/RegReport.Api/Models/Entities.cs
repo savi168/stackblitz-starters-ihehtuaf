@@ -302,6 +302,54 @@ public class NsfrLineItem
     public double AmountGte1y { get; set; }
 }
 
+// ---- Financial statements (relational: one per entity+date+kind) ----
+
+public class FinStatement
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Kind { get; set; } = "balanceSheet"; // balanceSheet | pnl | equity
+    public string Source { get; set; } = "manual";     // manual | excel
+    public string? FileName { get; set; }
+    public string? Comments { get; set; }
+    public List<FinStatementLineItem> LineItems { get; set; } = new();
+}
+
+public class FinStatementLineItem
+{
+    public long Id { get; set; }
+    [JsonIgnore] public long FinStatementId { get; set; }
+    // balanceSheet: assets|liabilities|equity · pnl: income|expenses · equity: movements
+    public string Section { get; set; } = "";
+    public string Code { get; set; } = "";
+    public string Label { get; set; } = "";
+    public double Amount { get; set; } // mCHF, signed
+    public bool Memo { get; set; }
+}
+
+// ---- Scenario simulation (what-if shocks on the regulatory ratios) ----
+
+public class Scenario
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string BaseDate { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public List<ScenarioShock> Shocks { get; set; } = new();
+}
+
+public class ScenarioShock
+{
+    public long Id { get; set; }
+    [JsonIgnore] public long ScenarioId { get; set; }
+    public string Target { get; set; } = "capital";    // capital | lcr | nsfr
+    public string Code { get; set; } = "";             // cet1Delta, rwaDelta, hqlaDelta, …
+    public string Label { get; set; } = "";
+    public double Amount { get; set; }                 // mCHF, signed
+}
+
 // Small singletons (bilan, riskAppetite, diagnosisResults) live in a key/value
 // table as JSON to avoid over-modelling rarely-changing settings.
 public class AppSetting
@@ -327,6 +375,8 @@ public class CentralData
     public List<CapitalReport> CapitalReports { get; set; } = new();
     public List<LcrReport> LcrReports { get; set; } = new();
     public List<NsfrReport> NsfrReports { get; set; } = new();
+    public List<FinStatement> FinStatements { get; set; } = new();
+    public List<Scenario> Scenarios { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

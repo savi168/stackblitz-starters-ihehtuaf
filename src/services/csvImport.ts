@@ -346,3 +346,60 @@ export const convertCapitalItemsCsv = (lines: string[][]): CapitalItemsCsvResult
   }
   return { items, warnings };
 };
+
+// --- Financial statements bulk load (Workbench) ------------------------------------
+
+const FIN_SECTIONS: Record<string, string[]> = {
+  balanceSheet: ['assets', 'liabilities', 'equity'],
+  pnl: ['income', 'expenses'],
+  equity: ['movements'],
+};
+
+const FIN_EXAMPLES: Record<string, string[][]> = {
+  balanceSheet: [
+    ['assets', 'Cash and balances with central banks', '5200', 'false'],
+    ['liabilities', 'Due to customers (deposits)', '30500', 'false'],
+    ['equity', 'Share capital', '149.1', 'false'],
+  ],
+  pnl: [
+    ['income', 'Net fee and commission income', '410.2', 'false'],
+    ['expenses', 'Personnel expenses (-)', '-285.4', 'false'],
+  ],
+  equity: [
+    ['movements', 'Opening balance', '2389.4', 'false'],
+    ['movements', 'Dividends (-)', '-88.4', 'false'],
+  ],
+};
+
+export const buildFinStatementTemplate = (kind: string, delim = ','): string => {
+  const rows = [['section', 'label', 'amount', 'memo'], ...(FIN_EXAMPLES[kind] || [])];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export const convertFinStatementCsv = (kind: string, lines: string[][]): CapitalItemsCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const valid = new Set(FIN_SECTIONS[kind] || []);
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const iSection = header.indexOf('section'), iLabel = header.indexOf('label');
+  const iAmount = header.indexOf('amount'), iMemo = header.indexOf('memo');
+  if (iSection === -1 || iLabel === -1 || iAmount === -1) {
+    throw new Error('The header must contain at least: section, label, amount (plus optional memo).');
+  }
+  const items: CapitalItemsCsvResult['items'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cells = lines[li];
+    const section = (cells[iSection] ?? '').trim();
+    const label = (cells[iLabel] ?? '').trim();
+    if (!section && !label) continue;
+    if (!valid.has(section)) {
+      warnings.push(`Line ${li + 1}: unknown section "${section}" (expected ${Array.from(valid).join('|')}) — skipped.`);
+      continue;
+    }
+    const amount = Number((cells[iAmount] ?? '').trim().replace(',', '.'));
+    if (!label || isNaN(amount)) { warnings.push(`Line ${li + 1}: missing label or invalid amount — skipped.`); continue; }
+    const memoRaw = iMemo >= 0 ? (cells[iMemo] ?? '').trim().toLowerCase() : '';
+    items.push({ section, label, amount, memo: ['true', '1', 'yes', 'x'].includes(memoRaw), code: '' });
+  }
+  return { items, warnings };
+};

@@ -213,6 +213,57 @@ export interface CapitalReport {
   lineItems: CapitalLineItem[];
 }
 
+// ---- Financial statements (relational: one statement per entity+date+kind) ----
+
+export type FinStatementKind = 'balanceSheet' | 'pnl' | 'equity';
+
+export interface FinStatementLineItem {
+  id: number;
+  /** balanceSheet: assets | liabilities | equity · pnl: income | expenses · equity: movements */
+  section: string;
+  code: string;
+  label: string;
+  /** mCHF, signed (expenses/deductions negative). */
+  amount: number;
+  /** Informational row, excluded from the section totals. */
+  memo?: boolean;
+}
+
+export interface FinStatement {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  kind: FinStatementKind;
+  source: 'manual' | 'excel';
+  fileName?: string;
+  comments?: string;
+  lineItems: FinStatementLineItem[];
+}
+
+// ---- Scenario simulation (what-if shocks on the regulatory ratios) ----
+
+export type ShockTarget = 'capital' | 'lcr' | 'nsfr';
+
+export interface ScenarioShock {
+  id: number;
+  target: ShockTarget;
+  /** capital: cet1Delta | rwaDelta | at1Delta | lrdDelta · lcr: hqlaDelta | outflowsDelta | inflowsDelta · nsfr: asfDelta | rsfDelta */
+  code: string;
+  label: string;
+  /** mCHF, signed. */
+  amount: number;
+}
+
+export interface Scenario {
+  id: number;
+  entity: string;
+  /** Baseline period the shocks apply to. */
+  baseDate: string;
+  name: string;
+  description?: string;
+  shocks: ScenarioShock[];
+}
+
 // ---- Excel import mapping (editable configuration, no code changes needed) ----
 
 /** One FINMA row code of the capital sheet mapped to a line item. */
@@ -333,6 +384,8 @@ export interface CentralData {
   capitalReports?: CapitalReport[];
   lcrReports?: LcrReport[];
   nsfrReports?: NsfrReport[];
+  finStatements?: FinStatement[];
+  scenarios?: Scenario[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }

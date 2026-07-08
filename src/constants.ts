@@ -220,5 +220,7 @@ export const centralData: CentralData = {
   ],
   capitalReports: [],
   lcrReports: [],
-  nsfrReports: []
+  nsfrReports: [],
+  finStatements: [],
+  scenarios: []
 };

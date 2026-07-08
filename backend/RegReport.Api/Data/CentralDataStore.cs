@@ -32,6 +32,8 @@ public static class CentralDataStore
             CapitalReports = await db.CapitalReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             LcrReports = await db.LcrReports.AsNoTracking().ToListAsync(),
             NsfrReports = await db.NsfrReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
+            FinStatements = await db.FinStatements.AsNoTracking().Include(s => s.LineItems).ToListAsync(),
+            Scenarios = await db.Scenarios.AsNoTracking().Include(s => s.Shocks).ToListAsync(),
             Bilan = Get<Bilan>("bilan") ?? new Bilan(),
             RiskAppetite = Get<Dictionary<string, EntityThresholds>>("riskAppetite") ?? new(),
             DiagnosisResults = Get<Dictionary<string, List<DiagnosisResult>>>("diagnosisResults"),
@@ -55,6 +57,10 @@ public static class CentralDataStore
         db.LcrReports.RemoveRange(db.LcrReports);
         db.NsfrLineItems.RemoveRange(db.NsfrLineItems);
         db.NsfrReports.RemoveRange(db.NsfrReports);
+        db.FinStatementLineItems.RemoveRange(db.FinStatementLineItems);
+        db.FinStatements.RemoveRange(db.FinStatements);
+        db.ScenarioShocks.RemoveRange(db.ScenarioShocks);
+        db.Scenarios.RemoveRange(db.Scenarios);
         await db.SaveChangesAsync();
 
         // Reset surrogate identity ids so they are auto-generated on insert.
@@ -72,6 +78,16 @@ public static class CentralDataStore
             n.Id = 0;
             foreach (var i in n.LineItems) { i.Id = 0; i.NsfrReportId = 0; }
         }
+        foreach (var s in data.FinStatements)
+        {
+            s.Id = 0;
+            foreach (var i in s.LineItems) { i.Id = 0; i.FinStatementId = 0; }
+        }
+        foreach (var s in data.Scenarios)
+        {
+            s.Id = 0;
+            foreach (var i in s.Shocks) { i.Id = 0; i.ScenarioId = 0; }
+        }
 
         db.Deadlines.AddRange(data.Deadlines);
         db.KpiHistory.AddRange(data.KpisHistory);
@@ -83,6 +99,8 @@ public static class CentralDataStore
         db.CapitalReports.AddRange(data.CapitalReports);
         db.LcrReports.AddRange(data.LcrReports);
         db.NsfrReports.AddRange(data.NsfrReports);
+        db.FinStatements.AddRange(data.FinStatements);
+        db.Scenarios.AddRange(data.Scenarios);
 
         Upsert(db, "bilan", data.Bilan);
         Upsert(db, "riskAppetite", data.RiskAppetite);

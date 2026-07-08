@@ -23,6 +23,10 @@ public class AppDbContext : DbContext
     public DbSet<LcrReport> LcrReports => Set<LcrReport>();
     public DbSet<NsfrReport> NsfrReports => Set<NsfrReport>();
     public DbSet<NsfrLineItem> NsfrLineItems => Set<NsfrLineItem>();
+    public DbSet<FinStatement> FinStatements => Set<FinStatement>();
+    public DbSet<FinStatementLineItem> FinStatementLineItems => Set<FinStatementLineItem>();
+    public DbSet<Scenario> Scenarios => Set<Scenario>();
+    public DbSet<ScenarioShock> ScenarioShocks => Set<ScenarioShock>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -104,6 +108,24 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.NsfrReportId);
         });
+
+        b.Entity<FinStatement>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date, x.Kind }).IsUnique();
+            e.HasMany(x => x.LineItems).WithOne()
+                .HasForeignKey(x => x.FinStatementId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<FinStatementLineItem>(e => { e.HasKey(x => x.Id); e.HasIndex(x => x.FinStatementId); });
+
+        b.Entity<Scenario>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.BaseDate });
+            e.HasMany(x => x.Shocks).WithOne()
+                .HasForeignKey(x => x.ScenarioId).OnDelete(DeleteBehavior.Cascade);
+        });
+        b.Entity<ScenarioShock>(e => { e.HasKey(x => x.Id); e.HasIndex(x => x.ScenarioId); });
 
         b.Entity<AppSetting>().HasKey(x => x.Key);
     }

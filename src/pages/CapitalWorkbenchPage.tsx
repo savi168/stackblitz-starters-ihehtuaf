@@ -6,10 +6,13 @@ import {
   CapitalReport,
   CapitalRowMap,
   CapitalSection,
+  FinStatement,
+  FinStatementKind,
   ImportMapping,
   LcrReport,
   NsfrReport,
 } from '../types';
+import { computeFinSummary, createFinStatementTemplate, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import {
   computeCapitalSummary,
   createManualCapitalTemplate,
@@ -18,7 +21,10 @@ import {
   SECTION_LABELS,
 } from '../services/capital';
 import { resolveMapping } from '../services/importMapping';
-import { buildCapitalItemsTemplate, convertCapitalItemsCsv, downloadCsv, parseCsv } from '../services/csvImport';
+import {
+  buildCapitalItemsTemplate, buildFinStatementTemplate, convertCapitalItemsCsv,
+  convertFinStatementCsv, downloadCsv, parseCsv,
+} from '../services/csvImport';
 import type { ParsedImport } from '../services/excelImport';
 
 /**
@@ -555,7 +561,134 @@ const MappingEditor: React.FC<{
 
 // --- Page ---------------------------------------------------------------------------
 
-type WorkTab = 'equity' | 'deduction' | 'at1t2' | 'rwa' | 'lcr' | 'nsfr' | 'comments';
+type WorkTab = 'equity' | 'deduction' | 'at1t2' | 'rwa' | 'lcr' | 'nsfr' | 'finBs' | 'finPnl' | 'finEq' | 'comments';
+
+const FIN_TAB_KIND: Partial<Record<WorkTab, FinStatementKind>> = {
+  finBs: 'balanceSheet', finPnl: 'pnl', finEq: 'equity',
+};
+
+// --- Financial statement editor ------------------------------------------------------
+
+const FinStatementEditor: React.FC<{
+  statement: FinStatement | null;
+  kind: FinStatementKind;
+  entity: string;
+  date: string;
+  onChange: (s: FinStatement) => void;
+  onDelete: () => void;
+}> = ({ statement, kind, entity, date, onChange, onDelete }) => {
+  const csvInput = useRef<HTMLInputElement>(null);
+  const [csvError, setCsvError] = useState<string | null>(null);
+
+  const importCsv = async (file: File) => {
+    setCsvError(null);
+    try {
+      const { items, warnings } = convertFinStatementCsv(kind, parseCsv(await file.text()));
+      if (items.length === 0) throw new Error('No valid rows found.' + (warnings[0] ? ` ${warnings[0]}` : ''));
+      if (!window.confirm(`Import ${items.length} row(s) into the ${KIND_LABELS[kind]} of ${entity} — ${date}? (upsert by section+label)` +
+        (warnings.length ? `\n⚠ ${warnings.length} skipped` : ''))) return;
+      const base = statement ?? { ...createFinStatementTemplate(entity, date, kind), lineItems: [] };
+      const lineItems = [...base.lineItems];
+      for (const it of items) {
+        const idx = lineItems.findIndex(x => x.section === it.section && x.label.trim().toLowerCase() === it.label.toLowerCase());
+        if (idx >= 0) lineItems[idx] = { ...lineItems[idx], amount: it.amount, memo: it.memo || undefined };
+        else lineItems.push({ id: newItemId(), section: it.section, code: '', label: it.label, amount: it.amount, ...(it.memo ? { memo: true } : {}) });
+      }
+      onChange({ ...base, lineItems, source: 'excel', fileName: file.name });
+    } catch (err) {
+      setCsvError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (csvInput.current) csvInput.current.value = '';
+    }
+  };
+
+  const summary = statement ? computeFinSummary(statement) : null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        {!statement && (
+          <button onClick={() => onChange(createFinStatementTemplate(entity, date, kind))}
+            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors">
+            Start {KIND_LABELS[kind]} template
+          </button>
+        )}
+        <input ref={csvInput} type="file" accept=".csv,text/csv" className="hidden"
+          onChange={e => e.target.files?.[0] && importCsv(e.target.files[0])} />
+        <button onClick={() => csvInput.current?.click()}
+          className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors">
+          ⬆ Import CSV
+        </button>
+        <button onClick={() => downloadCsv(`${kind}_template.csv`, buildFinStatementTemplate(kind))}
+          className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-2 px-4 rounded-md transition-colors">
+          ⬇ CSV template
+        </button>
+        {statement && (
+          <button onClick={onDelete} className="text-sm text-status-red/80 hover:text-status-red underline ml-auto">
+            delete statement
+          </button>
+        )}
+      </div>
+      {csvError && <p className="text-sm text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-4 py-2">{csvError}</p>}
+
+      {statement && summary && (
+        <>
+          {KIND_SECTIONS[kind].map(({ key, label }) => {
+            const rows = statement.lineItems.filter(i => i.section === key);
+            return (
+              <div key={key}>
+                <SectionHeader title={label} suffix={`total ${fmt(summary.sections[key] ?? 0, 1)} mCHF`} />
+                <div className="overflow-x-auto border border-efg-line rounded-lg">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-efg-line">
+                      {rows.map(row => (
+                        <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
+                          <td className="px-4 py-1.5">
+                            <input type="text" value={row.label} placeholder="Label…"
+                              onChange={e => onChange({ ...statement, lineItems: statement.lineItems.map(i => i.id === row.id ? { ...i, label: e.target.value } : i) })}
+                              className={`w-full bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 ${row.memo ? 'text-brand-text-secondary italic' : 'text-brand-text-primary'}`} />
+                          </td>
+                          <td className="px-4 py-1.5 text-right w-44">
+                            <AmountInput value={row.amount}
+                              onCommit={v => onChange({ ...statement, lineItems: statement.lineItems.map(i => i.id === row.id ? { ...i, amount: v } : i) })}
+                              className={`w-36 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums ${row.memo ? 'text-brand-text-secondary italic' : row.amount < 0 ? 'text-status-red' : 'text-brand-text-primary'}`} />
+                          </td>
+                          <td className="px-3 py-1.5 text-center w-14">
+                            <input type="checkbox" checked={!!row.memo} title="Memo — excluded from totals"
+                              onChange={e => onChange({ ...statement, lineItems: statement.lineItems.map(i => i.id === row.id ? { ...i, memo: e.target.checked || undefined } : i) })}
+                              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer" />
+                          </td>
+                          <td className="px-2 py-1.5 text-center w-10">
+                            <button onClick={() => onChange({ ...statement, lineItems: statement.lineItems.filter(i => i.id !== row.id) })}
+                              className="text-gray-300 hover:text-status-red text-lg leading-none">×</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={() => onChange({ ...statement, lineItems: [...statement.lineItems, { id: newItemId(), section: key, code: '', label: '', amount: 0 }] })}
+                  className="mt-2 text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-3 rounded-md transition-colors">
+                  + Add row
+                </button>
+              </div>
+            );
+          })}
+          <p className={`text-sm font-semibold ${kind === 'balanceSheet' ? (summary.balanced ? 'text-status-green' : 'text-status-red') : 'text-brand-text-primary'}`}>
+            {summary.keyFigureLabel}: {fmt(summary.keyFigure, 1)} mCHF
+            {kind === 'balanceSheet' && (summary.balanced ? ' ✓ balanced' : ' ⚠ not balanced')}
+          </p>
+        </>
+      )}
+      {!statement && (
+        <p className="text-sm text-brand-text-secondary">
+          No {KIND_LABELS[kind]} for {entity} — {date} yet. Start from the template or import a CSV
+          (columns: section · label · amount · memo).
+        </p>
+      )}
+    </div>
+  );
+};
 
 // --- NSFR summary view -------------------------------------------------------------
 
@@ -698,6 +831,28 @@ export const CapitalWorkbenchPage: React.FC = () => {
     () => nsfrReports.find(r => r.entity === entity && r.date === effectiveDate) || null,
     [nsfrReports, entity, effectiveDate]
   );
+  const finStatements = data.finStatements || [];
+  const finFor = useCallback((kind: FinStatementKind) =>
+    finStatements.find(s => s.entity === entity && s.date === effectiveDate && s.kind === kind) || null,
+  [finStatements, entity, effectiveDate]);
+
+  const updateFinStatement = useCallback((s: FinStatement) => {
+    setData(prev => ({
+      ...prev,
+      finStatements: [
+        ...(prev.finStatements || []).filter(x => !(x.entity === s.entity && x.date === s.date && x.kind === s.kind)),
+        s,
+      ],
+    }));
+  }, [setData]);
+
+  const deleteFinStatement = useCallback((kind: FinStatementKind) => {
+    if (!window.confirm(`Delete the ${KIND_LABELS[kind]} for ${entity} — ${effectiveDate}?`)) return;
+    setData(prev => ({
+      ...prev,
+      finStatements: (prev.finStatements || []).filter(x => !(x.entity === entity && x.date === effectiveDate && x.kind === kind)),
+    }));
+  }, [setData, entity, effectiveDate]);
   const summary = useMemo(() => (report ? computeCapitalSummary(report) : null), [report]);
 
   // --- mutations (all end with re-projecting the aggregated KPI entry) ---
@@ -1030,10 +1185,13 @@ export const CapitalWorkbenchPage: React.FC = () => {
           <TabButton label="RWA" isActive={tab === 'rwa'} onClick={() => setTab('rwa')} />
           <TabButton label={`LCR (${entityLcrs.length})`} isActive={tab === 'lcr'} onClick={() => setTab('lcr')} />
           <TabButton label={`NSFR${nsfrReport ? ' ✓' : ''}`} isActive={tab === 'nsfr'} onClick={() => setTab('nsfr')} />
+          <TabButton label={`Balance Sheet${finFor('balanceSheet') ? ' ✓' : ''}`} isActive={tab === 'finBs'} onClick={() => setTab('finBs')} />
+          <TabButton label={`P&L${finFor('pnl') ? ' ✓' : ''}`} isActive={tab === 'finPnl'} onClick={() => setTab('finPnl')} />
+          <TabButton label={`Equity Stmt${finFor('equity') ? ' ✓' : ''}`} isActive={tab === 'finEq'} onClick={() => setTab('finEq')} />
           <TabButton label="Comments" isActive={tab === 'comments'} onClick={() => setTab('comments')} />
         </div>
 
-        {tab !== 'lcr' && tab !== 'nsfr' && !report && (
+        {tab !== 'lcr' && tab !== 'nsfr' && !FIN_TAB_KIND[tab] && tab !== 'comments' && !report && (
           <div className="text-center py-12 text-brand-text-secondary">
             <p className="mb-4">No capital report for <span className="font-semibold">{entity}</span>{effectiveDate && <> — {effectiveDate}</>} yet.</p>
             <p className="text-sm">Import the FINMA CASABIS Excel file, or start a manual template with the standard components (share capital, RSU, currency translation, goodwill, deferred tax…).</p>
@@ -1085,6 +1243,16 @@ export const CapitalWorkbenchPage: React.FC = () => {
               <p className="text-sm">Import the SNB <strong>NSFR_G</strong> Excel file (button above) — it fills the ASF/RSF detail, the weighted totals and the ratio, and feeds the NSFR KPI automatically.</p>
             </div>
           )
+        )}
+        {FIN_TAB_KIND[tab] && (
+          <FinStatementEditor
+            statement={finFor(FIN_TAB_KIND[tab]!)}
+            kind={FIN_TAB_KIND[tab]!}
+            entity={entity}
+            date={effectiveDate || new Date().toISOString().slice(0, 10)}
+            onChange={updateFinStatement}
+            onDelete={() => deleteFinStatement(FIN_TAB_KIND[tab]!)}
+          />
         )}
         {tab === 'comments' && (
           <div className="space-y-6 max-w-3xl">

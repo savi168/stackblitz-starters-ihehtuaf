@@ -38,6 +38,7 @@ export const HubPage: React.FC = () => {
     }> = [
         { title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'Regulatory', link: '/deadlines' },
         { title: 'Management Report', desc: 'Capital adequacy, LCR & NSFR pack: bridges between any periods, monthly detail, projections.', tag: 'Reporting', link: '/report' },
+        { title: 'Scenarios & Projections', desc: 'What-if simulation: acquisitions, disposals, HQLA trades — impact on CET1, LCR, NSFR.', tag: 'Simulation', link: '/scenarios' },
         { title: 'KPI Analysis', desc: 'Analysis, historical trends, and risk appetite in one place.', tag: 'Analysis', link: '/details' },
         { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns (CASABIS, LCR_G, NSFR_G) or enter components per entity.', tag: 'Data Entry', link: '/capital', adminOnly: true },
         { title: 'Daily Reports', desc: 'Daily / weekly LCR and large exposure reports for key entities.', tag: 'Monitoring', link: '/daily-reports' },
