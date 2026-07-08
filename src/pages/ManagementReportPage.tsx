@@ -38,6 +38,8 @@ interface CapitalPoint {
   cet1Ratio: number | null; at1Ratio: number | null; t2Ratio: number | null; totalRatio: number | null;
   leverageExposure: number | null; leverageRatio: number | null;
   isProjection: boolean;
+  /** 'report' = detailed Workbench/Excel report; 'kpi' = legacy KPI-history row only. */
+  source: 'report' | 'kpi';
   comments?: string;
   /** CET1 composition (from the projected KPI entry) — feeds the movement table. */
   breakdown?: CET1CapitalBreakdown;
@@ -68,6 +70,7 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
         leverageExposure: k.exposure || null,
         leverageRatio: k.exposure > 0 ? (k.tier1 / k.exposure) * 100 : null,
         isProjection: false,
+        source: 'kpi',
       });
     }
     // Detailed capital reports override (source of truth).
@@ -98,6 +101,7 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
         t2Ratio: s.rwaTotal > 0 ? (s.t2 / s.rwaTotal) * 100 : null, totalRatio: s.totalCapitalRatio,
         leverageExposure: s.leverageExposure, leverageRatio: s.leverageRatio,
         isProjection: !!r.isProjection,
+        source: 'report',
         comments: r.comments,
         rwaCcy: Object.keys(rwaCcy).length > 0 ? rwaCcy : undefined,
         rwaCcyLc: Object.keys(rwaCcyLc).length > 0 ? rwaCcyLc : undefined,
@@ -243,11 +247,15 @@ const AuditedHeader: React.FC<{ title: string; suffix?: string; queries: AuditQu
 const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
   const { getKpisForDate } = useData();
   const fullSeries = useCapitalSeries(entity);
+  // Some periods may only exist as legacy KPI-history rows (demo/manual KPI
+  // entries without a detailed Workbench report) — allow hiding them.
+  const [reportsOnly, setReportsOnly] = useState(false);
   // Reference basis: actuals up to the as-of date + forward projections.
   const series = useMemo(
-    () => fullSeries.filter(p => p.date <= asOf || p.isProjection),
-    [fullSeries, asOf]
+    () => fullSeries.filter(p => (p.date <= asOf || p.isProjection) && (!reportsOnly || p.source === 'report')),
+    [fullSeries, asOf, reportsOnly]
   );
+  const hasKpiOnly = fullSeries.some(p => p.source === 'kpi');
   const lastN = series.slice(-6);
 
   // Comparison period for the bridge (any earlier period; reference = as-of).
@@ -287,6 +295,18 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
 
   return (
     <div className="space-y-8">
+      {hasKpiOnly && (
+        <div className="flex items-center justify-between flex-wrap gap-2 -mb-3">
+          <p className="text-[11px] text-brand-text-secondary">
+            † = period backed only by a KPI-history row (no detailed Workbench report — e.g. demo or manually keyed KPI data).
+          </p>
+          <label className="flex items-center gap-2 text-[12px] text-brand-text-secondary cursor-pointer">
+            <input type="checkbox" checked={reportsOnly} onChange={e => setReportsOnly(e.target.checked)}
+              className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer" />
+            Workbench reports only
+          </label>
+        </div>
+      )}
       {/* Position: ratios + RWA + commentary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
@@ -360,7 +380,7 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
                 className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary"
               >
                 {series.filter(p => p.date !== asOf).map(p => (
-                  <option key={p.date} value={p.date}>{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}</option>
+                  <option key={p.date} value={p.date}>{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}{p.source === 'kpi' ? ' †' : ''}</option>
                 ))}
               </select>
             </div>
@@ -393,7 +413,7 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
                 <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold sticky left-0 bg-brand-bg-body">CHF mn</th>
                 {series.map(p => (
                   <th key={p.date} className={`px-3 py-2 text-right text-[10px] uppercase tracking-wider font-semibold ${p.isProjection ? 'text-brand-primary' : 'text-brand-text-secondary'}`}>
-                    {monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}
+                    {monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}{p.source === 'kpi' ? ' †' : ''}
                   </th>
                 ))}
               </tr>
@@ -1244,13 +1264,15 @@ const NsfrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =
 
 // --- Overview tab --------------------------------------------------------------------
 
-const OverviewTab: React.FC<{ onDrill: (entity: string, tab: ReportTab) => void }> = ({ onDrill }) => {
+const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: ReportTab) => void }> = ({ asOf, onDrill }) => {
   const { data, allEntities } = useData();
 
   const rows = useMemo(() => allEntities.map(entity => {
     const capSeries = (data.capitalReports || []).filter(r => r.entity === entity && !r.isProjection);
     const kpiDates = data.kpisHistory.filter(k => k.entity === entity).map(k => k.date);
-    const capDates = Array.from(new Set([...capSeries.map(r => r.date), ...kpiDates])).sort();
+    // Anchor on the global reference date: latest period at or before as-of.
+    const capDates = Array.from(new Set([...capSeries.map(r => r.date), ...kpiDates]))
+      .filter(d => d <= asOf).sort();
     const latestCap = capDates[capDates.length - 1];
     const prevCap = capDates[capDates.length - 2];
 
@@ -1269,20 +1291,22 @@ const OverviewTab: React.FC<{ onDrill: (entity: string, tab: ReportTab) => void 
     };
     const cur = capAt(latestCap); const prev = capAt(prevCap);
 
-    const lcrs = (data.lcrReports || []).filter(r => r.entity === entity && r.currency === 'TOT').sort((a, b) => a.date.localeCompare(b.date));
+    const lcrs = (data.lcrReports || []).filter(r => r.entity === entity && r.currency === 'TOT' && r.date <= asOf).sort((a, b) => a.date.localeCompare(b.date));
     const lcrCur = lcrs[lcrs.length - 1]; const lcrPrev = lcrs[lcrs.length - 2];
 
-    const nsfrs = (data.nsfrReports || []).filter(r => r.entity === entity).sort((a, b) => a.date.localeCompare(b.date));
+    const nsfrs = (data.nsfrReports || []).filter(r => r.entity === entity && r.date <= asOf).sort((a, b) => a.date.localeCompare(b.date));
     const nsfrCur = nsfrs[nsfrs.length - 1]; const nsfrPrev = nsfrs[nsfrs.length - 2];
 
     if (!cur && !lcrCur && !nsfrCur) return null;
-    return { entity, date: latestCap, cur, prev, lcrCur, lcrPrev, nsfrCur, nsfrPrev };
+    // Most recent underlying date actually shown on the card.
+    const shownDate = [latestCap, lcrCur?.date, nsfrCur?.date].filter(Boolean).sort().pop();
+    return { entity, date: shownDate, cur, prev, lcrCur, lcrPrev, nsfrCur, nsfrPrev };
   }).filter(Boolean) as Array<{
     entity: string; date?: string;
     cur: { cet1Ratio: number | null; totalRatio: number | null; leverage: number | null } | null;
     prev: { cet1Ratio: number | null; totalRatio: number | null; leverage: number | null } | null;
     lcrCur?: LcrReport; lcrPrev?: LcrReport; nsfrCur?: NsfrReport; nsfrPrev?: NsfrReport;
-  }>, [allEntities, data]);
+  }>, [allEntities, data, asOf]);
 
   const delta = (cur?: number | null, prev?: number | null) =>
     cur != null && prev != null ? `${cur - prev >= 0 ? '▲' : '▼'} ${Math.abs(cur - prev).toFixed(1)} p.p.` : undefined;
@@ -1377,7 +1401,7 @@ export const ManagementReportPage: React.FC = () => {
       </div>
 
       <div className="animate-fade-in">
-        {tab === 'overview' && <OverviewTab onDrill={(e, t) => { setEntity(e); setTab(t); }} />}
+        {tab === 'overview' && <OverviewTab asOf={asOf} onDrill={(e, t) => { setEntity(e); setTab(t); }} />}
         {tab === 'capital' && <CapitalTab entity={entity} asOf={asOf} />}
         {tab === 'lcr' && <LcrTab entity={entity} asOf={asOf} />}
         {tab === 'nsfr' && <NsfrTab entity={entity} asOf={asOf} />}

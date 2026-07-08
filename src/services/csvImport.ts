@@ -282,3 +282,67 @@ export const NATURAL_KEYS: Record<string, string[]> = {
   projectTasks: ['id'],
   deadlines: ['id'],
 };
+
+// --- Capital line-items bulk load (Workbench) -----------------------------------
+
+/**
+ * CSV template & conversion for bulk-loading capital line items (notably the
+ * memorandum data: CET1 movement detail lines, RWA by currency…) into ONE
+ * capital report (entity+date selected in the Workbench).
+ * Columns: section (equity|deduction|at1|t2|rwa), label, amount (signed,
+ * mCHF), memo (true/false), code (optional, auto if empty).
+ */
+export const buildCapitalItemsTemplate = (delim = ','): string => {
+  const rows = [
+    ['section', 'label', 'amount', 'memo', 'code'],
+    ['equity', 'Share buyback programme', '-38.9', 'true', ''],
+    ['equity', 'Acquisition Spark', '12.5', 'true', ''],
+    ['deduction', 'Goodwill (-)', '-115.5', 'false', 'goodwill'],
+    ['rwa', 'USD', '1634', 'true', ''],
+    ['rwa', 'USD (LC)', '2089', 'true', ''],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+const CAPITAL_SECTIONS = new Set(['equity', 'deduction', 'at1', 't2', 'rwa']);
+
+export interface CapitalItemsCsvResult {
+  items: Array<{ section: string; label: string; amount: number; memo: boolean; code: string }>;
+  warnings: string[];
+}
+
+export const convertCapitalItemsCsv = (lines: string[][]): CapitalItemsCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (name: string) => header.indexOf(name);
+  const iSection = col('section'), iLabel = col('label'), iAmount = col('amount');
+  const iMemo = col('memo'), iCode = col('code');
+  if (iSection === -1 || iLabel === -1 || iAmount === -1) {
+    throw new Error("The header must contain at least: section, label, amount (plus optional memo, code).");
+  }
+  const items: CapitalItemsCsvResult['items'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cells = lines[li];
+    const section = (cells[iSection] ?? '').trim().toLowerCase();
+    const label = (cells[iLabel] ?? '').trim();
+    const rawAmount = (cells[iAmount] ?? '').trim();
+    if (!section && !label) continue;
+    if (!CAPITAL_SECTIONS.has(section)) {
+      warnings.push(`Line ${li + 1}: unknown section "${section}" (expected equity|deduction|at1|t2|rwa) — skipped.`);
+      continue;
+    }
+    if (!label) { warnings.push(`Line ${li + 1}: empty label — skipped.`); continue; }
+    const amount = Number(rawAmount.replace(',', '.'));
+    if (isNaN(amount)) { warnings.push(`Line ${li + 1}: amount "${rawAmount}" is not a number — skipped.`); continue; }
+    const memoRaw = iMemo >= 0 ? (cells[iMemo] ?? '').trim().toLowerCase() : '';
+    items.push({
+      section,
+      label,
+      amount,
+      memo: ['true', '1', 'yes', 'x'].includes(memoRaw),
+      code: iCode >= 0 ? (cells[iCode] ?? '').trim() : '',
+    });
+  }
+  return { items, warnings };
+};

@@ -18,6 +18,7 @@ import {
   SECTION_LABELS,
 } from '../services/capital';
 import { resolveMapping } from '../services/importMapping';
+import { buildCapitalItemsTemplate, convertCapitalItemsCsv, downloadCsv, parseCsv } from '../services/csvImport';
 import type { ParsedImport } from '../services/excelImport';
 
 /**
@@ -667,6 +668,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [showMapping, setShowMapping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const itemsCsvInput = useRef<HTMLInputElement>(null);
 
   const capitalReports = data.capitalReports || [];
   const lcrReports = data.lcrReports || [];
@@ -775,6 +777,47 @@ export const CapitalWorkbenchPage: React.FC = () => {
     } finally {
       setImporting(false);
       if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  // Bulk line-items CSV (memoranda, CET1 detail, RWA by currency…): upserts
+  // into the CURRENT entity+date report, matched by section+label.
+  const handleItemsCsv = async (file: File) => {
+    setImportError(null);
+    try {
+      const text = await file.text();
+      const { items, warnings } = convertCapitalItemsCsv(parseCsv(text));
+      if (items.length === 0) throw new Error('No valid line items found in the CSV.' + (warnings.length ? ` ${warnings[0]}` : ''));
+      const targetDate = effectiveDate || new Date().toISOString().slice(0, 10);
+      if (!window.confirm(
+        `Import ${items.length} line item(s) into ${entity} — ${targetDate}?\n` +
+        `Rows with the same section+label are updated, new ones are appended.` +
+        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
+      )) return;
+
+      const base = report ?? { ...createManualCapitalTemplate(entity, targetDate), lineItems: [] as CapitalLineItem[] };
+      const lineItems = [...base.lineItems];
+      for (const it of items) {
+        const idx = lineItems.findIndex(x => x.section === it.section && x.label.trim().toLowerCase() === it.label.toLowerCase());
+        const patch = {
+          section: it.section as CapitalSection,
+          label: it.label,
+          amount: it.amount,
+          ...(it.memo ? { memo: true as const } : {}),
+        };
+        if (idx >= 0) {
+          lineItems[idx] = { ...lineItems[idx], ...patch, memo: it.memo || undefined };
+        } else {
+          lineItems.push({ id: newItemId(), code: it.code || `csv${Date.now() % 100000}${lineItems.length}`, ...patch });
+        }
+      }
+      updateReport({ ...base, lineItems });
+      if (!date) setDate(targetDate);
+      setNotice(`${items.length} line item(s) imported into ${entity} — ${targetDate} (upsert by section+label). Totals & KPI history updated.`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (itemsCsvInput.current) itemsCsvInput.current.value = '';
     }
   };
 
@@ -901,6 +944,31 @@ export const CapitalWorkbenchPage: React.FC = () => {
               Mapping{data.importMapping ? ' •' : ''}
             </button>
           </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <input
+            ref={itemsCsvInput}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={e => e.target.files?.[0] && handleItemsCsv(e.target.files[0])}
+          />
+          <button
+            onClick={() => itemsCsvInput.current?.click()}
+            title="Bulk-load line items (memoranda, CET1 movement detail, RWA by currency…) into the selected entity+date"
+            className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬆ Bulk line items (CSV)
+          </button>
+          <button
+            onClick={() => downloadCsv('CapitalLineItems_template.csv', buildCapitalItemsTemplate())}
+            className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬇ CSV template
+          </button>
+          <span className="text-[11px] text-brand-text-secondary">
+            columns: section (equity|deduction|at1|t2|rwa) · label · amount · memo (true/false) · code — upsert by section+label into {entity} — {effectiveDate || 'today'}
+          </span>
         </div>
         {importError && (
           <p className="mt-3 text-sm text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-4 py-2">{importError}</p>
