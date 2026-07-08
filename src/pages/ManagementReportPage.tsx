@@ -4,7 +4,7 @@ import {
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
-import { BackButton, Card, PageHeader, SectionHeader, TabButton } from '../components';
+import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
 import { CET1CapitalBreakdown, LcrReport, NsfrReport } from '../types';
 import { computeCapitalSummary } from '../services/capital';
 import { formatDate } from '../utils';
@@ -41,8 +41,12 @@ interface CapitalPoint {
   comments?: string;
   /** CET1 composition (from the projected KPI entry) — feeds the movement table. */
   breakdown?: CET1CapitalBreakdown;
-  /** RWA by currency: memo rows of the RWA section labelled with a 3-letter code. */
+  /** RWA by currency: memo rows of the RWA section labelled with a 3-letter code (CHF equivalent). */
   rwaCcy?: Record<string, number>;
+  /** RWA by currency in original currency: memo rows labelled "USD (LC)" etc. */
+  rwaCcyLc?: Record<string, number>;
+  /** Equity/deduction memo balances by label — feeds extra movement rows. */
+  memoBalances?: Record<string, number>;
 }
 
 const useCapitalSeries = (entity: string): CapitalPoint[] => {
@@ -69,11 +73,20 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
     // Detailed capital reports override (source of truth).
     for (const r of (data.capitalReports || []).filter(r => r.entity === entity)) {
       const s = computeCapitalSummary(r);
-      // RWA-by-currency memo rows: RWA-section memo items labelled "USD", "EUR"…
+      // RWA-by-currency memo rows: "USD" = CHF equivalent, "USD (LC)" = original currency.
       const rwaCcy: Record<string, number> = {};
+      const rwaCcyLc: Record<string, number> = {};
+      // Equity/deduction memo balances (share buyback, acquisitions, shares sold…).
+      const memoBalances: Record<string, number> = {};
       for (const i of r.lineItems) {
-        if (i.section === 'rwa' && i.memo && /^[A-Z]{3}$/.test(i.label.trim())) {
-          rwaCcy[i.label.trim()] = (rwaCcy[i.label.trim()] || 0) + i.amount;
+        const label = i.label.trim();
+        if (i.section === 'rwa' && i.memo) {
+          const lc = label.match(/^([A-Z]{3})\s*\(LC\)$/i);
+          if (lc) rwaCcyLc[lc[1].toUpperCase()] = (rwaCcyLc[lc[1].toUpperCase()] || 0) + i.amount;
+          else if (/^[A-Z]{3}$/.test(label)) rwaCcy[label] = (rwaCcy[label] || 0) + i.amount;
+        }
+        if ((i.section === 'equity' || i.section === 'deduction') && i.memo && label) {
+          memoBalances[label] = (memoBalances[label] || 0) + i.amount;
         }
       }
       points.set(r.date, {
@@ -87,6 +100,8 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
         isProjection: !!r.isProjection,
         comments: r.comments,
         rwaCcy: Object.keys(rwaCcy).length > 0 ? rwaCcy : undefined,
+        rwaCcyLc: Object.keys(rwaCcyLc).length > 0 ? rwaCcyLc : undefined,
+        memoBalances: Object.keys(memoBalances).length > 0 ? memoBalances : undefined,
       });
     }
     // CET1 breakdown comes from the projected KPI entry (kept in sync for both
@@ -135,18 +150,111 @@ const CommentPanel: React.FC<{ title: string; text?: string }> = ({ title, text 
 
 const axisStyle = { fontSize: 11, fill: PALETTE.muted };
 
+// --- Audit trail -------------------------------------------------------------------
+
+interface AuditQuery {
+  /** What is displayed (e.g. "CET1 / RWA charts"). */
+  what: string;
+  /** Store object + filter, e.g. capitalReports [entity=Group, date=2025-12-31]. */
+  object: string;
+  filter: string;
+  /** REST endpoint that returns the same rows in API mode. */
+  endpoint: string;
+  /** SQL executed against SQL Server (API mode). */
+  sql: string;
+  /** Derivation formulas / notes. */
+  notes?: string[];
+}
+
+/**
+ * Data-lineage popover: shows, for each block of the report, exactly which
+ * store object / SQL query / REST endpoint feeds it and how the figures are
+ * derived. Opens from the small "audit" button (and right-click) on each card.
+ */
+const AuditButton: React.FC<{ queries: AuditQuery[] }> = ({ queries }) => {
+  const [open, setOpen] = useState(false);
+  const { mode, apiBaseUrl } = useData();
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        onContextMenu={e => { e.preventDefault(); setOpen(true); }}
+        title="Audit trail — where this data comes from"
+        className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary rounded px-2 py-1 transition-colors"
+      >
+        ⚲ Audit
+      </button>
+      {open && (
+        <Modal isOpen onClose={() => setOpen(false)} title="Audit trail — data lineage">
+          <div className="space-y-5 text-sm">
+            <p className="text-brand-text-secondary">
+              Source mode: <span className="font-semibold text-brand-text-primary">{mode === 'api' ? `REST API + SQL Server (${apiBaseUrl})` : 'Browser storage (localStorage["regReportData"]) — same structure as the SQL tables'}</span>.
+              The data flows Excel/manual entry → Workbench → relational store → this report; the aggregated
+              KPI history is a projection of the detailed reports.
+            </p>
+            {queries.map((q, i) => (
+              <div key={i} className="border border-efg-line rounded-lg overflow-hidden">
+                <div className="bg-brand-bg-body px-4 py-2 text-[11px] uppercase tracking-[0.12em] font-semibold text-brand-text-primary">{q.what}</div>
+                <table className="w-full text-[13px]">
+                  <tbody className="divide-y divide-efg-line">
+                    <tr>
+                      <td className="px-4 py-2 text-brand-text-secondary w-28 align-top">Object</td>
+                      <td className="px-4 py-2 font-mono">{q.object} <span className="text-brand-text-secondary">{q.filter}</span></td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 text-brand-text-secondary align-top">Endpoint</td>
+                      <td className="px-4 py-2 font-mono text-[12px]">{q.endpoint}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 text-brand-text-secondary align-top">SQL</td>
+                      <td className="px-4 py-2 font-mono text-[12px] whitespace-pre-wrap">{q.sql}</td>
+                    </tr>
+                    {q.notes && q.notes.length > 0 && (
+                      <tr>
+                        <td className="px-4 py-2 text-brand-text-secondary align-top">Derivation</td>
+                        <td className="px-4 py-2">
+                          <ul className="list-disc list-inside space-y-0.5 text-[12px]">
+                            {q.notes.map((n, j) => <li key={j}>{n}</li>)}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+};
+
+/** SectionHeader + audit button on one line. */
+const AuditedHeader: React.FC<{ title: string; suffix?: string; queries: AuditQuery[] }> = ({ title, suffix, queries }) => (
+  <div className="flex items-start justify-between gap-3">
+    <div className="flex-1 min-w-0"><SectionHeader title={title} suffix={suffix} /></div>
+    <AuditButton queries={queries} />
+  </div>
+);
+
 // --- Capital tab ---------------------------------------------------------------------
 
-const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
+const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
   const { getKpisForDate } = useData();
-  const series = useCapitalSeries(entity);
+  const fullSeries = useCapitalSeries(entity);
+  // Reference basis: actuals up to the as-of date + forward projections.
+  const series = useMemo(
+    () => fullSeries.filter(p => p.date <= asOf || p.isProjection),
+    [fullSeries, asOf]
+  );
   const lastN = series.slice(-6);
 
-  // Bridge period selectors (any two periods, projections included).
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const effFrom = fromDate || (series.length >= 2 ? series[series.length - 2].date : '');
-  const effTo = toDate || (series.length >= 1 ? series[series.length - 1].date : '');
+  // Comparison period for the bridge (any earlier period; reference = as-of).
+  const [compareDate, setCompareDate] = useState('');
+  const beforeAsOf = series.filter(p => p.date < asOf);
+  const effFrom = compareDate || (beforeAsOf.length > 0 ? beforeAsOf[beforeAsOf.length - 1].date : '');
+  const effTo = asOf;
 
   const bridge = useMemo(() => {
     if (!effFrom || !effTo || effFrom === effTo) return null;
@@ -182,7 +290,18 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
       {/* Position: ratios + RWA + commentary */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
-          <SectionHeader title="Regulatory capital position" suffix="total capital ratios, %" />
+          <AuditedHeader title="Regulatory capital position" suffix="total capital ratios, %" queries={[{
+            what: 'Capital ratios & RWA charts',
+            object: 'capitalReports',
+            filter: `[entity=${entity}, date ≤ ${asOf} + projections]`,
+            endpoint: `GET /api/capital-reports?entity=${entity}`,
+            sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}' AND (r.Date <= '${asOf}' OR r.IsProjection = 1)`,
+            notes: [
+              'CET1 = Σ equity + Σ deductions (non-memo line items); fallback: KpiHistory row when no detailed report exists.',
+              'CET1 ratio = CET1 / Total RWA; AT1+T2 band = (AT1 + T2) / Total RWA.',
+              'RWA chart in CHF bn = mCHF / 1000.',
+            ],
+          }]} />
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={ratioChart} margin={{ top: 24, right: 8, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
@@ -218,25 +337,34 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
         <CommentPanel title="Active capital management" text={comments} />
       </div>
 
-      {/* Bridge between any two periods */}
+      {/* Bridge: comparison period vs the as-of reference */}
       <Card>
         <div className="flex flex-wrap items-end justify-between gap-4 mb-2">
-          <SectionHeader title="Capital bridge — evolution of CET1 capital ratio" suffix="between any two periods" />
-          <div className="flex gap-3">
-            {[['From', effFrom, setFromDate], ['To', effTo, setToDate]].map(([label, val, set]) => (
-              <div key={label as string}>
-                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">{label as string}</label>
-                <select
-                  value={val as string}
-                  onChange={e => (set as (v: string) => void)(e.target.value)}
-                  className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary"
-                >
-                  {series.map(p => (
-                    <option key={p.date} value={p.date}>{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
+          <AuditedHeader title="Capital bridge — evolution of CET1 capital ratio" suffix={`compared period → reference ${monthLabel(asOf)}`} queries={[{
+            what: 'CET1 ratio bridge (waterfall)',
+            object: 'kpisHistory (projection of capitalReports)',
+            filter: `[entity=${entity}, date ∈ {${effFrom}, ${effTo}}]`,
+            endpoint: `GET /api/kpis/${entity}/${effFrom} · GET /api/kpis/${entity}/${effTo}`,
+            sql: `SELECT * FROM KpiHistory\nWHERE Entity = '${entity}' AND Date IN ('${effFrom}', '${effTo}')`,
+            notes: [
+              'Movements from the CET1 composition (cet1CapitalBreakdown): P&L Δ, dividend accrual, share buy-back, other.',
+              'Ratio impact of each movement ≈ Δcapital / RWA(start); RWA & CTA = denominator effect; residual plugged into "Other".',
+            ],
+          }]} />
+          <div className="flex gap-3 items-end">
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
+              <select
+                value={effFrom}
+                onChange={e => setCompareDate(e.target.value)}
+                className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary"
+              >
+                {series.filter(p => p.date !== asOf).map(p => (
+                  <option key={p.date} value={p.date}>{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div className="pb-2 text-sm text-brand-text-secondary">→ <span className="font-semibold text-brand-text-primary">{monthLabel(asOf)}</span></div>
           </div>
         </div>
         {bridge ? (
@@ -250,7 +378,14 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
 
       {/* Regulatory capital summary — monthly table */}
       <Card>
-        <SectionHeader title="Regulatory capital summary" suffix="CHF mn — (P) = projection" />
+        <AuditedHeader title="Regulatory capital summary" suffix="CHF mn — (P) = projection" queries={[{
+          what: 'Monthly regulatory capital summary',
+          object: 'capitalReports (+ kpisHistory fallback)',
+          filter: `[entity=${entity}, date ≤ ${asOf} + projections]`,
+          endpoint: `GET /api/capital-reports?entity=${entity}`,
+          sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}'\nORDER BY r.Date`,
+          notes: ['One column per reporting date; capital & RWA aggregates computed from the line items (memo rows excluded).'],
+        }]} />
         <div className="overflow-x-auto border border-efg-line rounded-lg">
           <table className="w-full text-xs whitespace-nowrap">
             <thead className="bg-brand-bg-body">
@@ -293,10 +428,10 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
       </Card>
 
       {/* CET1 movement details month by month */}
-      <Cet1MovementTable series={series} />
+      <Cet1MovementTable series={series} entity={entity} />
 
       {/* RWA by currency (memo rows) */}
-      <RwaCurrencyTable series={series} />
+      <RwaCurrencyTable series={series} entity={entity} />
 
       {/* Positions by regulated entity */}
       <EntitiesTable />
@@ -316,10 +451,10 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
  * accrual, share buy-back and other equity movements (from the CET1
  * composition), plus the RWA movement by risk type; YTD = last vs first.
  */
-const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
+const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = ({ series, entity }) => {
   const moves = useMemo(() => {
     const out: Array<{
-      label: string; isProjection: boolean;
+      idx: number; label: string; isProjection: boolean;
       pnl: number | null; dividend: number | null; buyback: number | null; other: number | null;
       totalCet1: number; credit: number; market: number; op: number; otherRwa: number; totalRwa: number;
       ratioDelta: number | null;
@@ -338,7 +473,7 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => 
         other = totalCet1 - pnl - dividend - buyback;
       }
       out.push({
-        label: monthLabel(b.date), isProjection: b.isProjection,
+        idx: i, label: monthLabel(b.date), isProjection: b.isProjection,
         pnl, dividend, buyback, other, totalCet1,
         credit: b.creditRwa - a.creditRwa, market: b.marketRwa - a.marketRwa,
         op: b.opRwa - a.opRwa, otherRwa: b.otherRwa - a.otherRwa, totalRwa: b.rwaTotal - a.rwaTotal,
@@ -371,9 +506,36 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => 
     ['Net CET1 ratio movement (p.p.)', m => m.ratioDelta, true],
   ];
 
+  // Extra movement lines from the equity/deduction MEMO rows entered in the
+  // Workbench ("Share buyback programme", "Acquisition", "Shares sold"…):
+  // period-on-period delta of each memo balance, matched by label.
+  const memoRows = useMemo(() => {
+    const labels = new Set<string>();
+    series.forEach(p => Object.keys(p.memoBalances || {}).forEach(l => labels.add(l)));
+    return Array.from(labels).sort().map(label => ({
+      label,
+      get: (m: { idx: number }) => {
+        const a = series[m.idx - 1], b = series[m.idx];
+        if (!a.memoBalances && !b.memoBalances) return null;
+        return (b.memoBalances?.[label] ?? 0) - (a.memoBalances?.[label] ?? 0);
+      },
+    }));
+  }, [series]);
+
   return (
     <Card>
-      <SectionHeader title="CET1 movement details" suffix="period-on-period, CHF mn — negatives in ( )" />
+      <AuditedHeader title="CET1 movement details" suffix="period-on-period, CHF mn — negatives in ( )" queries={[{
+        what: 'CET1 & RWA movement decomposition',
+        object: 'kpisHistory.cet1CapitalBreakdown + capitalReports memo rows',
+        filter: `[entity=${entity}, consecutive period pairs]`,
+        endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
+        sql: `SELECT Entity, Date, Cet1Capital, Cet1CapitalBreakdown\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')`,
+        notes: [
+          'P&L / dividend / buy-back = period delta of the YTD composition figures (reset to zero on a new financial year).',
+          'Other equity movement = ΔCET1 − P&L − dividend − buy-back (residual).',
+          'Memorandum lines = period delta of each memo balance entered in the Workbench, matched by label.',
+        ],
+      }]} />
       <div className="overflow-x-auto border border-efg-line rounded-lg">
         <table className="w-full text-xs whitespace-nowrap">
           <thead className="bg-brand-bg-body">
@@ -402,6 +564,29 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => 
                 <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ (ytd(get) ?? 0) < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}>{signed(ytd(get))}</td>
               </tr>
             ))}
+            {memoRows.length > 0 && (
+              <>
+                <tr className="border-t border-brand-text-primary/30 bg-brand-bg-body">
+                  <td colSpan={moves.length + 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
+                    Memorandum movements (Workbench memo rows — not part of the CET1 total)
+                  </td>
+                </tr>
+                {memoRows.map(({ label, get }) => (
+                  <tr key={label} className="border-t border-efg-line">
+                    <td className="px-3 py-1.5 text-brand-text-secondary italic sticky left-0 bg-white">{label}</td>
+                    {moves.map(m => {
+                      const v = get(m);
+                      return (
+                        <td key={m.label} className={`px-3 py-1.5 text-right tabular-nums italic ${v !== null && v < 0 ? 'text-status-red' : 'text-brand-text-secondary'}`}>
+                          {signed(v)}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-1.5 text-right tabular-nums italic bg-brand-bg-body/40 text-brand-text-secondary">{signed(ytd(get))}</td>
+                  </tr>
+                ))}
+              </>
+            )}
           </tbody>
         </table>
       </div>
@@ -410,12 +595,23 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => 
           P&L / dividend / buy-back splits need the CET1 composition on both periods (available for imported or workbench-entered data).
         </p>
       )}
+      <p className="text-[11px] text-brand-text-secondary mt-2">
+        To add more movement lines (acquisitions, disposals, RSUs, CTA…): enter them as <em>memo</em> rows in the
+        Workbench (Shareholder Equity / Deductions tabs) with the same label on each period — the table shows the
+        period-on-period delta automatically.
+      </p>
     </Card>
   );
 };
 
-/** RWA by currency — driven by memo rows of the RWA section labelled "USD", "EUR", … */
-const RwaCurrencyTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
+/**
+ * RWA by currency — driven by memo rows of the RWA section:
+ *  "USD"       → CHF-equivalent RWA (mCHF)
+ *  "USD (LC)"  → RWA in original currency (m units)
+ * When both exist, the implied FX rate is derived and, between the two most
+ * recent periods, the RWA growth is decomposed into FX impact vs business.
+ */
+const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = ({ series, entity }) => {
   const withCcy = series.filter(p => p.rwaCcy);
   const currencies = useMemo(() => {
     const set = new Set<string>();
@@ -423,26 +619,81 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
     return Array.from(set).sort();
   }, [withCcy]);
 
+  const rate = (p: CapitalPoint, c: string): number | null => {
+    const chf = p.rwaCcy?.[c]; const lc = p.rwaCcyLc?.[c];
+    return chf !== undefined && lc !== undefined && lc !== 0 ? chf / lc : null;
+  };
+
+  // FX vs business decomposition between the two latest periods with data.
+  const growth = useMemo(() => {
+    if (withCcy.length < 2) return null;
+    const a = withCcy[withCcy.length - 2], b = withCcy[withCcy.length - 1];
+    const rows = currencies.map(c => {
+      const lcA = a.rwaCcyLc?.[c], lcB = b.rwaCcyLc?.[c];
+      const rA = rate(a, c), rB = rate(b, c);
+      if (lcA === undefined || lcB === undefined || rA === null || rB === null) return null;
+      return {
+        currency: c,
+        fxImpact: lcA * (rB - rA),          // rate move on the opening balance
+        business: (lcB - lcA) * rB,          // volume move at the closing rate
+        total: (b.rwaCcy?.[c] ?? 0) - (a.rwaCcy?.[c] ?? 0),
+      };
+    }).filter(Boolean) as Array<{ currency: string; fxImpact: number; business: number; total: number }>;
+    return rows.length > 0 ? { from: a.date, to: b.date, rows } : null;
+  }, [withCcy, currencies]);
+
+  const hasLc = withCcy.some(p => p.rwaCcyLc);
+
   return (
     <Card>
-      <SectionHeader title="RWA by currency" suffix="CHF equivalent, CHF mn — memorandum" />
+      <AuditedHeader title="RWA by currency" suffix="memorandum — CHF mn / original currency" queries={[{
+        what: 'RWA by currency + FX decomposition',
+        object: 'capitalReports.lineItems (RWA section, memo)',
+        filter: `[entity=${entity}, label = 'USD' (CHF eq.) / 'USD (LC)' (original ccy)]`,
+        endpoint: `GET /api/capital-reports?entity=${entity}`,
+        sql: `SELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Section = 'rwa' AND i.Memo = 1`,
+        notes: [
+          'Implied FX rate = CHF equivalent / local-currency amount.',
+          'FX impact = LC(prev) × (rate(cur) − rate(prev)); business growth = ΔLC × rate(cur).',
+        ],
+      }]} />
       {currencies.length === 0 ? (
         <p className="text-sm text-brand-text-secondary py-4">
           No currency memoranda yet. In the <strong>Workbench → RWA</strong> tab, add <em>memo</em> rows labelled with the
-          3-letter currency code (USD, EUR, GBP…) and the CHF-equivalent RWA amount — they appear here automatically, per period.
+          3-letter currency code (<code>USD</code> = CHF equivalent) and optionally <code>USD (LC)</code> = amount in
+          original currency — the table, implied FX rates and the FX-vs-business growth split appear automatically.
         </p>
       ) : (
         <div className="overflow-x-auto border border-efg-line rounded-lg">
           <table className="w-full text-xs whitespace-nowrap">
             <thead className="bg-brand-bg-body">
               <tr>
-                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Currency</th>
+                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Item</th>
                 {withCcy.map(p => (
                   <th key={p.date} className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-efg-line">
+              {hasLc && (
+                <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Original currencies (m units)</td></tr>
+              )}
+              {hasLc && currencies.map(c => (
+                <tr key={c + '-lc'}>
+                  <td className="px-3 py-1.5 text-brand-text-primary">{c}</td>
+                  {withCcy.map(p => <td key={p.date} className="px-3 py-1.5 text-right tabular-nums">{p.rwaCcyLc?.[c] !== undefined ? fmt(p.rwaCcyLc[c], 0) : '—'}</td>)}
+                </tr>
+              ))}
+              {hasLc && (
+                <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Implied exchange rates</td></tr>
+              )}
+              {hasLc && currencies.map(c => (
+                <tr key={c + '-fx'}>
+                  <td className="px-3 py-1.5 text-brand-text-secondary italic">{c}/CHF</td>
+                  {withCcy.map(p => { const r = rate(p, c); return <td key={p.date} className="px-3 py-1.5 text-right tabular-nums italic text-brand-text-secondary">{r !== null ? r.toFixed(4) : '—'}</td>; })}
+                </tr>
+              ))}
+              <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">CHF equivalent (mCHF)</td></tr>
               {currencies.map(c => (
                 <tr key={c}>
                   <td className="px-3 py-1.5 font-semibold text-brand-text-primary">{c}</td>
@@ -455,6 +706,41 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {growth && (
+        <div className="mt-4">
+          <p className="text-[11px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary mb-2">
+            Breakdown of RWA growth — {monthLabel(growth.from)} → {monthLabel(growth.to)} (CHF mn)
+          </p>
+          <div className="overflow-x-auto border border-efg-line rounded-lg max-w-xl">
+            <table className="w-full text-xs whitespace-nowrap">
+              <thead className="bg-brand-bg-body">
+                <tr>
+                  {['Currency', 'FX impact', 'Business growth', 'Total Δ (CHF eq.)'].map((h, i) => (
+                    <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 ? 'text-right' : 'text-left'}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-efg-line">
+                {growth.rows.map(r => (
+                  <tr key={r.currency}>
+                    <td className="px-3 py-1.5 font-semibold">{r.currency}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.fxImpact < 0 ? 'text-status-red' : ''}`}>{fmt(r.fxImpact, 0)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.business < 0 ? 'text-status-red' : ''}`}>{fmt(r.business, 0)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${r.total < 0 ? 'text-status-red' : ''}`}>{fmt(r.total, 0)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-brand-bg-body/60 font-semibold border-t border-brand-text-primary/30">
+                  <td className="px-3 py-2">Total</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(growth.rows.reduce((a, r) => a + r.fxImpact, 0), 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(growth.rows.reduce((a, r) => a + r.business, 0), 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(growth.rows.reduce((a, r) => a + r.total, 0), 0)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </Card>
@@ -502,7 +788,18 @@ const EntitiesTable: React.FC = () => {
   if (rows.length === 0) return null;
   return (
     <Card>
-      <SectionHeader title="Capital positions by regulated entity" suffix="latest available period per entity, CHF mn — local requirement is editable" />
+      <AuditedHeader title="Capital positions by regulated entity" suffix="latest available period per entity, CHF mn — local requirement is editable" queries={[{
+        what: 'Per-entity capital positions + local requirements',
+        object: 'capitalReports (latest per entity) + Settings[riskAppetite]',
+        filter: '[latest non-projection date per entity]',
+        endpoint: 'GET /api/capital-reports · GET /api/settings/risk-appetite',
+        sql: `SELECT r.* FROM CapitalReports r\nWHERE r.IsProjection IS NULL OR r.IsProjection = 0\n  AND r.Date = (SELECT MAX(Date) FROM CapitalReports WHERE Entity = r.Entity);\nSELECT [Value] FROM Settings WHERE [Key] = 'riskAppetite'`,
+        notes: [
+          'Min capital requirement = Total RWA × local requirement %.',
+          'Capital excess = eligible capital − minimum requirement.',
+          'Editing the % writes riskAppetite[entity].localCapitalRequirement (persisted with the settings).',
+        ],
+      }]} />
       <div className="overflow-x-auto border border-efg-line rounded-lg">
         <table className="w-full text-xs whitespace-nowrap">
           <thead className="bg-brand-bg-body">
@@ -558,7 +855,7 @@ const EntitiesTable: React.FC = () => {
 
 // --- LCR tab -----------------------------------------------------------------------
 
-const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
+const LcrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
   const { data, allEntities } = useData();
   const lcrs = data.lcrReports || [];
 
@@ -566,9 +863,10 @@ const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
     () => Array.from(new Set(lcrs.map(r => r.date))).sort(),
     [lcrs]
   );
-  const [asOf, setAsOf] = useState('');
-  const effAsOf = asOf || dates[dates.length - 1] || '';
-  const prevDate = dates.filter(d => d < effAsOf).pop();
+  // Reference = global as-of (falls back to the latest LCR date at or before it).
+  const effAsOf = dates.filter(d => d <= asOf).pop() || dates[dates.length - 1] || '';
+  const [compare, setCompare] = useState('');
+  const prevDate = (compare && compare < effAsOf ? compare : undefined) || dates.filter(d => d < effAsOf).pop();
 
   // Overview: current vs previous LCR (TOT) per entity.
   const overview = useMemo(() => allEntities.map(e => {
@@ -639,11 +937,26 @@ const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <SectionHeader title={`LCR — Overview as of ${monthLabel(effAsOf)}`} suffix={prevDate ? `vs ${monthLabel(prevDate)}` : undefined} />
+        <div className="flex-1 min-w-0 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <SectionHeader title={`LCR — Overview as of ${monthLabel(effAsOf)}`} suffix={prevDate ? `vs ${monthLabel(prevDate)}` : undefined} />
+          </div>
+          <AuditButton queries={[{
+            what: 'LCR overview, history & currency detail',
+            object: 'lcrReports',
+            filter: `[date ∈ {${prevDate || '—'}, ${effAsOf}}; detail: entity=${entity}]`,
+            endpoint: `GET /api/lcr-reports?date=${effAsOf} · GET /api/lcr-reports?entity=${entity}&date=${effAsOf}`,
+            sql: `SELECT * FROM LcrReports\nWHERE Date IN ('${prevDate || ''}', '${effAsOf}')\nORDER BY Entity, Currency`,
+            notes: [
+              'LCR = Total HQLA / Net outflows; Net outflows = Total outflows − Inflows after cap.',
+              'Level 2 after cap = Total HQLA − Level 1; flow components are the weighted SNB rows (81, 121, 138, 195, 206).',
+            ],
+          }]} />
+        </div>
         <div>
-          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">As of</label>
-          <select value={effAsOf} onChange={e => setAsOf(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
-            {dates.map(d => <option key={d} value={d}>{monthLabel(d)}</option>)}
+          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
+          <select value={prevDate || ''} onChange={e => setCompare(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+            {dates.filter(d => d < effAsOf).map(d => <option key={d} value={d}>{monthLabel(d)}</option>)}
           </select>
         </div>
       </div>
@@ -799,15 +1112,19 @@ const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
 
 // --- NSFR tab ----------------------------------------------------------------------
 
-const NsfrTab: React.FC<{ entity: string }> = ({ entity }) => {
+const NsfrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
   const { data } = useData();
   const reports = useMemo(
     () => (data.nsfrReports || []).filter(r => r.entity === entity).sort((a, b) => a.date.localeCompare(b.date)),
     [data.nsfrReports, entity]
   );
-  const [asOf, setAsOf] = useState('');
-  const current = reports.find(r => r.date === (asOf || reports[reports.length - 1]?.date));
-  const previous = current ? [...reports].reverse().find(r => r.date < current.date) : undefined;
+  const [compare, setCompare] = useState('');
+  // Reference = global as-of (latest NSFR report at or before it).
+  const current = [...reports].reverse().find(r => r.date <= asOf) || reports[reports.length - 1];
+  const previous = current
+    ? (compare && compare < current.date ? reports.find(r => r.date === compare) : undefined)
+      || [...reports].reverse().find(r => r.date < current.date)
+    : undefined;
 
   if (!current) {
     return <p className="text-brand-text-secondary py-10 text-center">No NSFR data for {entity} yet — import the SNB NSFR_G file in the Workbench.</p>;
@@ -877,13 +1194,30 @@ const NsfrTab: React.FC<{ entity: string }> = ({ entity }) => {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <SectionHeader title={`NSFR — ${entity}`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''}`} />
-        <div>
-          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">As of</label>
-          <select value={current.date} onChange={e => setAsOf(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
-            {reports.map(r => <option key={r.date} value={r.date}>{monthLabel(r.date)}</option>)}
-          </select>
+        <div className="flex-1 min-w-0 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <SectionHeader title={`NSFR — ${entity}`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''}`} />
+          </div>
+          <AuditButton queries={[{
+            what: 'NSFR summary & section tables',
+            object: 'nsfrReports (+ line items)',
+            filter: `[entity=${entity}, date ∈ {${previous?.date || '—'}, ${current.date}}]`,
+            endpoint: `GET /api/nsfr-reports?entity=${entity}&date=${current.date}`,
+            sql: `SELECT r.*, i.* FROM NsfrReports r\nJOIN NsfrLineItems i ON i.NsfrReportId = r.Id\nWHERE r.Entity = '${entity}' AND r.Date IN ('${previous?.date || ''}', '${current.date}')`,
+            notes: [
+              'Weighted totals (ASF/RSF) & ratio come from the NSFR_G form (column V); bucket amounts are pre-weighting.',
+              'Δ column = total raw amount vs the comparison period, matched by SNB row code.',
+            ],
+          }]} />
         </div>
+        {reports.length > 1 && (
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
+            <select value={previous?.date || ''} onChange={e => setCompare(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+              {reports.filter(r => r.date < current.date).map(r => <option key={r.date} value={r.date}>{monthLabel(r.date)}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 border border-efg-line rounded-lg overflow-hidden divide-x divide-efg-line">
@@ -992,23 +1326,45 @@ const OverviewTab: React.FC<{ onDrill: (entity: string, tab: ReportTab) => void 
 type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr';
 
 export const ManagementReportPage: React.FC = () => {
-  const { allEntities } = useData();
+  const { data, allEntities } = useData();
   const [tab, setTab] = useState<ReportTab>('overview');
   const [entity, setEntity] = useState(allEntities[0] || 'Group');
+  const [refDate, setRefDate] = useState('');
+
+  // Reference basis dates: every actual (non-projection) period known across
+  // capital, LCR, NSFR and the KPI history — for any entity.
+  const referenceDates = useMemo(() => {
+    const set = new Set<string>();
+    (data.capitalReports || []).filter(r => !r.isProjection).forEach(r => set.add(r.date));
+    (data.lcrReports || []).forEach(r => set.add(r.date));
+    (data.nsfrReports || []).forEach(r => set.add(r.date));
+    data.kpisHistory.forEach(k => set.add(k.date));
+    return Array.from(set).sort();
+  }, [data]);
+
+  const asOf = refDate || referenceDates[referenceDates.length - 1] || '';
 
   return (
     <div className="p-5 md:p-8">
       <BackButton />
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <PageHeader title="Management Report" subtitle="Capital adequacy, LCR and NSFR — history, variance between any periods, projections" />
-        {tab !== 'overview' && (
-          <div className="mb-6">
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Entity</label>
-            <select value={entity} onChange={e => setEntity(e.target.value)} className="p-2.5 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary min-w-44">
-              {allEntities.map(e => <option key={e} value={e}>{e}</option>)}
+        <PageHeader title="Management Report" subtitle="Capital adequacy, LCR and NSFR — one reference date, per-section comparisons, projections" />
+        <div className="mb-6 flex gap-3">
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reference date (as of)</label>
+            <select value={asOf} onChange={e => setRefDate(e.target.value)} className="p-2.5 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary min-w-40 font-semibold">
+              {referenceDates.map(d => <option key={d} value={d}>{monthLabel(d)}</option>)}
             </select>
           </div>
-        )}
+          {tab !== 'overview' && (
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Entity</label>
+              <select value={entity} onChange={e => setEntity(e.target.value)} className="p-2.5 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary min-w-44">
+                {allEntities.map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mb-6 border-b border-efg-line">
@@ -1022,9 +1378,9 @@ export const ManagementReportPage: React.FC = () => {
 
       <div className="animate-fade-in">
         {tab === 'overview' && <OverviewTab onDrill={(e, t) => { setEntity(e); setTab(t); }} />}
-        {tab === 'capital' && <CapitalTab entity={entity} />}
-        {tab === 'lcr' && <LcrTab entity={entity} />}
-        {tab === 'nsfr' && <NsfrTab entity={entity} />}
+        {tab === 'capital' && <CapitalTab entity={entity} asOf={asOf} />}
+        {tab === 'lcr' && <LcrTab entity={entity} asOf={asOf} />}
+        {tab === 'nsfr' && <NsfrTab entity={entity} asOf={asOf} />}
       </div>
     </div>
   );
