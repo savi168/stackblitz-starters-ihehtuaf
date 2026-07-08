@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
 import {
@@ -44,6 +44,49 @@ const SummaryTile: React.FC<{ label: string; value: string; sub?: string; accent
   </div>
 );
 
+// --- Numeric input that tolerates intermediate states ("-", "1.", empty) --------
+
+/**
+ * A controlled <input type="number"> resets "-" to 0 (parseFloat('-') is NaN),
+ * making negative amounts impossible to type. This input keeps the raw text
+ * while focused and only commits parseable values; on blur it snaps back to
+ * the committed number. Accepts both '.' and ',' as decimal separator.
+ */
+const AmountInput: React.FC<{
+  value: number;
+  onCommit: (v: number) => void;
+  className?: string;
+}> = ({ value, onCommit, className }) => {
+  const [text, setText] = useState<string>(String(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setText(String(value));
+  }, [value, editing]);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      onFocus={() => setEditing(true)}
+      onChange={e => {
+        const raw = e.target.value;
+        setText(raw);
+        const v = parseFloat(raw.replace(',', '.'));
+        if (!isNaN(v)) onCommit(v);
+      }}
+      onBlur={() => {
+        setEditing(false);
+        const v = parseFloat(text.replace(',', '.'));
+        onCommit(isNaN(v) ? 0 : v);
+        setText(String(isNaN(v) ? 0 : v));
+      }}
+      className={className}
+    />
+  );
+};
+
 // --- Editable line-item table --------------------------------------------------
 
 const LineItemTable: React.FC<{
@@ -88,11 +131,9 @@ const LineItemTable: React.FC<{
                   />
                 </td>
                 <td className="px-4 py-1.5 text-right">
-                  <input
-                    type="number"
-                    step="0.01"
+                  <AmountInput
                     value={row.amount}
-                    onChange={e => update(row.id, { amount: parseFloat(e.target.value) || 0 })}
+                    onCommit={v => update(row.id, { amount: v })}
                     className={`w-36 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums ${row.memo ? 'text-brand-text-secondary italic' : row.amount < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}
                   />
                 </td>
@@ -162,9 +203,9 @@ const LcrTable: React.FC<{
 
   const numCell = (r: LcrReport, key: keyof LcrReport) => (
     <td className="px-3 py-1.5 text-right">
-      <input
-        type="number" step="0.1" value={r[key] as number}
-        onChange={e => update(r.id, { [key]: parseFloat(e.target.value) || 0 } as Partial<LcrReport>)}
+      <AmountInput
+        value={r[key] as number}
+        onCommit={v => update(r.id, { [key]: v } as Partial<LcrReport>)}
         className="w-28 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums"
       />
     </td>
