@@ -59,8 +59,12 @@ const norm = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim()
 
 const toIsoDate = (v: unknown): string | undefined => {
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // cellDates gives a Date at local/UTC midnight — read UTC parts.
-    return `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, '0')}-${String(v.getUTCDate()).padStart(2, '0')}`;
+    // SheetJS (cellDates) builds Dates at LOCAL midnight, so reading UTC parts
+    // on a UTC+1 machine shifts 31.12 back to 30.12. Shifting to midday first
+    // makes the UTC parts correct regardless of whether the Date was built at
+    // local or UTC midnight, on any timezone up to ±12h.
+    const noon = new Date(v.getTime() + 12 * 3600 * 1000);
+    return `${noon.getUTCFullYear()}-${String(noon.getUTCMonth() + 1).padStart(2, '0')}-${String(noon.getUTCDate()).padStart(2, '0')}`;
   }
   if (typeof v === 'string') {
     const m = v.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/); // 31.12.2025
