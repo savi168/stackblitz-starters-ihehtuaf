@@ -46,11 +46,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Skip persisting the data that was just loaded (only persist real edits).
     const skipNextSave = useRef(true);
 
+    // Data saved before newer tables existed lacks their arrays — default them
+    // so every consumer (cockpit, workbench) sees consistent lists.
+    const normalize = (d: CentralData): CentralData => ({
+        ...d,
+        capitalReports: d.capitalReports ?? [],
+        lcrReports: d.lcrReports ?? [],
+    });
+
     // Initial load from the configured repository (localStorage or API).
     useEffect(() => {
         let cancelled = false;
         dataRepository.load()
-            .then(loaded => { if (!cancelled) { setData(loaded); setLastSyncedAt(Date.now()); } })
+            .then(loaded => { if (!cancelled) { setData(normalize(loaded)); setLastSyncedAt(Date.now()); } })
             .catch(err => {
                 if (!cancelled) {
                     console.error('Failed to load data', err);
@@ -68,7 +76,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             const loaded = await dataRepository.load();
             skipNextSave.current = true;
-            setData(loaded);
+            setData(normalize(loaded));
             setLastSyncedAt(Date.now());
         } catch (err) {
             console.error('Failed to reload data', err);

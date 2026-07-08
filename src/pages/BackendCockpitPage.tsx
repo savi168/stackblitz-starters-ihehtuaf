@@ -1,7 +1,13 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useData } from '../context/DataContext';
 import { Card, PageHeader, BackButton, SectionHeader, TabButton, Select, Modal, InfoBox } from '../components';
 import { BACKEND_TABLES, AGGREGATE_ENDPOINTS, TableMeta, EndpointMeta } from '../services/backendSchema';
+import {
+    buildCsvTemplate, convertCsvRows, CSV_IMPORTABLE, CSV_NOTES,
+    downloadCsv, NATURAL_KEYS, parseCsv,
+} from '../services/csvImport';
+import { projectToKpiHistory } from '../services/capital';
+import { CentralData } from '../types';
 
 const methodColor: Record<EndpointMeta['method'], string> = {
     GET: 'bg-green-50 text-green-700 border-green-200',
@@ -183,15 +189,133 @@ const InsertRowModal: React.FC<{
     );
 };
 
+// --- CSV bulk import modal ---
+const ImportCsvModal: React.FC<{
+    tableKey: string;
+    table: TableMeta;
+    onClose: () => void;
+    onImport: (rows: Record<string, unknown>[], mode: 'append' | 'replace') => void;
+}> = ({ tableKey, table, onClose, onImport }) => {
+    const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+    const [warnings, setWarnings] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [mode, setMode] = useState<'append' | 'replace'>('append');
+    const [fileName, setFileName] = useState('');
+    const fileInput = useRef<HTMLInputElement>(null);
+
+    const handleFile = async (file: File) => {
+        setError(null);
+        setRows(null);
+        setFileName(file.name);
+        try {
+            const text = await file.text();
+            const lines = parseCsv(text);
+            const result = convertCsvRows(tableKey, lines);
+            setRows(result.rows);
+            setWarnings(result.warnings);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    };
+
+    return (
+        <Modal isOpen onClose={onClose} title={`Bulk CSV import — ${table.table}`}>
+            <div className="space-y-4 text-sm">
+                <ol className="list-decimal list-inside text-brand-text-secondary space-y-1">
+                    <li>Download the template below — it contains the headers and <strong>one example row</strong> showing the accepted values.</li>
+                    <li>Fill it in Excel and save as CSV (comma or semicolon both work).</li>
+                    <li>Load the file — rows are previewed before anything is written.</li>
+                </ol>
+
+                <button
+                    onClick={() => downloadCsv(`${table.table}_template.csv`, buildCsvTemplate(tableKey))}
+                    className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors"
+                >
+                    ⬇ Download CSV template ({table.table})
+                </button>
+
+                {CSV_NOTES[tableKey] && (
+                    <p className="text-xs text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2">
+                        <strong>Accepted values —</strong> {CSV_NOTES[tableKey]}
+                    </p>
+                )}
+
+                <div>
+                    <input ref={fileInput} type="file" accept=".csv,text/csv" className="hidden"
+                        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                    <button
+                        onClick={() => fileInput.current?.click()}
+                        className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors"
+                    >
+                        Choose CSV file…
+                    </button>
+                    {fileName && <span className="ml-3 text-brand-text-secondary">{fileName}</span>}
+                </div>
+
+                {error && <p className="text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-3 py-2">{error}</p>}
+                {warnings.map((w, i) => (
+                    <p key={i} className="text-status-amber text-xs bg-status-amber/10 border border-status-amber/30 rounded-md px-3 py-1.5">{w}</p>
+                ))}
+
+                {rows && (
+                    <>
+                        <p className="text-brand-text-primary font-medium">{rows.length} row(s) ready to import.</p>
+                        <div className="overflow-x-auto border border-efg-line rounded-md max-h-48 overflow-y-auto">
+                            <table className="w-full text-xs whitespace-nowrap">
+                                <thead className="bg-brand-bg-body sticky top-0">
+                                    <tr>{Object.keys(rows[0]).map(k => <th key={k} className="px-2 py-1.5 text-left text-[10px] uppercase tracking-wide text-brand-text-secondary">{k}</th>)}</tr>
+                                </thead>
+                                <tbody>
+                                    {rows.slice(0, 20).map((r, i) => (
+                                        <tr key={i} className="border-t border-efg-line">
+                                            {Object.keys(rows[0]).map(k => <td key={k} className="px-2 py-1">{renderCell(r[k])}</td>)}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {rows.length > 20 && <p className="text-xs text-brand-text-secondary">Previewing first 20 of {rows.length}.</p>}
+
+                        <div className="flex items-center gap-6 pt-1">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" checked={mode === 'append'} onChange={() => setMode('append')} className="text-brand-primary focus:ring-brand-primary" />
+                                <span>Append / upsert <span className="text-brand-text-secondary text-xs">(matching keys are replaced)</span></span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" checked={mode === 'replace'} onChange={() => setMode('replace')} className="text-brand-primary focus:ring-brand-primary" />
+                                <span>Replace table <span className="text-brand-text-secondary text-xs">(deletes existing rows first)</span></span>
+                            </label>
+                        </div>
+                    </>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2 border-t border-efg-line">
+                    <button onClick={onClose} className="text-sm font-semibold text-brand-text-secondary bg-brand-bg-body hover:bg-efg-line py-2 px-4 rounded-md">Cancel</button>
+                    <button
+                        onClick={() => rows && onImport(rows, mode)}
+                        disabled={!rows || rows.length === 0}
+                        className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md disabled:opacity-40"
+                    >
+                        Import {rows ? `${rows.length} row(s)` : ''}
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 // --- Data explorer (spreadsheet) ---
 const DataExplorer: React.FC = () => {
     const { data, setData } = useData();
     const [selectedKey, setSelectedKey] = useState<string>(BACKEND_TABLES[0].key as string);
     const [query, setQuery] = useState('');
     const [inserting, setInserting] = useState(false);
+    const [importingCsv, setImportingCsv] = useState(false);
+    const [importNotice, setImportNotice] = useState<string | null>(null);
 
     const table = useMemo(() => BACKEND_TABLES.find(t => (t.key as string) === selectedKey)!, [selectedKey]);
-    const raw = (data as unknown as Record<string, unknown>)[selectedKey];
+    // list-kind tables missing from older saved data behave as empty lists
+    const raw = (data as unknown as Record<string, unknown>)[selectedKey] ?? (table.kind === 'list' ? [] : undefined);
     const isList = Array.isArray(raw);
     const rows = useMemo(() => (isList ? (raw as Record<string, unknown>[]) : []), [isList, raw]);
 
@@ -232,6 +356,38 @@ const DataExplorer: React.FC = () => {
         setInserting(false);
     };
 
+    const handleCsvImport = (imported: Record<string, unknown>[], mode: 'append' | 'replace') => {
+        setData(prev => {
+            const existing = ((prev as unknown as Record<string, unknown>)[selectedKey] as Record<string, unknown>[] | undefined) || [];
+            let next: Record<string, unknown>[];
+            if (mode === 'replace') {
+                next = imported;
+            } else {
+                // Upsert: drop existing rows whose natural key matches an imported row.
+                const keys = NATURAL_KEYS[selectedKey];
+                if (keys) {
+                    const sig = (r: Record<string, unknown>) => keys.map(k => String(r[k] ?? '')).join('|');
+                    const importedSigs = new Set(imported.map(sig));
+                    next = [...existing.filter(r => !importedSigs.has(sig(r))), ...imported];
+                } else {
+                    next = [...existing, ...imported];
+                }
+            }
+            let updated = { ...prev, [selectedKey]: next } as CentralData;
+            // LCR rows feed the aggregated KPI history — re-project affected entity+dates.
+            if (selectedKey === 'lcrReports') {
+                const pairs = new Set(imported.map(r => `${r.entity}|${r.date}`));
+                for (const pair of pairs) {
+                    const [entity, date] = pair.split('|');
+                    updated = { ...updated, kpisHistory: projectToKpiHistory(updated, entity, date) };
+                }
+            }
+            return updated;
+        });
+        setImportingCsv(false);
+        setImportNotice(`${imported.length} row(s) imported into ${table.table} (${mode === 'replace' ? 'table replaced' : 'append/upsert'}). Saved to the current data source.`);
+    };
+
     const deleteRow = (rowIndex: number) => {
         if (!window.confirm('Delete this row? (persists to the current data source)')) return;
         setData(prev => {
@@ -265,9 +421,33 @@ const DataExplorer: React.FC = () => {
                         + Insert Row
                     </button>
                 )}
+                {CSV_IMPORTABLE.includes(selectedKey) && (
+                    <>
+                        <button onClick={() => downloadCsv(`${table.table}_template.csv`, buildCsvTemplate(selectedKey))}
+                            title="CSV template with headers + one example row showing the accepted values"
+                            className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-2.5 px-4 rounded-md transition-colors whitespace-nowrap">
+                            ⬇ CSV template
+                        </button>
+                        <button onClick={() => setImportingCsv(true)}
+                            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2.5 px-4 rounded-md transition-colors whitespace-nowrap">
+                            ⬆ Import CSV
+                        </button>
+                    </>
+                )}
             </div>
 
             <p className="text-xs text-brand-text-secondary mb-3">{table.description}</p>
+            {selectedKey === 'capitalReports' && (
+                <p className="text-xs text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2 mb-3">
+                    Capital reports carry nested line items — load them via the <strong>Capital Workbench</strong> (FINMA Excel import or manual entry), not CSV.
+                </p>
+            )}
+            {importNotice && (
+                <p className="text-xs text-brand-text-primary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2 mb-3 flex justify-between items-center">
+                    <span>{importNotice}</span>
+                    <button onClick={() => setImportNotice(null)} className="text-brand-text-secondary hover:text-brand-text-primary ml-3">×</button>
+                </p>
+            )}
 
             {isList ? (
                 <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -318,6 +498,14 @@ const DataExplorer: React.FC = () => {
             {filtered.length > 500 && <p className="text-xs text-brand-text-secondary mt-2">Showing first 500 of {filtered.length} rows.</p>}
 
             {inserting && <InsertRowModal table={table} fields={insertFields} onClose={() => setInserting(false)} onSubmit={handleInsert} />}
+            {importingCsv && (
+                <ImportCsvModal
+                    tableKey={selectedKey}
+                    table={table}
+                    onClose={() => setImportingCsv(false)}
+                    onImport={handleCsvImport}
+                />
+            )}
         </Card>
     );
 };
