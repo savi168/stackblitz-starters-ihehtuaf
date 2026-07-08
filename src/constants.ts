@@ -217,5 +217,7 @@ export const centralData: CentralData = {
     { entity: "Liechtenstein", date: "2025-09-29", counterparty: "Global Investment Bank A", exposureValue: 82, limit: 100 },
     { entity: "Liechtenstein", date: "2025-09-29", counterparty: "Major Swiss Bank", exposureValue: 71, limit: 100 },
     { entity: "Hong Kong", date: "2025-09-29", counterparty: "APAC Wealth Management", exposureValue: 205, limit: 250 },
-  ]
+  ],
+  capitalReports: [],
+  lcrReports: []
 };

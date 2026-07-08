@@ -63,6 +63,8 @@ Then `npm run dev`. The app now reads/writes through the API. See
 | PUT/DELETE | `/api/kpis/{entity}/{date}` | Upsert / delete a KPI entry |
 | GET/POST/PUT/DELETE | `/api/team[/{id}]` | Team CRUD |
 | GET/POST/PUT/DELETE | `/api/projects[/{id}]` · `/api/projects/{id}/tasks` | Projects + tasks |
+| GET/PUT/DELETE | `/api/capital-reports[/{entity}/{date}]` | Capital adequacy reports (KM1 + line items) |
+| GET/DELETE · PUT bulk | `/api/lcr-reports[/{id}]` · `/api/lcr-reports/bulk/{entity}/{date}` | LCR reports per currency |
 
 Counterparty RWA, large exposures and settings (bilan / risk appetite) follow
 the same pattern and are persisted via `/api/data`.

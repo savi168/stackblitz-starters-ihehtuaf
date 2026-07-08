@@ -37,6 +37,7 @@ export const HubPage: React.FC = () => {
     }> = [
         { title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'Regulatory', link: '/deadlines' },
         { title: 'KPI Analysis', desc: 'Analysis, historical trends, and risk appetite in one place.', tag: 'Analysis', link: '/details' },
+        { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns or enter equity, deductions, RWA and LCR components per entity.', tag: 'Data Entry', link: '/capital' },
         { title: 'Daily Reports', desc: 'Daily / weekly LCR and large exposure reports for key entities.', tag: 'Monitoring', link: '/daily-reports' },
         { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects' },
         { title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'People', link: '/team' },

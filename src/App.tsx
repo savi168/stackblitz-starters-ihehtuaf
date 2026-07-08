@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components';
 
 const NAV_ITEMS = [
   { to: '/details', label: 'KPI Analysis' },
+  { to: '/capital', label: 'Capital' },
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
   { to: '/projects', label: 'Projects' },
@@ -25,6 +26,7 @@ const TeamPage = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.T
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })));
 const BusinessCasePage = lazy(() => import('./pages/BusinessCasePage').then(m => ({ default: m.BusinessCasePage })));
 const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
+const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
 
 const PageLoader: React.FC = () => (
   <div className="flex items-center justify-center py-24 text-brand-text-secondary">
@@ -82,6 +84,7 @@ const App: React.FC = () => {
                   <Route path="/team" element={<TeamPage />} />
                   <Route path="/business-case" element={<BusinessCasePage />} />
                   <Route path="/cockpit" element={<BackendCockpitPage />} />
+                  <Route path="/capital" element={<CapitalWorkbenchPage />} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

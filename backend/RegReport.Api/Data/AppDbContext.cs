@@ -18,6 +18,9 @@ public class AppDbContext : DbContext
     public DbSet<TeamMember> Team => Set<TeamMember>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectTask> ProjectTasks => Set<ProjectTask>();
+    public DbSet<CapitalReport> CapitalReports => Set<CapitalReport>();
+    public DbSet<CapitalLineItem> CapitalLineItems => Set<CapitalLineItem>();
+    public DbSet<LcrReport> LcrReports => Set<LcrReport>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -59,6 +62,29 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever();
+        });
+
+        b.Entity<CapitalReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date }).IsUnique();
+            e.Property(x => x.KeyMetrics).HasJsonConversion();
+            e.HasMany(x => x.LineItems)
+                .WithOne()
+                .HasForeignKey(x => x.CapitalReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<CapitalLineItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CapitalReportId);
+        });
+
+        b.Entity<LcrReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date, x.Currency }).IsUnique();
         });
 
         b.Entity<AppSetting>().HasKey(x => x.Key);

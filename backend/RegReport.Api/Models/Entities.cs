@@ -194,6 +194,69 @@ public class ProjectTask
     public string? ItTicket { get; set; }
 }
 
+// ---- Capital adequacy detail (relational: one report per entity+date) ----
+
+public class CapitalKeyMetrics
+{
+    public double? Cet1Capital { get; set; }
+    public double? Tier1Capital { get; set; }
+    public double? TotalCapital { get; set; }
+    public double? Rwa { get; set; }
+    public double? Cet1Ratio { get; set; }          // %
+    public double? Tier1Ratio { get; set; }         // %
+    public double? TotalCapitalRatio { get; set; }  // %
+    public double? LeverageExposure { get; set; }   // mCHF
+    public double? LeverageRatio { get; set; }      // %
+}
+
+// Ids are long: the frontend generates timestamp-based ids (> Int32.MaxValue).
+public class CapitalReport
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Source { get; set; } = "manual";  // manual | excel
+    public string? FileName { get; set; }
+    public string? ImportedAt { get; set; }
+    // KM1 figures as reported; computed values are derived from LineItems.
+    public CapitalKeyMetrics? KeyMetrics { get; set; }
+    public List<CapitalLineItem> LineItems { get; set; } = new();
+}
+
+public class CapitalLineItem
+{
+    public long Id { get; set; }
+    [JsonIgnore] public long CapitalReportId { get; set; }
+    public string Section { get; set; } = "equity"; // equity | deduction | at1 | t2 | rwa
+    public string Code { get; set; } = "";
+    public string Label { get; set; } = "";
+    // mCHF, signed (FINMA convention: deductions are negative).
+    public double Amount { get; set; }
+    // "Of which" informational rows, excluded from the additive totals.
+    public bool Memo { get; set; }
+}
+
+// ---- LCR detail (relational: one report per entity+date+currency) ----
+
+public class LcrReport
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Currency { get; set; } = "TOT";
+    public string Source { get; set; } = "manual";  // manual | excel
+    public string? FileName { get; set; }
+    public double HqlaCat1 { get; set; }
+    public double HqlaCat2a { get; set; }
+    public double HqlaCat2b { get; set; }
+    public double TotalHqla { get; set; }
+    public double TotalOutflows { get; set; }
+    public double InflowsBeforeCap { get; set; }
+    public double InflowsAfterCap { get; set; }
+    public double NetOutflows { get; set; }
+    public double LcrRatio { get; set; }            // %
+}
+
 // Small singletons (bilan, riskAppetite, diagnosisResults) live in a key/value
 // table as JSON to avoid over-modelling rarely-changing settings.
 public class AppSetting
@@ -216,4 +279,6 @@ public class CentralData
     public List<Project> Projects { get; set; } = new();
     public List<ProjectTask> ProjectTasks { get; set; } = new();
     public Dictionary<string, List<DiagnosisResult>>? DiagnosisResults { get; set; }
+    public List<CapitalReport> CapitalReports { get; set; } = new();
+    public List<LcrReport> LcrReports { get; set; } = new();
 }

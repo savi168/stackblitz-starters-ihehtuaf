@@ -29,6 +29,8 @@ public static class CentralDataStore
             Team = await db.Team.AsNoTracking().ToListAsync(),
             Projects = await db.Projects.AsNoTracking().ToListAsync(),
             ProjectTasks = await db.ProjectTasks.AsNoTracking().ToListAsync(),
+            CapitalReports = await db.CapitalReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
+            LcrReports = await db.LcrReports.AsNoTracking().ToListAsync(),
             Bilan = Get<Bilan>("bilan") ?? new Bilan(),
             RiskAppetite = Get<Dictionary<string, EntityThresholds>>("riskAppetite") ?? new(),
             DiagnosisResults = Get<Dictionary<string, List<DiagnosisResult>>>("diagnosisResults"),
@@ -46,12 +48,21 @@ public static class CentralDataStore
         db.Team.RemoveRange(db.Team);
         db.ProjectTasks.RemoveRange(db.ProjectTasks);
         db.Projects.RemoveRange(db.Projects);
+        db.CapitalLineItems.RemoveRange(db.CapitalLineItems);
+        db.CapitalReports.RemoveRange(db.CapitalReports);
+        db.LcrReports.RemoveRange(db.LcrReports);
         await db.SaveChangesAsync();
 
         // Reset surrogate identity ids so they are auto-generated on insert.
         foreach (var k in data.KpisHistory) k.Id = 0;
         foreach (var c in data.CounterpartyRwa) c.Id = 0;
         foreach (var l in data.LargeExposures) l.Id = 0;
+        foreach (var r in data.CapitalReports)
+        {
+            r.Id = 0;
+            foreach (var i in r.LineItems) { i.Id = 0; i.CapitalReportId = 0; }
+        }
+        foreach (var l in data.LcrReports) l.Id = 0;
 
         db.Deadlines.AddRange(data.Deadlines);
         db.KpiHistory.AddRange(data.KpisHistory);
@@ -60,6 +71,8 @@ public static class CentralDataStore
         db.Team.AddRange(data.Team);
         db.Projects.AddRange(data.Projects);
         db.ProjectTasks.AddRange(data.ProjectTasks);
+        db.CapitalReports.AddRange(data.CapitalReports);
+        db.LcrReports.AddRange(data.LcrReports);
 
         Upsert(db, "bilan", data.Bilan);
         Upsert(db, "riskAppetite", data.RiskAppetite);

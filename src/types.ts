@@ -167,6 +167,67 @@ export interface DiagnosisResult {
   field?: string;
 }
 
+// ---- Capital adequacy detail (relational: one report per entity+date) ----
+
+export type CapitalSection = 'equity' | 'deduction' | 'at1' | 't2' | 'rwa';
+
+export interface CapitalLineItem {
+  id: number;
+  section: CapitalSection;
+  /** Stable machine code, e.g. 'shareCapital', 'goodwill', 'creditRwa'. */
+  code: string;
+  label: string;
+  /** mCHF, signed (FINMA convention: deductions are negative). */
+  amount: number;
+  /** "Of which" informational rows: shown but excluded from the additive totals. */
+  memo?: boolean;
+}
+
+/** Key metrics as reported (KM1). Computed values are derived from lineItems. */
+export interface CapitalKeyMetrics {
+  cet1Capital?: number;
+  tier1Capital?: number;
+  totalCapital?: number;
+  rwa?: number;
+  cet1Ratio?: number;          // %
+  tier1Ratio?: number;         // %
+  totalCapitalRatio?: number;  // %
+  leverageExposure?: number;   // mCHF
+  leverageRatio?: number;      // %
+}
+
+export interface CapitalReport {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  source: 'manual' | 'excel';
+  fileName?: string;
+  importedAt?: string; // ISO timestamp
+  keyMetrics: CapitalKeyMetrics;
+  lineItems: CapitalLineItem[];
+}
+
+// ---- LCR detail (relational: one report per entity+date+currency) ----
+
+export interface LcrReport {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  currency: string; // 'TOT' | 'CHF' | 'EUR' | ...
+  source: 'manual' | 'excel';
+  fileName?: string;
+  /** Weighted amounts, mCHF. */
+  hqlaCat1: number;
+  hqlaCat2a: number;
+  hqlaCat2b: number;
+  totalHqla: number;
+  totalOutflows: number;
+  inflowsBeforeCap: number;
+  inflowsAfterCap: number;
+  netOutflows: number;
+  lcrRatio: number; // %
+}
+
 export interface CentralData {
   deadlines: Deadline[];
   kpisHistory: KpiHistoryEntry[];
@@ -178,6 +239,9 @@ export interface CentralData {
   projects: Project[];
   projectTasks: ProjectTask[];
   diagnosisResults?: Record<string, DiagnosisResult[]>; // Key: entity|date
+  // Optional so data saved before these existed still loads.
+  capitalReports?: CapitalReport[];
+  lcrReports?: LcrReport[];
 }
 
 export interface CalculatedKpis extends Omit<KpiHistoryEntry, 'liquidity'>, Partial<LiquidityDataPoint> {
