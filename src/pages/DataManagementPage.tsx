@@ -885,7 +885,9 @@ export const DataManagementPage: React.FC = () => {
         </div>
     );
     
-    const kpiKeys: (keyof RiskAppetite[string])[] = ['cet1', 'lcr', 'nsfr', 'leverage'];
+    // Only the red/amber threshold KPIs — localCapitalRequirement is a scalar
+    // edited from the Management Report entities table, not here.
+    const kpiKeys: Array<'cet1' | 'lcr' | 'nsfr' | 'leverage'> = ['cet1', 'lcr', 'nsfr', 'leverage'];
 
     const KpiInput: React.FC<{ 
 		label: string; 

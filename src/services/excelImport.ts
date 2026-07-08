@@ -369,29 +369,76 @@ const parseNsfr = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMappin
     ? Math.round(ratioDecimal * 100 * 100) / 100
     : (totalRsf > 0 ? Math.round((totalAsf / totalRsf) * 100 * 100) / 100 : 0);
 
+  // --- Sequential scan with hierarchical context reconstruction ---
+  // The form puts group headers ("Unsecured funding from banks, of which:",
+  // "Encumbered for central bank liquidity operations, of which:") on rows
+  // WITHOUT an SNB code; the coded detail rows below only carry the child
+  // label ("non-operational deposit…", "Unencumbered"). We rebuild readable
+  // labels as "group — subgroup — child". Cell indentation would be the exact
+  // signal but SheetJS CE does not expose it, so scope ends are inferred:
+  // a coded row that does not look like a child clears the context.
   const totalCodes = new Set([m.nsfr.totalAsf, m.nsfr.totalRsf, m.nsfr.ratio]);
+  const stripOfWhich = (s: string) => s.replace(/,?\s*of which:?\s*$/i, '').replace(/:\s*$/, '').trim();
+  const isSectionTitle = (s: string) => /^[AB]\.(\d\.)?\s/.test(s) || /^[AB]\.\s/.test(s);
+  const SECURED_CHILDREN = new Set([
+    'Retail and small business customers', 'Non-financial corporates', 'Central banks',
+    'Sovereigns/PSEs/MDBs/NDBs', 'Banks', 'Other financial institutions', 'Other legal entities',
+  ]);
+  const looksLikeChild = (label: string, ctx1: string): boolean => {
+    if (/^[a-z"“]/.test(label)) return true;                 // lowercase start (op./non-op. deposits…)
+    if (label === 'Unencumbered') return true;
+    if (/^Encumbered for periods/.test(label)) return true;
+    if (ctx1 && SECURED_CHILDREN.has(label)) return true;    // counterparties under "Secured borrowings…"
+    return false;
+  };
+
   const lineItems: NsfrLineItem[] = [];
-  for (const [code, r] of codes) {
-    if (totalCodes.has(code)) continue;
+  let ctx1 = '';
+  let ctx2 = '';
+  for (let r = 1; r <= 400; r++) {
+    const rawLabel = norm(cell(ws, `D${r}`));
+    if (!rawLabel) continue;
+    const codeCell = cell(ws, `E${r}`);
+    const code = codeCell === undefined || codeCell === null ? '' : String(codeCell).trim().split(/\s/)[0];
+
+    if (!code) {
+      // Header row: section titles reset everything; "Encumbered…" headers are
+      // sub-groups of the current group; anything else starts a new group.
+      if (isSectionTitle(rawLabel)) { ctx1 = ''; ctx2 = ''; continue; }
+      if (/^Encumbered/.test(rawLabel) && ctx1) ctx2 = stripOfWhich(rawLabel);
+      else { ctx1 = stripOfWhich(rawLabel); ctx2 = ''; }
+      continue;
+    }
+
+    if (totalCodes.has(code)) { ctx1 = ''; ctx2 = ''; continue; }
+
+    // Coded row: does it belong to the open group?
+    if (ctx1 && !looksLikeChild(rawLabel, ctx1)) { ctx1 = ''; ctx2 = ''; }
+
     const k = kToM(num(cell(ws, `K${r}`)));
     const l = kToM(num(cell(ws, `L${r}`)));
     const mm = kToM(num(cell(ws, `M${r}`)));
-    if (k === undefined && l === undefined && mm === undefined) continue;
-    const label = norm(cell(ws, `D${r}`));
-    if (!label) continue;
-    const section: NsfrSection = r < rsfStart ? 'asf' : r < rsfOffStart ? 'rsf' : 'rsfOff';
-    lineItems.push({
-      id: newItemId(),
-      section,
-      code,
-      label,
-      amountLt6m: k ?? 0,
-      amount6mTo1y: l ?? 0,
-      amountGte1y: mm ?? 0,
-    });
+
+    // Coded rows ending in "of which:" also open a (light) group for their
+    // immediate lowercase children ("Total central bank reserves, of which:").
+    const opensGroup = /,?\s*of which:?\s*$/i.test(rawLabel);
+
+    if (k !== undefined || l !== undefined || mm !== undefined) {
+      const label = [ctx1, ctx2, stripOfWhich(rawLabel)].filter(Boolean).join(' — ');
+      const section: NsfrSection = r < rsfStart ? 'asf' : r < rsfOffStart ? 'rsf' : 'rsfOff';
+      lineItems.push({
+        id: newItemId(),
+        section,
+        code,
+        label,
+        amountLt6m: k ?? 0,
+        amount6mTo1y: l ?? 0,
+        amountGte1y: mm ?? 0,
+      });
+    }
+
+    if (opensGroup && !ctx1) { ctx1 = stripOfWhich(rawLabel); ctx2 = ''; }
   }
-  // Keep the form's visual order.
-  lineItems.sort((a, b) => (codes.get(a.code)! - codes.get(b.code)!));
 
   return { kind: 'nsfr', fileName, date, totalAsf, totalRsf, nsfrRatio, lineItems };
 };

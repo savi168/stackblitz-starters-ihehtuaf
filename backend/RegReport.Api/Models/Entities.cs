@@ -79,6 +79,8 @@ public class EntityThresholds
     public KpiThresholds? Lcr { get; set; }
     public KpiThresholds? Nsfr { get; set; }
     public KpiThresholds? Leverage { get; set; }
+    // Local regulatory capital requirement (incl. Pillar 2), % of RWA.
+    public double? LocalCapitalRequirement { get; set; }
 }
 
 public class Bilan

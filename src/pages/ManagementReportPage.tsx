@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, PageHeader, SectionHeader, TabButton } from '../components';
-import { LcrReport, NsfrReport } from '../types';
+import { CET1CapitalBreakdown, LcrReport, NsfrReport } from '../types';
 import { computeCapitalSummary } from '../services/capital';
 import { formatDate } from '../utils';
 import { calculateCet1RatioEvolutionData, calculateKpis } from '../utils';
@@ -39,6 +39,10 @@ interface CapitalPoint {
   leverageExposure: number | null; leverageRatio: number | null;
   isProjection: boolean;
   comments?: string;
+  /** CET1 composition (from the projected KPI entry) — feeds the movement table. */
+  breakdown?: CET1CapitalBreakdown;
+  /** RWA by currency: memo rows of the RWA section labelled with a 3-letter code. */
+  rwaCcy?: Record<string, number>;
 }
 
 const useCapitalSeries = (entity: string): CapitalPoint[] => {
@@ -65,6 +69,13 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
     // Detailed capital reports override (source of truth).
     for (const r of (data.capitalReports || []).filter(r => r.entity === entity)) {
       const s = computeCapitalSummary(r);
+      // RWA-by-currency memo rows: RWA-section memo items labelled "USD", "EUR"…
+      const rwaCcy: Record<string, number> = {};
+      for (const i of r.lineItems) {
+        if (i.section === 'rwa' && i.memo && /^[A-Z]{3}$/.test(i.label.trim())) {
+          rwaCcy[i.label.trim()] = (rwaCcy[i.label.trim()] || 0) + i.amount;
+        }
+      }
       points.set(r.date, {
         date: r.date,
         cet1: s.cet1, at1: s.at1, t2: s.t2, tier1: s.tier1, totalCapital: s.totalCapital,
@@ -75,7 +86,14 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
         leverageExposure: s.leverageExposure, leverageRatio: s.leverageRatio,
         isProjection: !!r.isProjection,
         comments: r.comments,
+        rwaCcy: Object.keys(rwaCcy).length > 0 ? rwaCcy : undefined,
       });
+    }
+    // CET1 breakdown comes from the projected KPI entry (kept in sync for both
+    // imported reports and manual KPI entries).
+    for (const p of points.values()) {
+      const k = data.kpisHistory.find(x => x.entity === entity && x.date === p.date);
+      if (k?.cet1CapitalBreakdown) p.breakdown = k.cet1CapitalBreakdown;
     }
     return Array.from(points.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [data.kpisHistory, data.capitalReports, entity]);
@@ -274,6 +292,12 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
         </div>
       </Card>
 
+      {/* CET1 movement details month by month */}
+      <Cet1MovementTable series={series} />
+
+      {/* RWA by currency (memo rows) */}
+      <RwaCurrencyTable series={series} />
+
       {/* Positions by regulated entity */}
       <EntitiesTable />
 
@@ -286,8 +310,169 @@ const CapitalTab: React.FC<{ entity: string }> = ({ entity }) => {
   );
 };
 
+/**
+ * Month-by-month CET1 & RWA movement detail (PDF "CET1 Movement details"):
+ * for every consecutive pair of periods, decompose ΔCET1 into P&L, dividend
+ * accrual, share buy-back and other equity movements (from the CET1
+ * composition), plus the RWA movement by risk type; YTD = last vs first.
+ */
+const Cet1MovementTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
+  const moves = useMemo(() => {
+    const out: Array<{
+      label: string; isProjection: boolean;
+      pnl: number | null; dividend: number | null; buyback: number | null; other: number | null;
+      totalCet1: number; credit: number; market: number; op: number; otherRwa: number; totalRwa: number;
+      ratioDelta: number | null;
+    }> = [];
+    for (let i = 1; i < series.length; i++) {
+      const a = series[i - 1], b = series[i];
+      const totalCet1 = b.cet1 - a.cet1;
+      const newYear = b.date.slice(0, 4) !== a.date.slice(0, 4);
+      let pnl: number | null = null, dividend: number | null = null, buyback: number | null = null, other: number | null = null;
+      if (a.breakdown && b.breakdown) {
+        // Interim P&L and dividend accruals are year-to-date figures: they
+        // restart from zero in a new financial year.
+        pnl = newYear ? b.breakdown.pnl : b.breakdown.pnl - a.breakdown.pnl;
+        dividend = -(newYear ? (b.breakdown.dividend || 0) : (b.breakdown.dividend || 0) - (a.breakdown.dividend || 0));
+        buyback = -(newYear ? b.breakdown.shareBuyback : b.breakdown.shareBuyback - a.breakdown.shareBuyback);
+        other = totalCet1 - pnl - dividend - buyback;
+      }
+      out.push({
+        label: monthLabel(b.date), isProjection: b.isProjection,
+        pnl, dividend, buyback, other, totalCet1,
+        credit: b.creditRwa - a.creditRwa, market: b.marketRwa - a.marketRwa,
+        op: b.opRwa - a.opRwa, otherRwa: b.otherRwa - a.otherRwa, totalRwa: b.rwaTotal - a.rwaTotal,
+        ratioDelta: a.cet1Ratio != null && b.cet1Ratio != null ? b.cet1Ratio - a.cet1Ratio : null,
+      });
+    }
+    return out;
+  }, [series]);
+
+  if (moves.length === 0) return null;
+  const ytd = (get: (m: typeof moves[number]) => number | null): number | null => {
+    let sum = 0; let any = false;
+    for (const m of moves) { const v = get(m); if (v === null) return null; sum += v; any = true; }
+    return any ? sum : null;
+  };
+  const signed = (v: number | null) =>
+    v === null ? '—' : (v < 0 ? `(${fmt(Math.abs(v), 1)})` : fmt(v, 1));
+
+  const rows: Array<[string, (m: typeof moves[number]) => number | null, boolean]> = [
+    ['P&L plus non-cash items', m => m.pnl, false],
+    ['Dividend accrual', m => m.dividend, false],
+    ['Share buy-back', m => m.buyback, false],
+    ['Equity movement excl. dividend & buy-back', m => m.other, false],
+    ['Total CET1 movement', m => m.totalCet1, true],
+    ['Credit risk RWA Δ', m => m.credit, false],
+    ['Market risk RWA Δ', m => m.market, false],
+    ['Operational risk RWA Δ', m => m.op, false],
+    ['Other RWA Δ', m => m.otherRwa, false],
+    ['Total RWA movement', m => m.totalRwa, true],
+    ['Net CET1 ratio movement (p.p.)', m => m.ratioDelta, true],
+  ];
+
+  return (
+    <Card>
+      <SectionHeader title="CET1 movement details" suffix="period-on-period, CHF mn — negatives in ( )" />
+      <div className="overflow-x-auto border border-efg-line rounded-lg">
+        <table className="w-full text-xs whitespace-nowrap">
+          <thead className="bg-brand-bg-body">
+            <tr>
+              <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold sticky left-0 bg-brand-bg-body">CHF mn</th>
+              {moves.map(m => (
+                <th key={m.label} className={`px-3 py-2 text-right text-[10px] uppercase tracking-wider font-semibold ${m.isProjection ? 'text-brand-primary' : 'text-brand-text-secondary'}`}>
+                  {m.label}{m.isProjection ? ' (P)' : ''}
+                </th>
+              ))}
+              <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/60">Cumulative</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, get, strong]) => (
+              <tr key={label} className={`border-t border-efg-line ${strong ? 'bg-brand-bg-body/60 font-semibold' : ''}`}>
+                <td className="px-3 py-1.5 text-brand-text-primary sticky left-0 bg-white">{label}</td>
+                {moves.map(m => {
+                  const v = get(m);
+                  return (
+                    <td key={m.label} className={`px-3 py-1.5 text-right tabular-nums ${v !== null && v < 0 ? 'text-status-red' : 'text-brand-text-primary'} ${m.isProjection ? 'italic' : ''}`}>
+                      {signed(v)}
+                    </td>
+                  );
+                })}
+                <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ (ytd(get) ?? 0) < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}>{signed(ytd(get))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {moves.some(m => m.pnl === null) && (
+        <p className="text-[11px] text-brand-text-secondary mt-2 italic">
+          P&L / dividend / buy-back splits need the CET1 composition on both periods (available for imported or workbench-entered data).
+        </p>
+      )}
+    </Card>
+  );
+};
+
+/** RWA by currency — driven by memo rows of the RWA section labelled "USD", "EUR", … */
+const RwaCurrencyTable: React.FC<{ series: CapitalPoint[] }> = ({ series }) => {
+  const withCcy = series.filter(p => p.rwaCcy);
+  const currencies = useMemo(() => {
+    const set = new Set<string>();
+    withCcy.forEach(p => Object.keys(p.rwaCcy!).forEach(c => set.add(c)));
+    return Array.from(set).sort();
+  }, [withCcy]);
+
+  return (
+    <Card>
+      <SectionHeader title="RWA by currency" suffix="CHF equivalent, CHF mn — memorandum" />
+      {currencies.length === 0 ? (
+        <p className="text-sm text-brand-text-secondary py-4">
+          No currency memoranda yet. In the <strong>Workbench → RWA</strong> tab, add <em>memo</em> rows labelled with the
+          3-letter currency code (USD, EUR, GBP…) and the CHF-equivalent RWA amount — they appear here automatically, per period.
+        </p>
+      ) : (
+        <div className="overflow-x-auto border border-efg-line rounded-lg">
+          <table className="w-full text-xs whitespace-nowrap">
+            <thead className="bg-brand-bg-body">
+              <tr>
+                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Currency</th>
+                {withCcy.map(p => (
+                  <th key={p.date} className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-efg-line">
+              {currencies.map(c => (
+                <tr key={c}>
+                  <td className="px-3 py-1.5 font-semibold text-brand-text-primary">{c}</td>
+                  {withCcy.map(p => <td key={p.date} className="px-3 py-1.5 text-right tabular-nums">{p.rwaCcy![c] !== undefined ? fmt(p.rwaCcy![c], 0) : '—'}</td>)}
+                </tr>
+              ))}
+              <tr className="bg-brand-bg-body/60 font-semibold border-t border-brand-text-primary/30">
+                <td className="px-3 py-2 text-brand-text-primary">Total RWA (all risks)</td>
+                {withCcy.map(p => <td key={p.date} className="px-3 py-2 text-right tabular-nums">{fmt(p.rwaTotal, 0)}</td>)}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const EntitiesTable: React.FC = () => {
-  const { data, allEntities } = useData();
+  const { data, setData, allEntities } = useData();
+
+  const setLocalReq = (entity: string, pct: number | undefined) => {
+    setData(prev => ({
+      ...prev,
+      riskAppetite: {
+        ...prev.riskAppetite,
+        [entity]: { ...(prev.riskAppetite[entity] || {}), localCapitalRequirement: pct },
+      },
+    }));
+  };
   const rows = useMemo(() => allEntities.map(entity => {
     const reports = (data.capitalReports || []).filter(r => r.entity === entity && !r.isProjection);
     const dates = new Set<string>([
@@ -317,34 +502,56 @@ const EntitiesTable: React.FC = () => {
   if (rows.length === 0) return null;
   return (
     <Card>
-      <SectionHeader title="Capital positions by regulated entity" suffix="latest available period per entity, CHF mn" />
+      <SectionHeader title="Capital positions by regulated entity" suffix="latest available period per entity, CHF mn — local requirement is editable" />
       <div className="overflow-x-auto border border-efg-line rounded-lg">
         <table className="w-full text-xs whitespace-nowrap">
           <thead className="bg-brand-bg-body">
             <tr>
-              {['Entity', 'Date', 'Total RWA', 'CET1', 'AT1', 'Total Tier 1', 'Tier 2', 'Eligible capital', 'Capital ratio', 'Leverage ratio'].map((h, i) => (
+              {['Entity', 'Date', 'Total RWA', 'CET1', 'AT1', 'Total Tier 1', 'Tier 2', 'Eligible capital', 'Local req %', 'Min capital req', 'Capital excess', 'Capital ratio', 'Leverage ratio'].map((h, i) => (
                 <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 1 ? 'text-right' : 'text-left'}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-efg-line">
-            {rows.map(r => (
-              <tr key={r.entity} className="hover:bg-brand-bg-body">
-                <td className="px-3 py-2 font-semibold text-brand-text-primary">{r.entity}</td>
-                <td className="px-3 py-2 text-brand-text-secondary">{r.date}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.rwa, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.cet1, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.at1, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(r.tier1, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.t2, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.total, 0)}</td>
-                <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtPct(r.ratio)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.leverage)}</td>
-              </tr>
-            ))}
+            {rows.map(r => {
+              const reqPct = data.riskAppetite[r.entity]?.localCapitalRequirement;
+              const minReq = reqPct != null ? (r.rwa * reqPct) / 100 : null;
+              const excess = minReq != null ? r.total - minReq : null;
+              return (
+                <tr key={r.entity} className="hover:bg-brand-bg-body">
+                  <td className="px-3 py-2 font-semibold text-brand-text-primary">{r.entity}</td>
+                  <td className="px-3 py-2 text-brand-text-secondary">{r.date}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.rwa, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.cet1, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.at1, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(r.tier1, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.t2, 0)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(r.total, 0)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <input
+                      type="number" step="0.1" min="0" max="100"
+                      value={reqPct ?? ''}
+                      placeholder="—"
+                      onChange={e => setLocalReq(r.entity, e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                      className="w-16 text-right bg-transparent border-0 border-b border-gray-300 focus:border-brand-primary focus:ring-0 text-xs py-0.5 tabular-nums"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{minReq != null ? fmt(minReq, 0) : '—'}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums font-semibold ${excess == null ? '' : excess >= 0 ? 'text-status-green' : 'text-status-red'}`}>
+                    {excess != null ? fmt(excess, 0) : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtPct(r.ratio)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.leverage)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      <p className="text-[11px] text-brand-text-secondary mt-2">
+        Local req % = local regulatory capital requirement incl. Pillar 2 (stored with the risk appetite settings).
+        Min capital req = Total RWA × Local req %. Capital excess = eligible capital − minimum requirement.
+      </p>
     </Card>
   );
 };
@@ -389,6 +596,31 @@ const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
   }, [lcrs, entity, effAsOf]);
 
   const comments = detail.find(r => r.currency === 'TOT')?.comments;
+
+  // --- Entity-level HQLA & flow analytics (TOT rows) ---
+  const entityTotHistory = useMemo(
+    () => lcrs.filter(r => r.entity === entity && r.currency === 'TOT').sort((a, b) => a.date.localeCompare(b.date)),
+    [lcrs, entity]
+  );
+  const hqlaEvolution = entityTotHistory.map(r => ({
+    name: monthLabel(r.date),
+    l1: Math.round(r.hqlaCat1),
+    l2: Math.round(r.totalHqla - r.hqlaCat1),
+    total: Math.round(r.totalHqla),
+  }));
+  const curTot = entityTotHistory.find(r => r.date === effAsOf);
+  const prevTot = prevDate ? entityTotHistory.find(r => r.date === prevDate) : undefined;
+  const hqlaSplit = curTot ? [
+    { name: 'Level 1', prev: prevTot?.hqlaCat1 ?? null, cur: curTot.hqlaCat1 },
+    { name: 'Level 2a', prev: prevTot?.hqlaCat2a ?? null, cur: curTot.hqlaCat2a },
+    { name: 'Level 2b', prev: prevTot?.hqlaCat2b ?? null, cur: curTot.hqlaCat2b },
+  ] : [];
+  const flowSplit = curTot ? [
+    { name: 'Retail outflows', prev: prevTot?.retailOutflows ?? null, cur: curTot.retailOutflows ?? 0 },
+    { name: 'Wholesale & others out', prev: prevTot && prevTot.retailOutflows != null ? prevTot.totalOutflows - prevTot.retailOutflows : null, cur: curTot.retailOutflows != null ? curTot.totalOutflows - curTot.retailOutflows : 0 },
+    { name: 'Reverse repo in', prev: prevTot?.reverseRepoInflows ?? null, cur: curTot.reverseRepoInflows ?? 0 },
+    { name: 'Other inflows', prev: prevTot && prevTot.reverseRepoInflows != null ? prevTot.inflowsAfterCap - prevTot.reverseRepoInflows : null, cur: curTot.reverseRepoInflows != null ? curTot.inflowsAfterCap - curTot.reverseRepoInflows : 0 },
+  ] : [];
 
   if (lcrs.length === 0) {
     return <p className="text-brand-text-secondary py-10 text-center">No LCR data yet — import the SNB LCR_G file in the Workbench.</p>;
@@ -463,6 +695,64 @@ const LcrTab: React.FC<{ entity: string }> = ({ entity }) => {
             );
           })}
         </div>
+      )}
+
+      {/* Entity HQLA analytics */}
+      {curTot && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <SectionHeader title={`${entity} — HQLA split by category`} suffix={prevTot ? `${monthLabel(prevDate!)} vs ${monthLabel(effAsOf)} · CHF mn` : `${monthLabel(effAsOf)} · CHF mn`} />
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={hqlaSplit} margin={{ top: 24, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+                <XAxis dataKey="name" tick={axisStyle} axisLine={{ stroke: PALETTE.line }} tickLine={false} />
+                <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(v: number) => fmt(v, 0)} />
+                {prevTot && <Bar dataKey="prev" name={monthLabel(prevDate!)} fill={PALETTE.slate} maxBarSize={36}>
+                  <LabelList dataKey="prev" position="top" formatter={(v: number) => (v ? fmt(v, 0) : '')} style={{ fontSize: 10, fill: PALETTE.ink }} />
+                </Bar>}
+                <Bar dataKey="cur" name={monthLabel(effAsOf)} fill={PALETTE.red} maxBarSize={36}>
+                  <LabelList dataKey="cur" position="top" formatter={(v: number) => (v ? fmt(v, 0) : '')} style={{ fontSize: 10, fill: PALETTE.ink, fontWeight: 600 }} />
+                </Bar>
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+          <Card>
+            <SectionHeader title={`${entity} — Outflows & inflows composition`} suffix="weighted, CHF mn" />
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={flowSplit} margin={{ top: 24, right: 8, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+                <XAxis dataKey="name" tick={{ ...axisStyle, fontSize: 10 }} axisLine={{ stroke: PALETTE.line }} tickLine={false} interval={0} />
+                <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
+                <Tooltip formatter={(v: number) => fmt(v, 0)} />
+                {prevTot && <Bar dataKey="prev" name={monthLabel(prevDate!)} fill={PALETTE.slate} maxBarSize={36} />}
+                <Bar dataKey="cur" name={monthLabel(effAsOf)} fill={PALETTE.red} maxBarSize={36} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+        </div>
+      )}
+
+      {/* HQLA evolution over time */}
+      {hqlaEvolution.length >= 2 && (
+        <Card>
+          <SectionHeader title={`${entity} — HQLA evolution`} suffix="Level 1 / Level 2 (after cap), CHF mn" />
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={hqlaEvolution} margin={{ top: 24, right: 8, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+              <XAxis dataKey="name" tick={{ ...axisStyle, fontSize: 10 }} axisLine={{ stroke: PALETTE.line }} tickLine={false} />
+              <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
+              <Tooltip formatter={(v: number, n: string) => [fmt(v, 0), n === 'l1' ? 'HQLA Level 1' : 'HQLA Level 2']} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="l1" name="HQLA Level 1" stackId="h" fill={PALETTE.sand} maxBarSize={40} />
+              <Bar dataKey="l2" name="HQLA Level 2" stackId="h" fill={PALETTE.red} maxBarSize={40}>
+                <LabelList dataKey="total" position="top" formatter={(v: number) => fmt(v, 0)} style={{ fontSize: 10, fill: PALETTE.ink, fontWeight: 600 }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
       )}
 
       {/* Per-entity currency detail */}

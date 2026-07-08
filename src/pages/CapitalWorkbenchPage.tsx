@@ -991,7 +991,13 @@ export const CapitalWorkbenchPage: React.FC = () => {
           </div>
         )}
         {report && tab === 'rwa' && (
-          <LineItemTable items={report.lineItems} section="rwa" onChange={items => updateReport({ ...report, lineItems: items })} />
+          <div>
+            <LineItemTable items={report.lineItems} section="rwa" onChange={items => updateReport({ ...report, lineItems: items })} />
+            <p className="mt-3 text-[11px] text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2">
+              <strong>RWA by currency —</strong> add <em>memo</em> rows labelled with the 3-letter currency code (USD, EUR, GBP…)
+              and the CHF-equivalent amount: they feed the “RWA by currency” table of the Management Report without touching the totals.
+            </p>
+          </div>
         )}
         {tab === 'lcr' && (
           <LcrTable reports={entityLcrs} onChange={updateLcrs} entity={entity} date={effectiveDate || new Date().toISOString().slice(0, 10)} />

@@ -115,6 +115,8 @@ export interface EntityThresholds {
   lcr: KpiThresholds;
   nsfr: KpiThresholds;
   leverage: KpiThresholds;
+  /** Local regulatory capital requirement (incl. Pillar 2), % of RWA. */
+  localCapitalRequirement?: number;
 }
 
 export interface RiskAppetite {
