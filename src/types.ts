@@ -207,6 +207,45 @@ export interface CapitalReport {
   lineItems: CapitalLineItem[];
 }
 
+// ---- Excel import mapping (editable configuration, no code changes needed) ----
+
+/** One FINMA row code of the capital sheet mapped to a line item. */
+export interface CapitalRowMap {
+  /** FINMA row code in column A, e.g. '1.1.1.7'. */
+  finma: string;
+  section: CapitalSection;
+  code: string;
+  label: string;
+  memo?: boolean;
+}
+
+/**
+ * All anchors the Excel parser uses. When FINMA/SNB publish a new template
+ * version, adjust these values in the app (Workbench → Import mapping) —
+ * no code change required. Missing fields fall back to the built-in defaults.
+ */
+export interface ImportMapping {
+  /** Sheet names of the capital workbook. */
+  sheets?: { km1?: string; cap?: string; rwa?: string };
+  /** KM1 item numbers (start of column B labels), e.g. cet1Capital: '1'. */
+  km1Items?: Partial<Record<keyof CapitalKeyMetrics, string>>;
+  /** Capital composition rows (FINMA codes in column A of the capital sheet). */
+  capitalRows?: CapitalRowMap[];
+  /** Anchor codes: net CET1 (residual check) + RWA sheet codes. */
+  capitalAnchors?: {
+    netCet1?: string;
+    rwaTotal?: string;
+    creditRwa?: string;
+    marketRwa?: string;
+    opRwa?: string;
+    leverageExposure?: string;
+  };
+  /** SNB row codes (column E) of the LCR sheets. */
+  lcrCodes?: { totalOutflows?: string; inflowsBeforeCap?: string; inflowsAfterCap?: string; lcrRatio?: string };
+  /** Column-Y labels of the weighted HQLA totals (first match wins). */
+  lcrHqlaLabels?: { cat1?: string[]; cat2a?: string[]; cat2b?: string[]; total?: string[] };
+}
+
 // ---- LCR detail (relational: one report per entity+date+currency) ----
 
 export interface LcrReport {
@@ -242,6 +281,8 @@ export interface CentralData {
   // Optional so data saved before these existed still loads.
   capitalReports?: CapitalReport[];
   lcrReports?: LcrReport[];
+  /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
+  importMapping?: ImportMapping;
 }
 
 export interface CalculatedKpis extends Omit<KpiHistoryEntry, 'liquidity'>, Partial<LiquidityDataPoint> {

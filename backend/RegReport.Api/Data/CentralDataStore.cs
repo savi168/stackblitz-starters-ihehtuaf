@@ -34,6 +34,7 @@ public static class CentralDataStore
             Bilan = Get<Bilan>("bilan") ?? new Bilan(),
             RiskAppetite = Get<Dictionary<string, EntityThresholds>>("riskAppetite") ?? new(),
             DiagnosisResults = Get<Dictionary<string, List<DiagnosisResult>>>("diagnosisResults"),
+            ImportMapping = Get<System.Text.Json.JsonElement?>("importMapping"),
         };
     }
 
@@ -77,6 +78,7 @@ public static class CentralDataStore
         Upsert(db, "bilan", data.Bilan);
         Upsert(db, "riskAppetite", data.RiskAppetite);
         if (data.DiagnosisResults is not null) Upsert(db, "diagnosisResults", data.DiagnosisResults);
+        if (data.ImportMapping is not null) Upsert(db, "importMapping", data.ImportMapping);
 
         await db.SaveChangesAsync();
         await tx.CommitAsync();

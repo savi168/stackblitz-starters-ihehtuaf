@@ -267,6 +267,25 @@ export const BACKEND_TABLES: TableMeta[] = [
     ],
   },
   {
+    key: 'importMapping',
+    table: 'AppSettings[importMapping]',
+    entity: 'ImportMapping',
+    kind: 'singleton',
+    description: 'Excel import anchors for the FINMA/SNB templates (editable in Workbench → Mapping).',
+    columns: [
+      { name: 'sheets', type: 'object', json: true, note: 'capital workbook sheet names' },
+      { name: 'km1Items', type: 'object', json: true, note: 'KM1 item numbers' },
+      { name: 'capitalRows', type: 'CapitalRowMap[]', json: true, note: 'FINMA row codes → line items' },
+      { name: 'capitalAnchors', type: 'object', json: true, note: 'net CET1 + RWA codes' },
+      { name: 'lcrCodes', type: 'object', json: true, note: 'SNB row codes' },
+      { name: 'lcrHqlaLabels', type: 'object', json: true, note: 'HQLA total labels' },
+    ],
+    endpoints: [
+      { method: 'GET', path: '/api/settings/import-mapping', desc: 'Get' },
+      { method: 'PUT', path: '/api/settings/import-mapping', desc: 'Replace' },
+    ],
+  },
+  {
     key: 'bilan',
     table: 'AppSettings[bilan]',
     entity: 'Bilan',

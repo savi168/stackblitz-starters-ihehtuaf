@@ -76,6 +76,33 @@ public class SettingsController : ControllerBase
         return appetite;
     }
 
+    // ---- Import mapping (Excel template anchors) ----
+
+    [HttpGet("import-mapping")]
+    public async Task<ActionResult<JsonElement?>> GetImportMapping()
+    {
+        var row = await _db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == "importMapping");
+        if (row is null) return NoContent();
+        return JsonSerializer.Deserialize<JsonElement>(row.Value, _json);
+    }
+
+    [HttpPut("import-mapping")]
+    public async Task<ActionResult<JsonElement>> PutImportMapping(JsonElement mapping)
+    {
+        var json = JsonSerializer.Serialize(mapping, _json);
+        var row = await _db.Settings.FirstOrDefaultAsync(s => s.Key == "importMapping");
+        if (row is null)
+        {
+            _db.Settings.Add(new AppSetting { Key = "importMapping", Value = json });
+        }
+        else
+        {
+            row.Value = json;
+        }
+        await _db.SaveChangesAsync();
+        return mapping;
+    }
+
     /// <summary>Update thresholds for a single entity without touching the others.</summary>
     [HttpPut("risk-appetite/{entity}")]
     public async Task<ActionResult<EntityThresholds>> PutEntityThresholds(

@@ -4,7 +4,9 @@ import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '.
 import {
   CapitalLineItem,
   CapitalReport,
+  CapitalRowMap,
   CapitalSection,
+  ImportMapping,
   LcrReport,
 } from '../types';
 import {
@@ -14,6 +16,7 @@ import {
   projectToKpiHistory,
   SECTION_LABELS,
 } from '../services/capital';
+import { resolveMapping } from '../services/importMapping';
 import type { ParsedImport } from '../services/excelImport';
 
 /**
@@ -54,8 +57,8 @@ const LineItemTable: React.FC<{
   const update = (id: number, patch: Partial<CapitalLineItem>) =>
     onChange(items.map(i => (i.id === id ? { ...i, ...patch } : i)));
   const remove = (id: number) => onChange(items.filter(i => i.id !== id));
-  const add = () =>
-    onChange([...items, { id: newItemId(), section, code: `custom${Date.now() % 10000}`, label: '', amount: 0 }]);
+  const add = (memo?: boolean) =>
+    onChange([...items, { id: newItemId(), section, code: `custom${Date.now() % 10000}`, label: '', amount: 0, ...(memo ? { memo: true } : {}) }]);
 
   return (
     <div>
@@ -65,12 +68,13 @@ const LineItemTable: React.FC<{
             <tr className="bg-brand-bg-body text-left">
               <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold">Item</th>
               <th className="px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold text-right w-44">Amount (mCHF)</th>
+              <th className="px-3 py-2.5 text-[11px] uppercase tracking-[0.12em] text-brand-text-secondary font-semibold text-center w-16" title="Memorandum: informational only, excluded from the totals">Memo</th>
               <th className="px-2 py-2.5 w-10"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-efg-line">
             {rows.length === 0 && (
-              <tr><td colSpan={3} className="px-4 py-6 text-center text-brand-text-secondary">No items — add a row below.</td></tr>
+              <tr><td colSpan={4} className="px-4 py-6 text-center text-brand-text-secondary">No items — add a row below.</td></tr>
             )}
             {rows.map(row => (
               <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
@@ -89,7 +93,16 @@ const LineItemTable: React.FC<{
                     step="0.01"
                     value={row.amount}
                     onChange={e => update(row.id, { amount: parseFloat(e.target.value) || 0 })}
-                    className={`w-36 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums ${row.amount < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}
+                    className={`w-36 text-right bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-sm py-1 tabular-nums ${row.memo ? 'text-brand-text-secondary italic' : row.amount < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}
+                  />
+                </td>
+                <td className="px-3 py-1.5 text-center">
+                  <input
+                    type="checkbox"
+                    checked={!!row.memo}
+                    onChange={e => update(row.id, { memo: e.target.checked || undefined })}
+                    title="Memorandum item — shown for information, excluded from the total"
+                    className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer"
                   />
                 </td>
                 <td className="px-2 py-1.5 text-center">
@@ -102,18 +115,22 @@ const LineItemTable: React.FC<{
             <tr className="bg-brand-bg-body border-t border-brand-text-primary/30">
               <td className="px-4 py-2.5 text-sm font-semibold text-brand-text-primary">Total ({SECTION_LABELS[section]})</td>
               <td className="px-4 py-2.5 text-right text-sm font-semibold tabular-nums text-brand-text-primary">{fmt(additiveTotal, 2)}</td>
-              <td></td>
+              <td colSpan={2} className="px-3 py-2.5 text-center text-[10px] uppercase tracking-wide text-brand-text-secondary">excl. memo</td>
             </tr>
           </tfoot>
         </table>
       </div>
-      <div className="mt-3 flex items-center justify-between">
-        <button onClick={add} className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors">
-          + Add row
-        </button>
-        {rows.some(r => r.memo) && (
-          <span className="text-[11px] text-brand-text-secondary italic">Greyed rows are “of which” details — not added to the total.</span>
-        )}
+      <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex gap-2">
+          <button onClick={() => add(false)} className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors">
+            + Add row
+          </button>
+          <button onClick={() => add(true)} title="Informational row (e.g. share buyback, acquisitions, shares sold) — excluded from the total"
+            className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors">
+            + Add memo row
+          </button>
+        </div>
+        <span className="text-[11px] text-brand-text-secondary italic">Memo rows (greyed) are informational — e.g. share buyback, acquisitions — and never touch the total.</span>
       </div>
     </div>
   );
@@ -295,6 +312,184 @@ const ImportPreview: React.FC<{
   );
 };
 
+// --- Import mapping editor -----------------------------------------------------------
+
+const FieldInput: React.FC<{ label: string; value: string; onChange: (v: string) => void; wide?: boolean }> = ({ label, value, onChange, wide }) => (
+  <div className={wide ? 'col-span-2' : ''}>
+    <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">{label}</label>
+    <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      className="block w-full p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary focus:ring-brand-primary" />
+  </div>
+);
+
+const MappingEditor: React.FC<{
+  current?: ImportMapping;
+  onSave: (mapping: ImportMapping) => void;
+  onClose: () => void;
+}> = ({ current, onSave, onClose }) => {
+  const [m, setM] = useState<Required<ImportMapping>>(() => resolveMapping(current));
+
+  const setSheet = (k: 'km1' | 'cap' | 'rwa', v: string) => setM(p => ({ ...p, sheets: { ...p.sheets, [k]: v } }));
+  const setKm1 = (k: string, v: string) => setM(p => ({ ...p, km1Items: { ...p.km1Items, [k]: v } }));
+  const setAnchor = (k: string, v: string) => setM(p => ({ ...p, capitalAnchors: { ...p.capitalAnchors, [k]: v } }));
+  const setLcrCode = (k: string, v: string) => setM(p => ({ ...p, lcrCodes: { ...p.lcrCodes, [k]: v } }));
+  const setHqla = (k: 'cat1' | 'cat2a' | 'cat2b' | 'total', v: string) =>
+    setM(p => ({ ...p, lcrHqlaLabels: { ...p.lcrHqlaLabels, [k]: v.split('\n').map(s => s.trim()).filter(Boolean) } }));
+
+  const updateRow = (idx: number, patch: Partial<CapitalRowMap>) =>
+    setM(p => ({ ...p, capitalRows: p.capitalRows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) }));
+  const removeRow = (idx: number) => setM(p => ({ ...p, capitalRows: p.capitalRows.filter((_, i) => i !== idx) }));
+  const addRow = () => setM(p => ({
+    ...p,
+    capitalRows: [...p.capitalRows, { finma: '', section: 'equity', code: '', label: '' }],
+  }));
+
+  const km1Labels: Array<[string, string]> = [
+    ['cet1Capital', 'CET1 capital'], ['tier1Capital', 'Tier 1'], ['totalCapital', 'Total capital'],
+    ['rwa', 'Total RWA'], ['cet1Ratio', 'CET1 ratio'], ['tier1Ratio', 'T1 ratio'],
+    ['totalCapitalRatio', 'Total cap. ratio'], ['leverageExposure', 'Leverage exposure'], ['leverageRatio', 'Leverage ratio'],
+  ];
+  const anchorLabels: Array<[string, string]> = [
+    ['netCet1', 'Net CET1 (reconciliation)'], ['rwaTotal', 'RWA total'], ['creditRwa', 'Credit RWA'],
+    ['marketRwa', 'Market RWA'], ['opRwa', 'Operational RWA'], ['leverageExposure', 'Leverage exposure (LRD)'],
+  ];
+  const lcrCodeLabels: Array<[string, string]> = [
+    ['totalOutflows', 'Total outflows'], ['inflowsBeforeCap', 'Inflows before cap'],
+    ['inflowsAfterCap', 'Inflows after cap'], ['lcrRatio', 'LCR ratio'],
+  ];
+
+  return (
+    <Modal isOpen onClose={onClose} title="Import mapping — FINMA / SNB template anchors">
+      <div className="space-y-7 text-sm">
+        <p className="text-brand-text-secondary">
+          These anchors tell the importer where to read each figure. When FINMA or the SNB publish a
+          new template version (renamed sheets, moved rows), adjust them here — no code change needed.
+          The mapping is stored with the central data (and in SQL Server in API mode).
+        </p>
+
+        <section>
+          <SectionHeader title="Capital workbook — sheet names" />
+          <div className="grid grid-cols-3 gap-3">
+            <FieldInput label="Key metrics (KM1)" value={m.sheets.km1 || ''} onChange={v => setSheet('km1', v)} />
+            <FieldInput label="Capital composition" value={m.sheets.cap || ''} onChange={v => setSheet('cap', v)} />
+            <FieldInput label="RWA / leverage" value={m.sheets.rwa || ''} onChange={v => setSheet('rwa', v)} />
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader title="KM1 item numbers" suffix="start of the label in column B" />
+          <div className="grid grid-cols-3 gap-3">
+            {km1Labels.map(([k, label]) => (
+              <FieldInput key={k} label={label} value={(m.km1Items as Record<string, string>)[k] || ''} onChange={v => setKm1(k, v)} />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader title="Capital composition rows" suffix="FINMA codes in column A" />
+          <div className="border border-efg-line rounded-lg overflow-x-auto max-h-72 overflow-y-auto">
+            <table className="w-full text-[13px] whitespace-nowrap">
+              <thead className="sticky top-0 bg-brand-bg-body">
+                <tr className="text-left">
+                  {['FINMA code', 'Section', 'Code', 'Label', 'Memo', ''].map((h, i) => (
+                    <th key={h + i} className="px-3 py-2 text-[10px] uppercase tracking-[0.1em] text-brand-text-secondary font-semibold">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-efg-line">
+                {m.capitalRows.map((row, idx) => (
+                  <tr key={idx}>
+                    <td className="px-3 py-1">
+                      <input type="text" value={row.finma} onChange={e => updateRow(idx, { finma: e.target.value })}
+                        className="w-28 bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-[13px] py-0.5 font-mono" />
+                    </td>
+                    <td className="px-3 py-1">
+                      <select value={row.section} onChange={e => updateRow(idx, { section: e.target.value as CapitalSection })}
+                        className="border-0 bg-transparent text-[13px] py-0.5 focus:ring-0 cursor-pointer">
+                        <option value="equity">equity</option>
+                        <option value="deduction">deduction</option>
+                        <option value="at1">at1</option>
+                        <option value="t2">t2</option>
+                        <option value="rwa">rwa</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-1">
+                      <input type="text" value={row.code} onChange={e => updateRow(idx, { code: e.target.value })}
+                        className="w-36 bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-[13px] py-0.5 font-mono" />
+                    </td>
+                    <td className="px-3 py-1">
+                      <input type="text" value={row.label} onChange={e => updateRow(idx, { label: e.target.value })}
+                        className="w-72 bg-transparent border-0 border-b border-transparent focus:border-brand-primary focus:ring-0 text-[13px] py-0.5" />
+                    </td>
+                    <td className="px-3 py-1 text-center">
+                      <input type="checkbox" checked={!!row.memo} onChange={e => updateRow(idx, { memo: e.target.checked || undefined })}
+                        className="rounded border-gray-300 text-brand-primary focus:ring-brand-primary cursor-pointer" />
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <button onClick={() => removeRow(idx)} className="text-gray-300 hover:text-status-red text-lg leading-none">×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={addRow} className="mt-2 text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-3 rounded-md transition-colors">
+            + Add mapping row
+          </button>
+        </section>
+
+        <section>
+          <SectionHeader title="Capital anchors" suffix="reconciliation & RWA sheet codes" />
+          <div className="grid grid-cols-3 gap-3">
+            {anchorLabels.map(([k, label]) => (
+              <FieldInput key={k} label={label} value={(m.capitalAnchors as Record<string, string>)[k] || ''} onChange={v => setAnchor(k, v)} />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader title="LCR — SNB row codes" suffix="column E" />
+          <div className="grid grid-cols-4 gap-3">
+            {lcrCodeLabels.map(([k, label]) => (
+              <FieldInput key={k} label={label} value={(m.lcrCodes as Record<string, string>)[k] || ''} onChange={v => setLcrCode(k, v)} />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader title="LCR — HQLA total labels" suffix="column Y; one per line, first match wins" />
+          <div className="grid grid-cols-2 gap-3">
+            {(['cat1', 'cat2a', 'cat2b', 'total'] as const).map(k => (
+              <div key={k}>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">
+                  {k === 'total' ? 'Total HQLA' : `Category ${k.replace('cat', '')}`}
+                </label>
+                <textarea
+                  value={(m.lcrHqlaLabels[k] || []).join('\n')}
+                  onChange={e => setHqla(k, e.target.value)}
+                  rows={k === 'total' ? 3 : 2}
+                  className="block w-full p-2 border border-gray-200 rounded-md text-[13px] bg-white focus:border-brand-primary focus:ring-brand-primary font-mono"
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="flex justify-between items-center pt-2 border-t border-efg-line">
+          <button onClick={() => setM(resolveMapping(undefined))}
+            className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:bg-gray-50 py-2 px-4 rounded-md transition-colors">
+            Reset to defaults
+          </button>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:bg-gray-50 py-2 px-5 rounded-md transition-colors">Cancel</button>
+            <button onClick={() => onSave(m)} className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">Save mapping</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 // --- Page ---------------------------------------------------------------------------
 
 type WorkTab = 'equity' | 'deduction' | 'at1t2' | 'rwa' | 'lcr';
@@ -308,6 +503,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showMapping, setShowMapping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const capitalReports = data.capitalReports || [];
@@ -385,7 +581,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
     try {
       const { parseWorkbook } = await import('../services/excelImport');
       const buffer = await file.arrayBuffer();
-      setParsed(parseWorkbook(buffer, file.name));
+      setParsed(parseWorkbook(buffer, file.name, data.importMapping));
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -489,6 +685,13 @@ export const CapitalWorkbenchPage: React.FC = () => {
             >
               {report ? 'Reset manual template' : 'Start manual entry'}
             </button>
+            <button
+              onClick={() => setShowMapping(true)}
+              title="Adjust the FINMA/SNB template anchors (new template version) — no code change needed"
+              className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-2.5 px-4 rounded-md transition-colors"
+            >
+              Mapping{data.importMapping ? ' •' : ''}
+            </button>
           </div>
         </div>
         {importError && (
@@ -580,6 +783,18 @@ export const CapitalWorkbenchPage: React.FC = () => {
           entities={allEntities.length > 0 ? allEntities : ['Group']}
           onConfirm={confirmImport}
           onCancel={() => setParsed(null)}
+        />
+      )}
+
+      {showMapping && (
+        <MappingEditor
+          current={data.importMapping}
+          onSave={mapping => {
+            setData(prev => ({ ...prev, importMapping: mapping }));
+            setShowMapping(false);
+            setNotice('Import mapping saved — it will be used for the next Excel imports (and persisted with the central data).');
+          }}
+          onClose={() => setShowMapping(false)}
         />
       )}
     </div>

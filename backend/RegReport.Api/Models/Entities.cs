@@ -281,4 +281,7 @@ public class CentralData
     public Dictionary<string, List<DiagnosisResult>>? DiagnosisResults { get; set; }
     public List<CapitalReport> CapitalReports { get; set; } = new();
     public List<LcrReport> LcrReports { get; set; } = new();
+    // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
+    // by the frontend parser — the API only stores and returns it.
+    public System.Text.Json.JsonElement? ImportMapping { get; set; }
 }
