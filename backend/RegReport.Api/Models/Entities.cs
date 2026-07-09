@@ -310,6 +310,9 @@ public class FinStatement
     public string Entity { get; set; } = "";
     public string Date { get; set; } = "";
     public string Kind { get; set; } = "balanceSheet"; // balanceSheet | pnl | equity
+    // Accounting framework: 'IFRS' | 'Swiss GAAP' | 'Local GAAP' — an entity
+    // can carry several in parallel (each is a separate statement).
+    public string? Gaap { get; set; }
     public string Source { get; set; } = "manual";     // manual | excel
     public string? FileName { get; set; }
     public string? Comments { get; set; }

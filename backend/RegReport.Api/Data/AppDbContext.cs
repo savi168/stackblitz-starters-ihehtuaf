@@ -112,7 +112,7 @@ public class AppDbContext : DbContext
         b.Entity<FinStatement>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => new { x.Entity, x.Date, x.Kind }).IsUnique();
+            e.HasIndex(x => new { x.Entity, x.Date, x.Kind, x.Gaap }).IsUnique();
             e.HasMany(x => x.LineItems).WithOne()
                 .HasForeignKey(x => x.FinStatementId).OnDelete(DeleteBehavior.Cascade);
         });

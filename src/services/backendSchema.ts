@@ -301,6 +301,7 @@ export const BACKEND_TABLES: TableMeta[] = [
       { name: 'Entity', type: 'string' },
       { name: 'Date', type: 'date' },
       { name: 'Kind', type: 'enum', note: 'balanceSheet | pnl | equity' },
+      { name: 'Gaap', type: 'string?', note: 'IFRS | Swiss GAAP | Local GAAP (several in parallel per entity)' },
       { name: 'Source', type: 'enum', note: 'manual | excel' },
       { name: 'Comments', type: 'string?' },
       { name: 'LineItems', type: 'FinStatementLineItem[]', fk: 'FinStatementLineItems.FinStatementId', note: 'section · label · amount · memo' },

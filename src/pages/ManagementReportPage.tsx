@@ -6,7 +6,7 @@ import {
 import { useData } from '../context/DataContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
 import { CET1CapitalBreakdown, FinStatementKind, LcrReport, NsfrReport } from '../types';
-import { computeFinSummary, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
+import { computeFinSummary, DEFAULT_GAAP, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import { computeCapitalSummary } from '../services/capital';
 import { formatDate } from '../utils';
 import { calculateCet1RatioEvolutionData, calculateKpis } from '../utils';
@@ -1282,10 +1282,22 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
   const { data } = useData();
   const [kind, setKind] = useState<FinStatementKind>('balanceSheet');
   const [compare, setCompare] = useState('');
+  const [gaapSel, setGaapSel] = useState('');
+
+  // Frameworks actually present for this entity+kind (an entity can carry
+  // e.g. IFRS + Swiss GAAP in parallel — each is its own view).
+  const gaaps = useMemo(() => {
+    const set = new Set<string>();
+    (data.finStatements || []).filter(s => s.entity === entity && s.kind === kind).forEach(s => set.add(gaapOf(s)));
+    return Array.from(set).sort();
+  }, [data.finStatements, entity, kind]);
+  const gaap = gaaps.includes(gaapSel) ? gaapSel : (gaaps[0] || DEFAULT_GAAP);
 
   const all = useMemo(
-    () => (data.finStatements || []).filter(s => s.entity === entity && s.kind === kind).sort((a, b) => a.date.localeCompare(b.date)),
-    [data.finStatements, entity, kind]
+    () => (data.finStatements || [])
+      .filter(s => s.entity === entity && s.kind === kind && gaapOf(s) === gaap)
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    [data.finStatements, entity, kind, gaap]
   );
   // Strictly at or before the reference date — never fall forward.
   const current = [...all].reverse().find(s => s.date <= asOf);
@@ -1315,10 +1327,20 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
           {(Object.keys(KIND_LABELS) as FinStatementKind[]).map(k => (
             <TabButton key={k} label={KIND_LABELS[k]} isActive={kind === k} onClick={() => setKind(k)} isSubTab />
           ))}
+          {gaaps.length > 0 && (
+            <span className="flex items-center gap-1.5 ml-3 pl-3 border-l border-efg-line">
+              {gaaps.map(g => (
+                <button key={g} onClick={() => setGaapSel(g)}
+                  className={`text-[12px] font-semibold py-1 px-2.5 rounded border transition-colors ${gaap === g ? 'bg-brand-secondary text-white border-brand-secondary' : 'text-brand-text-secondary border-gray-300 hover:border-brand-secondary'}`}>
+                  {g}
+                </button>
+              ))}
+            </span>
+          )}
         </div>
         <div className="flex items-end gap-3">
           {all.length > 1 && (
@@ -1342,7 +1364,7 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
       </div>
 
       <Card>
-        <SectionHeader title={`${KIND_LABELS[kind]} — ${entity}`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''} · CHF mn`} />
+        <SectionHeader title={`${KIND_LABELS[kind]} — ${entity} (${gaap})`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''} · CHF mn`} />
         <div className="overflow-x-auto border border-efg-line rounded-lg">
           <table className="w-full text-xs">
             <thead className="bg-brand-bg-body">

@@ -12,7 +12,7 @@ import {
   LcrReport,
   NsfrReport,
 } from '../types';
-import { computeFinSummary, createFinStatementTemplate, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
+import { computeFinSummary, createFinStatementTemplate, DEFAULT_GAAP, GAAP_OPTIONS, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import {
   computeCapitalSummary,
   createManualCapitalTemplate,
@@ -629,11 +629,12 @@ const FIN_TAB_KIND: Partial<Record<WorkTab, FinStatementKind>> = {
 const FinStatementEditor: React.FC<{
   statement: FinStatement | null;
   kind: FinStatementKind;
+  gaap: string;
   entity: string;
   date: string;
   onChange: (s: FinStatement) => void;
   onDelete: () => void;
-}> = ({ statement, kind, entity, date, onChange, onDelete }) => {
+}> = ({ statement, kind, gaap, entity, date, onChange, onDelete }) => {
   const csvInput = useRef<HTMLInputElement>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
 
@@ -642,9 +643,9 @@ const FinStatementEditor: React.FC<{
     try {
       const { items, warnings } = convertFinStatementCsv(kind, parseCsv(await file.text()));
       if (items.length === 0) throw new Error('No valid rows found.' + (warnings[0] ? ` ${warnings[0]}` : ''));
-      if (!window.confirm(`Import ${items.length} row(s) into the ${KIND_LABELS[kind]} of ${entity} — ${date}? (upsert by section+label)` +
+      if (!window.confirm(`Import ${items.length} row(s) into the ${KIND_LABELS[kind]} (${gaap}) of ${entity} — ${date}? (upsert by section+label)` +
         (warnings.length ? `\n⚠ ${warnings.length} skipped` : ''))) return;
-      const base = statement ?? { ...createFinStatementTemplate(entity, date, kind), lineItems: [] };
+      const base = statement ?? { ...createFinStatementTemplate(entity, date, kind, gaap), lineItems: [] };
       const lineItems = [...base.lineItems];
       for (const it of items) {
         const idx = lineItems.findIndex(x => x.section === it.section && x.label.trim().toLowerCase() === it.label.toLowerCase());
@@ -665,9 +666,9 @@ const FinStatementEditor: React.FC<{
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         {!statement && (
-          <button onClick={() => onChange(createFinStatementTemplate(entity, date, kind))}
+          <button onClick={() => onChange(createFinStatementTemplate(entity, date, kind, gaap))}
             className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors">
-            Start {KIND_LABELS[kind]} template
+            Start {KIND_LABELS[kind]} template ({gaap})
           </button>
         )}
         <input ref={csvInput} type="file" accept=".csv,text/csv" className="hidden"
@@ -889,27 +890,28 @@ export const CapitalWorkbenchPage: React.FC = () => {
     [nsfrReports, entity, effectiveDate]
   );
   const finStatements = data.finStatements || [];
-  const finFor = useCallback((kind: FinStatementKind) =>
-    finStatements.find(s => s.entity === entity && s.date === effectiveDate && s.kind === kind) || null,
-  [finStatements, entity, effectiveDate]);
+  const [gaap, setGaap] = useState<string>(DEFAULT_GAAP);
+  const finFor = useCallback((kind: FinStatementKind, g: string = gaap) =>
+    finStatements.find(s => s.entity === entity && s.date === effectiveDate && s.kind === kind && gaapOf(s) === g) || null,
+  [finStatements, entity, effectiveDate, gaap]);
 
   const updateFinStatement = useCallback((s: FinStatement) => {
     setData(prev => ({
       ...prev,
       finStatements: [
-        ...(prev.finStatements || []).filter(x => !(x.entity === s.entity && x.date === s.date && x.kind === s.kind)),
+        ...(prev.finStatements || []).filter(x => !(x.entity === s.entity && x.date === s.date && x.kind === s.kind && gaapOf(x) === gaapOf(s))),
         s,
       ],
     }));
   }, [setData]);
 
   const deleteFinStatement = useCallback((kind: FinStatementKind) => {
-    if (!window.confirm(`Delete the ${KIND_LABELS[kind]} for ${entity} — ${effectiveDate}?`)) return;
+    if (!window.confirm(`Delete the ${KIND_LABELS[kind]} (${gaap}) for ${entity} — ${effectiveDate}?`)) return;
     setData(prev => ({
       ...prev,
-      finStatements: (prev.finStatements || []).filter(x => !(x.entity === entity && x.date === effectiveDate && x.kind === kind)),
+      finStatements: (prev.finStatements || []).filter(x => !(x.entity === entity && x.date === effectiveDate && x.kind === kind && gaapOf(x) === gaap)),
     }));
-  }, [setData, entity, effectiveDate]);
+  }, [setData, entity, effectiveDate, gaap]);
   const summary = useMemo(() => (report ? computeCapitalSummary(report) : null), [report]);
 
   // --- mutations (all end with re-projecting the aggregated KPI entry) ---
@@ -1302,14 +1304,31 @@ export const CapitalWorkbenchPage: React.FC = () => {
           )
         )}
         {FIN_TAB_KIND[tab] && (
-          <FinStatementEditor
-            statement={finFor(FIN_TAB_KIND[tab]!)}
-            kind={FIN_TAB_KIND[tab]!}
-            entity={entity}
-            date={effectiveDate || new Date().toISOString().slice(0, 10)}
-            onChange={updateFinStatement}
-            onDelete={() => deleteFinStatement(FIN_TAB_KIND[tab]!)}
-          />
+          <div>
+            <div className="flex items-center gap-2 mb-5">
+              <span className="text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary">Accounting framework</span>
+              {GAAP_OPTIONS.map(g => {
+                const exists = !!finFor(FIN_TAB_KIND[tab]!, g);
+                return (
+                  <button key={g} onClick={() => setGaap(g)}
+                    className={`text-sm font-semibold py-1 px-3 rounded-md border transition-colors ${gaap === g ? 'bg-brand-secondary text-white border-brand-secondary' : 'text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary'}`}>
+                    {g}{exists ? ' ✓' : ''}
+                  </button>
+                );
+              })}
+              <span className="text-[11px] text-brand-text-secondary ml-2">an entity can carry several frameworks in parallel — each is a separate statement</span>
+            </div>
+            <FinStatementEditor
+              key={`${tab}-${gaap}-${entity}-${effectiveDate}`}
+              statement={finFor(FIN_TAB_KIND[tab]!)}
+              kind={FIN_TAB_KIND[tab]!}
+              gaap={gaap}
+              entity={entity}
+              date={effectiveDate || new Date().toISOString().slice(0, 10)}
+              onChange={updateFinStatement}
+              onDelete={() => deleteFinStatement(FIN_TAB_KIND[tab]!)}
+            />
+          </div>
         )}
         {tab === 'comments' && (
           <div className="space-y-6 max-w-3xl">

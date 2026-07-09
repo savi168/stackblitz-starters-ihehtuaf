@@ -8,6 +8,12 @@ import { newItemId } from './capital';
  * liability-side deductions negative where noted).
  */
 
+/** Accounting frameworks — a reporting entity can carry several in parallel. */
+export const GAAP_OPTIONS = ['Swiss GAAP', 'IFRS', 'Local GAAP'] as const;
+export const DEFAULT_GAAP = 'Swiss GAAP';
+/** Statements saved before the GAAP dimension existed count as Swiss GAAP. */
+export const gaapOf = (s: { gaap?: string }): string => s.gaap || DEFAULT_GAAP;
+
 export const KIND_LABELS: Record<FinStatementKind, string> = {
   balanceSheet: 'Balance Sheet',
   pnl: 'Profit & Loss',
@@ -72,11 +78,12 @@ const TEMPLATES: Record<FinStatementKind, Array<[string, string]>> = {
   ],
 };
 
-export const createFinStatementTemplate = (entity: string, date: string, kind: FinStatementKind): FinStatement => ({
+export const createFinStatementTemplate = (entity: string, date: string, kind: FinStatementKind, gaap: string = DEFAULT_GAAP): FinStatement => ({
   id: newItemId(),
   entity,
   date,
   kind,
+  gaap,
   source: 'manual',
   lineItems: TEMPLATES[kind].map(([section, label]) => ({
     id: newItemId(),

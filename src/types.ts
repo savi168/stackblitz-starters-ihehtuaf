@@ -234,6 +234,8 @@ export interface FinStatement {
   entity: string;
   date: string; // YYYY-MM-DD
   kind: FinStatementKind;
+  /** Accounting framework: 'IFRS' | 'Swiss GAAP' | 'Local GAAP' (default Swiss GAAP). */
+  gaap?: string;
   source: 'manual' | 'excel';
   fileName?: string;
   comments?: string;
