@@ -1114,19 +1114,40 @@ export const CapitalWorkbenchPage: React.FC = () => {
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-brand-text-secondary mb-1">Entity</label>
-              <select value={entity} onChange={e => { setEntity(e.target.value); setDate(''); }}
-                className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary focus:ring-brand-primary">
-                {allEntities.map(e => <option key={e} value={e}>{e}</option>)}
-                {!allEntities.includes(entity) && <option value={entity}>{entity}</option>}
-              </select>
+              <div className="flex gap-2">
+                <select value={entity} onChange={e => { setEntity(e.target.value); setDate(''); }}
+                  className="block flex-1 p-3 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary focus:ring-brand-primary">
+                  {allEntities.map(e => <option key={e} value={e}>{e}</option>)}
+                  {!allEntities.includes(entity) && entity && <option value={entity}>{entity} (new)</option>}
+                </select>
+                <button
+                  onClick={() => {
+                    const name = window.prompt('New entity name (e.g. Monaco, Luxembourg Bank…):')?.trim();
+                    if (name) { setEntity(name); setDate(''); setNotice(`Entity "${name}" selected — pick or create a period, then start a template or import a file. It is saved with its first data.`); }
+                  }}
+                  title="Create a new reporting entity"
+                  className="shrink-0 text-sm font-semibold text-brand-secondary border-2 border-brand-secondary hover:bg-brand-secondary hover:text-white px-3 rounded-lg transition-colors"
+                >
+                  + New
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-brand-text-secondary mb-1">Reporting date</label>
-              <select value={effectiveDate} onChange={e => setDate(e.target.value)}
-                className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary focus:ring-brand-primary">
-                {datesForEntity.map(d => <option key={d} value={d}>{d}</option>)}
-                {datesForEntity.length === 0 && <option value="">No data yet</option>}
-              </select>
+              <div className="flex gap-2">
+                <select value={effectiveDate} onChange={e => setDate(e.target.value)}
+                  className="block flex-1 p-3 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary focus:ring-brand-primary">
+                  {datesForEntity.map(d => <option key={d} value={d}>{d}</option>)}
+                  {effectiveDate && !datesForEntity.includes(effectiveDate) && <option value={effectiveDate}>{effectiveDate} (new)</option>}
+                  {datesForEntity.length === 0 && !effectiveDate && <option value="">No data yet</option>}
+                </select>
+                <input
+                  type="date"
+                  title="Create a new reporting period — pick any date, then start a template or import"
+                  onChange={e => { if (e.target.value) { setDate(e.target.value); setNotice(`Period ${e.target.value} selected for ${entity} — start a manual template, a financial-statement template or import a file to create data for it.`); } }}
+                  className="shrink-0 w-40 p-3 border-2 border-gray-200 rounded-lg text-sm bg-white focus:border-brand-primary focus:ring-brand-primary text-brand-text-secondary"
+                />
+              </div>
             </div>
           </div>
           <div className="flex gap-3">
