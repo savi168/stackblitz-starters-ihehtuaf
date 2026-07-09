@@ -16,6 +16,8 @@ export const DataContext = React.createContext<{
     getKpisForDate: (entity: string, date: string, currency?: string) => CalculatedKpis | null;
     isLoading: boolean;
     loadError: string | null;
+    /** Last persistence (PUT /api/data) failure — null when saves succeed. */
+    saveError: string | null;
     /** 'local' (browser storage) or 'api' (REST backend). */
     mode: 'local' | 'api';
     /** Base URL of the REST API when in 'api' mode. */
@@ -36,6 +38,7 @@ export const DataContext = React.createContext<{
     getKpisForDate: () => null,
     isLoading: true,
     loadError: null,
+    saveError: null,
     mode: dataRepository.mode,
     apiBaseUrl: dataRepository.baseUrl,
     reload: async () => {},
@@ -48,6 +51,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [data, setData] = useState<CentralData>(initialData);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
     const [currentUser, setCurrentUser] = useState<CurrentUser>({ name: 'local', roles: ['Reader', 'Admin'], securityMode: 'None' });
     // Skip persisting the data that was just loaded (only persist real edits).
@@ -106,7 +110,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (skipNextSave.current) { skipNextSave.current = false; return; }
         if (!isAdminRef.current) return;
         const handle = setTimeout(() => {
-            dataRepository.save(data).catch(err => console.error('Failed to save data', err));
+            dataRepository.save(data)
+                .then(() => setSaveError(null))
+                .catch(err => {
+                    console.error('Failed to save data', err);
+                    setSaveError(err instanceof Error ? err.message : String(err));
+                });
         }, 400);
         return () => clearTimeout(handle);
     }, [data, isLoading]);
@@ -127,13 +136,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         getKpisForDate,
         isLoading,
         loadError,
+        saveError,
         mode: dataRepository.mode,
         apiBaseUrl: dataRepository.baseUrl,
         reload,
         lastSyncedAt,
         currentUser,
         isAdmin,
-    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError, reload, lastSyncedAt, currentUser, isAdmin]);
+    }), [data, allEntities, allDates, getKpisForDate, isLoading, loadError, saveError, reload, lastSyncedAt, currentUser, isAdmin]);
 
     if (isLoading) {
         return (
@@ -148,6 +158,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             {loadError && (
                 <div className="bg-status-red/10 border-b border-status-red/40 text-status-red text-sm px-6 py-2 text-center">
                     Could not reach the backend ({loadError}). Showing local seed data.
+                </div>
+            )}
+            {!loadError && saveError && (
+                <div className="bg-status-red/10 border-b border-status-red/40 text-status-red text-sm px-6 py-2 text-center">
+                    ⚠ Changes could NOT be saved to the backend ({saveError}). Your edits are only in this browser tab —
+                    fix the connection and edit again (or reload) to retry, otherwise they will be lost.
                 </div>
             )}
             {children}

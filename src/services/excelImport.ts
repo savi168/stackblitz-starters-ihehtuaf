@@ -222,6 +222,29 @@ const parseCapital = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMap
         });
       }
     }
+
+    // Full line-by-line capture: every other coded CAP row with a value is kept
+    // as a memo item (never in totals), labelled "[<finma-code>] <form label>",
+    // so the imported file is stored in the database row by row.
+    const mappedCodes = new Set<string>(
+      (m.capitalRows as CapitalRowMap[]).map(d => d.finma).concat(m.capitalAnchors.netCet1 ?? []),
+    );
+    for (const [finma, r] of codes) {
+      if (mappedCodes.has(finma) || !/^\d/.test(finma)) continue;
+      const v = num(cell(cap, `I${r}`));
+      if (v === undefined || v === 0) continue;
+      const section: CapitalLineItem['section'] =
+        finma.startsWith('1.1.2') ? 'at1' :
+        finma.startsWith('1.2') || finma.startsWith('1.3') ? 't2' : 'equity';
+      lineItems.push({
+        id: newItemId(),
+        section,
+        code: `finma-${finma}`,
+        label: `[${finma}] ${norm(cell(cap, `B${r}`)) || 'Unlabelled row'}`,
+        amount: kToM(v)!,
+        memo: true,
+      });
+    }
   }
 
   // -- RWA split (RWALRD sheet: total / credit / market / operational codes) --
