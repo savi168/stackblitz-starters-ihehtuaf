@@ -90,6 +90,12 @@ class ApiRepository implements DataRepository {
       credentials: 'include',
       body: JSON.stringify(data),
     });
+    if (res.status === 403) {
+      throw new Error(
+        'PUT /data failed: 403 Forbidden — your Windows account only has read access (Reader). ' +
+        'Add it to Security:AdminUsers in appsettings.Development.local.json and restart the API'
+      );
+    }
     if (!res.ok) throw new Error(`PUT /data failed: ${res.status} ${res.statusText}`);
   }
 
@@ -104,10 +110,16 @@ class ApiRepository implements DataRepository {
           securityMode: me.securityMode || 'None',
         };
       }
+      if (res.status !== 404) {
+        // The endpoint exists but refused us (401 handshake failed, 403…):
+        // the API enforces auth, so DON'T assume Admin — read-only is the
+        // only honest default (mutations would be rejected with 403 anyway).
+        return { name: 'unauthenticated', roles: ['Reader'], securityMode: 'Windows' };
+      }
     } catch (err) {
       console.warn('auth/me not reachable — assuming open API (older backend)', err);
     }
-    // Older backend without /auth/me, or endpoint unreachable: behave as before.
+    // Older backend without /auth/me (404), or endpoint unreachable: behave as before.
     return { name: 'unknown', roles: ['Reader', 'Admin'], securityMode: 'None' };
   }
 }
