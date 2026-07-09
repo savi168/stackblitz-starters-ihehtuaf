@@ -397,6 +397,26 @@ const MappingEditor: React.FC<{
   onClose: () => void;
 }> = ({ current, onSave, onClose }) => {
   const [m, setM] = useState<Required<ImportMapping>>(() => resolveMapping(current));
+  const [scanReport, setScanReport] = useState<{ fileKind: string; changes: Array<{ concept: string; kind: string; oldValue: string; newValue?: string; matchedLabel?: string }> } | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const scanInput = useRef<HTMLInputElement>(null);
+
+  // Re-scan: upload a NEW template file and re-derive the mapping automatically
+  // (keep codes that still exist, relocate renamed rows by label matching).
+  const handleScan = async (file: File) => {
+    setScanError(null);
+    setScanReport(null);
+    try {
+      const { scanTemplate } = await import('../services/templateScan');
+      const result = scanTemplate(await file.arrayBuffer(), m);
+      setM(resolveMapping(result.mapping));
+      setScanReport({ fileKind: result.fileKind, changes: result.changes });
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (scanInput.current) scanInput.current.value = '';
+    }
+  };
 
   const setSheet = (k: 'km1' | 'cap' | 'rwa', v: string) => setM(p => ({ ...p, sheets: { ...p.sheets, [k]: v } }));
   const setKm1 = (k: string, v: string) => setM(p => ({ ...p, km1Items: { ...p.km1Items, [k]: v } }));
@@ -435,6 +455,43 @@ const MappingEditor: React.FC<{
           new template version (renamed sheets, moved rows), adjust them here — no code change needed.
           The mapping is stored with the central data (and in SQL Server in API mode).
         </p>
+
+        <section className="bg-brand-bg-body border border-efg-line rounded-lg px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input ref={scanInput} type="file" accept=".xlsx,.xlsm" className="hidden"
+              onChange={e => e.target.files?.[0] && handleScan(e.target.files[0])} />
+            <button onClick={() => scanInput.current?.click()}
+              className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors">
+              ⟳ Re-map from a new template file…
+            </button>
+            <span className="text-[12px] text-brand-text-secondary flex-1 min-w-52">
+              Upload the new (even blank) FINMA/SNB template: the mapping below is re-derived automatically —
+              codes that still exist are kept, renamed rows are relocated by label. Review the report, then Save.
+            </span>
+          </div>
+          {scanError && <p className="mt-2 text-sm text-status-red">{scanError}</p>}
+          {scanReport && (
+            <div className="mt-3">
+              <p className="text-[12px] font-semibold text-brand-text-primary mb-1">
+                Scan result ({scanReport.fileKind} template): {scanReport.changes.filter(c => c.kind === 'ok').length} unchanged ·{' '}
+                <span className="text-status-amber">{scanReport.changes.filter(c => c.kind === 'changed').length} relocated</span> ·{' '}
+                <span className="text-status-red">{scanReport.changes.filter(c => c.kind === 'missing').length} not found</span>
+              </p>
+              {scanReport.changes.filter(c => c.kind !== 'ok').length > 0 && (
+                <ul className="text-[12px] space-y-0.5 max-h-40 overflow-y-auto">
+                  {scanReport.changes.filter(c => c.kind !== 'ok').map((c, i) => (
+                    <li key={i} className={c.kind === 'missing' ? 'text-status-red' : 'text-status-amber'}>
+                      {c.kind === 'missing' ? '✗' : '→'} {c.concept}: <code className="font-mono">{c.oldValue}</code>
+                      {c.newValue && <> → <code className="font-mono font-semibold">{c.newValue}</code></>}
+                      {c.matchedLabel && <span className="text-brand-text-secondary"> ({c.matchedLabel.slice(0, 55)})</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[11px] text-brand-text-secondary mt-1">The fields below are already updated — press “Save mapping” to confirm, or fix the “not found” entries manually first.</p>
+            </div>
+          )}
+        </section>
 
         <section>
           <SectionHeader title="Capital workbook — sheet names" />
