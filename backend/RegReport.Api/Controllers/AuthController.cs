@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RegReport.Api.Security;
 
 namespace RegReport.Api.Controllers;
 
@@ -9,7 +10,12 @@ namespace RegReport.Api.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IConfiguration _config;
-    public AuthController(IConfiguration config) => _config = config;
+    private readonly IWebHostEnvironment _env;
+    public AuthController(IConfiguration config, IWebHostEnvironment env)
+    {
+        _config = config;
+        _env = env;
+    }
 
     /// <summary>
     /// Who am I: identity + roles as seen by the API. The frontend calls this
@@ -38,6 +44,27 @@ public class AuthController : ControllerBase
             .Select(c => c.Value)
             .Distinct()
             .ToArray();
+
+        // Development only: expose what the role mapping compared, so a
+        // config/identity mismatch is diagnosable from the browser.
+        if (_env.IsDevelopment())
+        {
+            var name = User.Identity.Name ?? "";
+            var adminUsers = _config.GetSection("Security:AdminUsers").Get<string[]>() ?? Array.Empty<string>();
+            return new
+            {
+                name = User.Identity.Name,
+                roles,
+                securityMode = mode,
+                diagnostics = new
+                {
+                    identitySeenByApi = name,
+                    shortName = RoleClaimsTransformation.ShortName(name),
+                    adminUsersConfigured = adminUsers,
+                    matchesAdminUsers = adminUsers.Any(u => RoleClaimsTransformation.UserMatches(u, name)),
+                },
+            };
+        }
         return new { name = User.Identity.Name, roles, securityMode = mode };
     }
 }

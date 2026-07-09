@@ -32,14 +32,28 @@ Kestrel supporte Negotiate/NTLM sous Windows. Dans
 {
   "Security": {
     "Mode": "Windows",
-    "AdminUsers": [ "DESKTOP-4K3DKKG\\savi" ],
+    "AdminUsers": [ "savi" ],
     "AdminGroups": []
   }
 }
 ```
 
-> Ton identité exacte : ouvre PowerShell → `whoami` (ex. `desktop-4k3dkkg\savi`).
-> La casse est ignorée.
+> `AdminUsers` accepte le nom complet `"DESKTOP-4K3DKKG\\savi"` (double `\\`
+> obligatoire en JSON !) **ou juste le nom d'utilisateur** `"savi"` — la partie
+> domaine/machine est optionnelle et la casse est ignorée. Ton identité exacte :
+> PowerShell → `whoami`.
+
+### Diagnostiquer un 403 persistant
+
+- **Logs de l'API au démarrage** : une ligne `Security mode: … | local overrides
+  file …: FOUND/NOT FOUND | AdminUsers: […]` montre si le fichier local est
+  chargé et avec quelles valeurs. `NOT FOUND` = mauvais dossier/nom de fichier.
+- **`GET /api/auth/me`** (en Development) renvoie un bloc `diagnostics` :
+  l'identité vue par l'API (`identitySeenByApi`), les `adminUsersConfigured`
+  et `matchesAdminUsers` (true/false). Si `false`, copie `identitySeenByApi`
+  tel quel dans `AdminUsers`.
+- Chaque mutation refusée logge un warning `403 mutation denied … user '…'`
+  dans la console `dotnet run`.
 
 Relance `dotnet run`, recharge le front :
 - Le navigateur fait le handshake NTLM automatiquement sur `localhost`

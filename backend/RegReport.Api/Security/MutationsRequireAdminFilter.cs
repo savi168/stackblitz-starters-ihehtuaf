@@ -11,12 +11,20 @@ namespace RegReport.Api.Security;
 /// </summary>
 public class MutationsRequireAdminFilter : IAuthorizationFilter
 {
+    private readonly ILogger<MutationsRequireAdminFilter> _logger;
+    public MutationsRequireAdminFilter(ILogger<MutationsRequireAdminFilter> logger) => _logger = logger;
+
     public void OnAuthorization(AuthorizationFilterContext context)
     {
         var method = context.HttpContext.Request.Method;
         if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method))
             return;
         if (!context.HttpContext.User.IsInRole("Admin"))
+        {
+            _logger.LogWarning(
+                "403 mutation denied: {Method} {Path} — user '{User}' is not Admin (check Security:AdminUsers)",
+                method, context.HttpContext.Request.Path, context.HttpContext.User.Identity?.Name ?? "(anonymous)");
             context.Result = new ForbidResult();
+        }
     }
 }

@@ -7,13 +7,26 @@ namespace RegReport.Api.Security;
 /// <summary>
 /// Maps the authenticated Windows identity to application roles:
 ///  - every authenticated user gets "Reader";
-///  - users listed in Security:AdminUsers (DOMAIN\user, case-insensitive) or
-///    members of an AD group listed in Security:AdminGroups get "Admin".
+///  - users listed in Security:AdminUsers (case-insensitive; "DOMAIN\user",
+///    "user" alone, or with "/" — the domain part is optional) or members of
+///    an AD group listed in Security:AdminGroups get "Admin".
 /// </summary>
 public class RoleClaimsTransformation : IClaimsTransformation
 {
     private readonly IConfiguration _config;
     public RoleClaimsTransformation(IConfiguration config) => _config = config;
+
+    /// <summary>"DESKTOP-X\savi" → "savi" (accepts \ or / separators).</summary>
+    public static string ShortName(string name)
+    {
+        var i = name.LastIndexOfAny(new[] { '\\', '/' });
+        return i >= 0 ? name[(i + 1)..] : name;
+    }
+
+    /// <summary>Entry matches if the full name or the bare username (without domain) matches.</summary>
+    public static bool UserMatches(string configured, string identityName) =>
+        string.Equals(configured, identityName, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(ShortName(configured), ShortName(identityName), StringComparison.OrdinalIgnoreCase);
 
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
@@ -28,7 +41,7 @@ public class RoleClaimsTransformation : IClaimsTransformation
 
         var name = principal.Identity.Name ?? "";
         var adminUsers = _config.GetSection("Security:AdminUsers").Get<string[]>() ?? Array.Empty<string>();
-        var isAdmin = adminUsers.Any(u => string.Equals(u, name, StringComparison.OrdinalIgnoreCase));
+        var isAdmin = adminUsers.Any(u => UserMatches(u, name));
 
         if (!isAdmin && OperatingSystem.IsWindows() && principal.Identity is WindowsIdentity winId)
         {

@@ -52,6 +52,20 @@ if (windowsAuth)
 
 var app = builder.Build();
 
+// Startup diagnostics: which security config is actually in effect (the #1
+// support question is "why am I still read-only?").
+{
+    var localFile = Path.Combine(builder.Environment.ContentRootPath,
+        $"appsettings.{builder.Environment.EnvironmentName}.local.json");
+    var adminUsers = builder.Configuration.GetSection("Security:AdminUsers").Get<string[]>() ?? Array.Empty<string>();
+    app.Logger.LogInformation(
+        "Security mode: {Mode} | local overrides file {File}: {Found} | AdminUsers: [{Users}]",
+        windowsAuth ? "Windows" : "None",
+        localFile,
+        File.Exists(localFile) ? "FOUND" : "NOT FOUND",
+        string.Join(", ", adminUsers));
+}
+
 // --- Pipeline ---
 if (app.Environment.IsDevelopment())
 {
