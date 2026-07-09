@@ -313,14 +313,14 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
         <Card>
           <AuditedHeader title="Regulatory capital position" suffix="total capital ratios, %" queries={[{
             what: 'Capital ratios & RWA charts',
-            object: 'capitalReports',
-            filter: `[entity=${entity}, date ≤ ${asOf} + projections]`,
-            endpoint: `GET /api/capital-reports?entity=${entity}`,
-            sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}' AND (r.Date <= '${asOf}' OR r.IsProjection = 1)`,
+            object: 'capitalReports (+ kpisHistory fallback)',
+            filter: `[entity=${entity}, date ≤ ${asOf} + projections${reportsOnly ? ', workbench reports only' : ''} — last 6 periods charted]`,
+            endpoint: `GET /api/capital-reports?entity=${entity} · GET /api/kpis?entity=${entity}`,
+            sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}' AND (r.Date <= '${asOf}' OR r.IsProjection = 1);\n-- fallback for periods without a detailed report (†):\nSELECT * FROM KpiHistory WHERE Entity = '${entity}' AND Date <= '${asOf}'`,
             notes: [
-              'CET1 = Σ equity + Σ deductions (non-memo line items); fallback: KpiHistory row when no detailed report exists.',
+              'CET1 = Σ equity + Σ deductions (non-memo line items); † periods come from the KpiHistory fallback.',
               'CET1 ratio = CET1 / Total RWA; AT1+T2 band = (AT1 + T2) / Total RWA.',
-              'RWA chart in CHF bn = mCHF / 1000.',
+              'RWA chart in CHF bn = mCHF / 1000; only the last 6 periods are charted (full history in the summary table below).',
             ],
           }]} />
           <ResponsiveContainer width="100%" height={260}>
@@ -402,10 +402,10 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
         <AuditedHeader title="Regulatory capital summary" suffix="CHF mn — (P) = projection" queries={[{
           what: 'Monthly regulatory capital summary',
           object: 'capitalReports (+ kpisHistory fallback)',
-          filter: `[entity=${entity}, date ≤ ${asOf} + projections]`,
-          endpoint: `GET /api/capital-reports?entity=${entity}`,
-          sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}'\nORDER BY r.Date`,
-          notes: ['One column per reporting date; capital & RWA aggregates computed from the line items (memo rows excluded).'],
+          filter: `[entity=${entity}, date ≤ ${asOf} + projections${reportsOnly ? ', workbench reports only' : ''}]`,
+          endpoint: `GET /api/capital-reports?entity=${entity} · GET /api/kpis?entity=${entity}`,
+          sql: `SELECT r.*, i.* FROM CapitalReports r\nJOIN CapitalLineItems i ON i.CapitalReportId = r.Id\nWHERE r.Entity = '${entity}' AND (r.Date <= '${asOf}' OR r.IsProjection = 1)\nORDER BY r.Date;\n-- fallback for periods without a detailed report (†):\nSELECT * FROM KpiHistory WHERE Entity = '${entity}' AND Date <= '${asOf}'`,
+          notes: ['One column per reporting date; capital & RWA aggregates computed from the line items (memo rows excluded); † = KpiHistory fallback period.'],
         }]} />
         <div className="overflow-x-auto border border-efg-line rounded-lg">
           <table className="w-full text-xs whitespace-nowrap">
@@ -557,14 +557,16 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <AuditedHeader title="CET1 movement details" suffix={`month-to-month ${year} · YTD vs ${baseline ? monthLabel(baseline.date) : 'first period of the year'} · CHF mn — negatives in ( )`} queries={[{
           what: 'CET1 & RWA monthly movement decomposition',
-          object: 'kpisHistory.cet1CapitalBreakdown + capitalReports memo rows',
-          filter: `[entity=${entity}, year ${year}]`,
+          object: 'kpisHistory (CET1, RWA by risk type, composition) + capitalReports memo rows',
+          filter: `[entity=${entity}, year ${year}, baseline ${baseline ? baseline.date : 'first period of the year'}]`,
           endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
-          sql: `SELECT Entity, Date, Cet1Capital, Cet1CapitalBreakdown FROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date`,
+          sql: `SELECT Entity, Date, Cet1Capital, CreditRWA, MarketRWA, OpRWA, OtherRWA,\n       Cet1CapitalBreakdown\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\n-- memorandum lines:\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')`,
           notes: [
-            'Each month = movement vs the previous available period; empty column = no data for that month.',
-            'YTD = last available period of the year vs December of the previous year.',
-            'P&L / dividend / buy-back are YTD accruals: they reset in January.',
+            'Each month = delta vs the previous available period (CET1 & RWA columns read directly from the rows above); empty column = no data for that month.',
+            'YTD = last available period of the year vs December of the previous year (fallback: first period of the year).',
+            'P&L / dividend / buy-back come from Cet1CapitalBreakdown (YTD accruals: reset in January); "Equity movement excl." = ΔCET1 − those three (residual).',
+            'Net CET1 ratio movement = CET1/RWA ratio delta between the two periods.',
+            'Memorandum lines = per-month delta of each memo balance, matched by label — never part of the totals.',
           ],
         }]} />
         <div>
@@ -671,8 +673,10 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
         endpoint: `GET /api/capital-reports?entity=${entity}`,
         sql: `SELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Section = 'rwa' AND i.Memo = 1`,
         notes: [
+          'Only memo rows whose label is exactly a 3-letter code ("USD") or "USD (LC)" are used — anything else is ignored.',
           'Implied FX rate = CHF equivalent / local-currency amount.',
-          'FX impact = LC(prev) × (rate(cur) − rate(prev)); business growth = ΔLC × rate(cur).',
+          'FX impact = LC(prev) × (rate(cur) − rate(prev)); business growth = ΔLC × rate(cur) — between the two latest periods with data.',
+          '"Total RWA (all risks)" row comes from the capital aggregates (not from the memo rows).',
         ],
       }]} />
       {currencies.length === 0 ? (
@@ -809,12 +813,13 @@ const EntitiesTable: React.FC = () => {
       <AuditedHeader title="Capital positions by regulated entity" suffix="latest available period per entity, CHF mn — local requirement is editable" queries={[{
         what: 'Per-entity capital positions + local requirements',
         object: 'capitalReports (latest per entity) + Settings[riskAppetite]',
-        filter: '[latest non-projection date per entity]',
-        endpoint: 'GET /api/capital-reports · GET /api/settings/risk-appetite',
-        sql: `SELECT r.* FROM CapitalReports r\nWHERE r.IsProjection IS NULL OR r.IsProjection = 0\n  AND r.Date = (SELECT MAX(Date) FROM CapitalReports WHERE Entity = r.Entity);\nSELECT [Value] FROM Settings WHERE [Key] = 'riskAppetite'`,
+        filter: '[latest non-projection date per entity; kpisHistory fallback when no detailed report]',
+        endpoint: 'GET /api/capital-reports · GET /api/kpis · GET /api/settings/risk-appetite',
+        sql: `SELECT r.* FROM CapitalReports r\nWHERE (r.IsProjection IS NULL OR r.IsProjection = 0)\n  AND r.Date = (SELECT MAX(Date) FROM CapitalReports\n                WHERE Entity = r.Entity AND (IsProjection IS NULL OR IsProjection = 0));\n-- fallback for entities without a detailed report:\nSELECT * FROM KpiHistory k\nWHERE k.Date = (SELECT MAX(Date) FROM KpiHistory WHERE Entity = k.Entity);\nSELECT [Value] FROM Settings WHERE [Key] = 'riskAppetite'`,
         notes: [
           'Min capital requirement = Total RWA × local requirement %.',
           'Capital excess = eligible capital − minimum requirement.',
+          'Fallback rows have T2 = 0 and eligible capital = Tier 1 (the KPI history does not carry T2).',
           'Editing the % writes riskAppetite[entity].localCapitalRequirement (persisted with the settings).',
         ],
       }]} />
@@ -974,6 +979,8 @@ const LcrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =>
             notes: [
               'LCR = Total HQLA / Net outflows; Net outflows = Total outflows − Inflows after cap.',
               'Level 2 after cap = Total HQLA − Level 1; flow components are the weighted SNB rows (81, 121, 138, 195, 206).',
+              'History charts use the full TOT-row history per entity (not just the two dates above); amber lines come from Settings[riskAppetite].lcr.',
+              '"Wholesale & others" = Total outflows − Retail; "Other inflows" = Inflows after cap − Reverse repo (computed at display time).',
             ],
           }]} />
         </div>
@@ -1402,12 +1409,18 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
             </>
           )}
           <AuditButton queries={[{
-            what: `${KIND_LABELS[kind]} (${entity})`,
+            what: `${KIND_LABELS[kind]} (${entity}, ${gaap})`,
             object: 'finStatements (+ line items)',
-            filter: `[entity=${entity}, kind=${kind}, date ∈ {${previous?.date || '—'}, ${current.date}}]`,
-            endpoint: `GET /api/fin-statements?entity=${entity}&kind=${kind}`,
-            sql: `SELECT s.*, i.* FROM FinStatements s\nJOIN FinStatementLineItems i ON i.FinStatementId = s.Id\nWHERE s.Entity = '${entity}' AND s.Kind = '${kind}'`,
-            notes: ['Section totals exclude memo rows.', kind === 'balanceSheet' ? 'Balance check: assets − liabilities − equity = 0.' : kind === 'pnl' ? 'Net profit = Σ income + Σ expenses (expenses negative).' : 'Closing balance = Σ movements (incl. opening balance).'],
+            filter: viewMode === 'history'
+              ? `[entity=${entity}, kind=${kind}, gaap=${gaap}, ${periods.length} period(s) ${effFrom} → ${asOf}, Δ = ${effB || '—'} − ${effA || '—'}]`
+              : `[entity=${entity}, kind=${kind}, gaap=${gaap}, date ∈ {${previous?.date || '—'}, ${current.date}}]`,
+            endpoint: `GET /api/fin-statements?entity=${entity}&kind=${kind}&gaap=${encodeURIComponent(gaap)}`,
+            sql: `SELECT s.*, i.* FROM FinStatements s\nJOIN FinStatementLineItems i ON i.FinStatementId = s.Id\nWHERE s.Entity = '${entity}' AND s.Kind = '${kind}' AND s.Gaap = '${gaap}'${viewMode === 'history' ? `\n  AND s.Date BETWEEN '${effFrom}' AND '${asOf}'` : ''}\nORDER BY s.Date`,
+            notes: [
+              'Section totals exclude memo rows; lines matched across periods by label.',
+              kind === 'balanceSheet' ? 'Balance check: assets − liabilities − equity = 0.' : kind === 'pnl' ? 'Net profit = Σ income + Σ expenses (expenses negative).' : 'Closing balance = Σ movements (incl. opening balance).',
+              viewMode === 'history' ? 'Δ column = value(second selected period) − value(first selected period).' : 'Δ column = reference period − comparison period.',
+            ],
           }]} />
         </div>
       </div>
