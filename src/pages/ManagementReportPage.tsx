@@ -1283,6 +1283,10 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
   const [kind, setKind] = useState<FinStatementKind>('balanceSheet');
   const [compare, setCompare] = useState('');
   const [gaapSel, setGaapSel] = useState('');
+  const [viewMode, setViewMode] = useState<'compare' | 'history'>('compare');
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [deltaA, setDeltaA] = useState('');
+  const [deltaB, setDeltaB] = useState('');
 
   // Frameworks actually present for this entity+kind (an entity can carry
   // e.g. IFRS + Swiss GAAP in parallel — each is its own view).
@@ -1324,6 +1328,24 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
   const curSummary = computeFinSummary(current);
   const prevSummary = previous ? computeFinSummary(previous) : null;
 
+  // --- History mode: every period in the selected range (≤ as-of), Δ between two chosen periods ---
+  const upToAsOf = all.filter(s => s.date <= asOf);
+  const effFrom = rangeFrom || upToAsOf[0]?.date || '';
+  const periods = upToAsOf.filter(s => s.date >= effFrom);
+  const effA = periods.some(s => s.date === deltaA) ? deltaA : periods[0]?.date;
+  const effB = periods.some(s => s.date === deltaB) ? deltaB : periods[periods.length - 1]?.date;
+  const valueOf = (s: typeof all[number] | undefined, section: string, label: string): number | null => {
+    const row = s?.lineItems.find(i => i.section === section && i.label.trim().toLowerCase() === label.trim().toLowerCase());
+    return row ? row.amount : null;
+  };
+  const histLabels = (section: string): string[] => {
+    const seen: string[] = [];
+    periods.forEach(s => s.lineItems.filter(i => i.section === section).forEach(i => {
+      if (!seen.some(l => l.toLowerCase() === i.label.trim().toLowerCase())) seen.push(i.label.trim());
+    }));
+    return seen;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1342,8 +1364,16 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
             </span>
           )}
         </div>
-        <div className="flex items-end gap-3">
-          {all.length > 1 && (
+        <div className="flex items-end gap-3 flex-wrap">
+          <div className="flex gap-1">
+            {(['compare', 'history'] as const).map(mode => (
+              <button key={mode} onClick={() => setViewMode(mode)}
+                className={`text-[12px] font-semibold py-1.5 px-3 rounded border transition-colors ${viewMode === mode ? 'bg-brand-primary text-white border-brand-primary' : 'text-brand-text-secondary border-gray-300 hover:border-brand-primary'}`}>
+                {mode === 'compare' ? 'Two periods' : 'History (range)'}
+              </button>
+            ))}
+          </div>
+          {viewMode === 'compare' && all.length > 1 && (
             <div>
               <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
               <select value={previous?.date || ''} onChange={e => setCompare(e.target.value)}
@@ -1351,6 +1381,28 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
                 {all.filter(s => s.date < current.date).map(s => <option key={s.date} value={s.date}>{monthLabel(s.date)}</option>)}
               </select>
             </div>
+          )}
+          {viewMode === 'history' && (
+            <>
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">From</label>
+                <select value={effFrom} onChange={e => setRangeFrom(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+                  {upToAsOf.map(s => <option key={s.date} value={s.date}>{monthLabel(s.date)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Δ between</label>
+                <select value={effA || ''} onChange={e => setDeltaA(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+                  {periods.map(s => <option key={s.date} value={s.date}>{monthLabel(s.date)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">and</label>
+                <select value={effB || ''} onChange={e => setDeltaB(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+                  {periods.map(s => <option key={s.date} value={s.date}>{monthLabel(s.date)}</option>)}
+                </select>
+              </div>
+            </>
           )}
           <AuditButton queries={[{
             what: `${KIND_LABELS[kind]} (${entity})`,
@@ -1363,6 +1415,74 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
         </div>
       </div>
 
+      {viewMode === 'history' && (
+        <Card>
+          <SectionHeader title={`${KIND_LABELS[kind]} — ${entity} (${gaap})`} suffix={`${periods.length} period(s) · Δ = ${effB ? monthLabel(effB) : '—'} − ${effA ? monthLabel(effA) : '—'} · CHF mn`} />
+          <div className="overflow-x-auto border border-efg-line rounded-lg">
+            <table className="w-full text-xs whitespace-nowrap">
+              <thead className="bg-brand-bg-body">
+                <tr>
+                  <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold sticky left-0 bg-brand-bg-body">Item</th>
+                  {periods.map(s => <th key={s.date} className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(s.date)}</th>)}
+                  <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/60">Δ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-efg-line">
+                {KIND_SECTIONS[kind].map(({ key, label }) => (
+                  <React.Fragment key={key}>
+                    <tr className="bg-brand-bg-body">
+                      <td colSpan={periods.length + 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">{label}</td>
+                    </tr>
+                    {histLabels(key).map(lbl => {
+                      const a = valueOf(periods.find(s => s.date === effA), key, lbl);
+                      const b = valueOf(periods.find(s => s.date === effB), key, lbl);
+                      const d = a !== null && b !== null ? b - a : null;
+                      return (
+                        <tr key={lbl}>
+                          <td className="px-3 py-1.5 text-brand-text-primary sticky left-0 bg-white">{lbl}</td>
+                          {periods.map(s => {
+                            const v = valueOf(s, key, lbl);
+                            return <td key={s.date} className={`px-3 py-1.5 text-right tabular-nums ${v !== null && v < 0 ? 'text-status-red' : ''}`}>{v === null ? '—' : fmt(v, 1)}</td>;
+                          })}
+                          <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${d !== null && d < 0 ? 'text-status-red' : d !== null && d > 0 ? 'text-status-green' : 'text-brand-text-secondary'}`}>
+                            {d === null ? '—' : (d >= 0 ? '+' : '') + fmt(d, 1)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-brand-bg-body/60 font-semibold border-t border-brand-text-primary/20">
+                      <td className="px-3 py-2 sticky left-0 bg-brand-bg-body/60">Total {label}</td>
+                      {periods.map(s => <td key={s.date} className="px-3 py-2 text-right tabular-nums">{fmt(computeFinSummary(s).sections[key] ?? 0, 1)}</td>)}
+                      <td className="px-3 py-2 text-right tabular-nums bg-efg-line/40">
+                        {(() => {
+                          const sa = periods.find(s => s.date === effA); const sb = periods.find(s => s.date === effB);
+                          if (!sa || !sb) return '—';
+                          const d = (computeFinSummary(sb).sections[key] ?? 0) - (computeFinSummary(sa).sections[key] ?? 0);
+                          return (d >= 0 ? '+' : '') + fmt(d, 1);
+                        })()}
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                ))}
+                <tr className="bg-brand-secondary text-white font-semibold">
+                  <td className="px-3 py-2 sticky left-0 bg-brand-secondary">{curSummary.keyFigureLabel}</td>
+                  {periods.map(s => <td key={s.date} className="px-3 py-2 text-right tabular-nums">{fmt(computeFinSummary(s).keyFigure, 1)}</td>)}
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {(() => {
+                      const sa = periods.find(s => s.date === effA); const sb = periods.find(s => s.date === effB);
+                      if (!sa || !sb) return '—';
+                      const d = computeFinSummary(sb).keyFigure - computeFinSummary(sa).keyFigure;
+                      return (d >= 0 ? '+' : '') + fmt(d, 1);
+                    })()}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {viewMode === 'compare' && (
       <Card>
         <SectionHeader title={`${KIND_LABELS[kind]} — ${entity} (${gaap})`} suffix={`${monthLabel(current.date)}${previous ? ` vs ${monthLabel(previous.date)}` : ''} · CHF mn`} />
         <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -1418,6 +1538,7 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
         )}
         {current.comments && <div className="mt-4"><CommentPanel title="Comments" text={current.comments} /></div>}
       </Card>
+      )}
     </div>
   );
 };
