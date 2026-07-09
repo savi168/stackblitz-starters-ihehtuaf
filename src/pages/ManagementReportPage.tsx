@@ -473,47 +473,57 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
  * composition), plus the RWA movement by risk type; YTD = last vs first.
  */
 const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = ({ series, entity }) => {
-  const moves = useMemo(() => {
-    const out: Array<{
-      idx: number; label: string; isProjection: boolean;
-      pnl: number | null; dividend: number | null; buyback: number | null; other: number | null;
-      totalCet1: number; credit: number; market: number; op: number; otherRwa: number; totalRwa: number;
-      ratioDelta: number | null;
-    }> = [];
-    for (let i = 1; i < series.length; i++) {
-      const a = series[i - 1], b = series[i];
-      const totalCet1 = b.cet1 - a.cet1;
-      const newYear = b.date.slice(0, 4) !== a.date.slice(0, 4);
-      let pnl: number | null = null, dividend: number | null = null, buyback: number | null = null, other: number | null = null;
-      if (a.breakdown && b.breakdown) {
-        // Interim P&L and dividend accruals are year-to-date figures: they
-        // restart from zero in a new financial year.
-        pnl = newYear ? b.breakdown.pnl : b.breakdown.pnl - a.breakdown.pnl;
-        dividend = -(newYear ? (b.breakdown.dividend || 0) : (b.breakdown.dividend || 0) - (a.breakdown.dividend || 0));
-        buyback = -(newYear ? b.breakdown.shareBuyback : b.breakdown.shareBuyback - a.breakdown.shareBuyback);
-        other = totalCet1 - pnl - dividend - buyback;
-      }
-      out.push({
-        idx: i, label: monthLabel(b.date), isProjection: b.isProjection,
-        pnl, dividend, buyback, other, totalCet1,
-        credit: b.creditRwa - a.creditRwa, market: b.marketRwa - a.marketRwa,
-        op: b.opRwa - a.opRwa, otherRwa: b.otherRwa - a.otherRwa, totalRwa: b.rwaTotal - a.rwaTotal,
-        ratioDelta: a.cet1Ratio != null && b.cet1Ratio != null ? b.cet1Ratio - a.cet1Ratio : null,
-      });
-    }
-    return out;
-  }, [series]);
+  // Calendar view (like the management pack): Jan..Dec columns of a selected
+  // year + YTD vs December of the previous year.
+  const years = useMemo(() => Array.from(new Set(series.map(p => p.date.slice(0, 4)))).sort(), [series]);
+  const [yearSel, setYearSel] = useState('');
+  const year = years.includes(yearSel) ? yearSel : years[years.length - 1] || '';
 
-  if (moves.length === 0) return null;
-  const ytd = (get: (m: typeof moves[number]) => number | null): number | null => {
-    let sum = 0; let any = false;
-    for (const m of moves) { const v = get(m); if (v === null) return null; sum += v; any = true; }
-    return any ? sum : null;
+  type Move = { pnl: number | null; dividend: number | null; buyback: number | null; other: number | null;
+    totalCet1: number; credit: number; market: number; op: number; otherRwa: number; totalRwa: number;
+    ratioDelta: number | null; a: CapitalPoint; b: CapitalPoint; isProjection: boolean };
+
+  const buildMove = (a: CapitalPoint, b: CapitalPoint): Move => {
+    const totalCet1 = b.cet1 - a.cet1;
+    const newYear = b.date.slice(0, 4) !== a.date.slice(0, 4);
+    let pnl: number | null = null, dividend: number | null = null, buyback: number | null = null, other: number | null = null;
+    if (a.breakdown && b.breakdown) {
+      pnl = newYear ? b.breakdown.pnl : b.breakdown.pnl - a.breakdown.pnl;
+      dividend = -(newYear ? (b.breakdown.dividend || 0) : (b.breakdown.dividend || 0) - (a.breakdown.dividend || 0));
+      buyback = -(newYear ? b.breakdown.shareBuyback : b.breakdown.shareBuyback - a.breakdown.shareBuyback);
+      other = totalCet1 - pnl - dividend - buyback;
+    }
+    return { pnl, dividend, buyback, other, totalCet1,
+      credit: b.creditRwa - a.creditRwa, market: b.marketRwa - a.marketRwa,
+      op: b.opRwa - a.opRwa, otherRwa: b.otherRwa - a.otherRwa, totalRwa: b.rwaTotal - a.rwaTotal,
+      ratioDelta: a.cet1Ratio != null && b.cet1Ratio != null ? b.cet1Ratio - a.cet1Ratio : null,
+      a, b, isProjection: b.isProjection };
   };
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const { columns, ytd, baseline } = useMemo(() => {
+    const base = [...series].reverse().find(p => p.date < `${year}-01-01`) || null;
+    const cols: Array<{ label: string; move: Move | null }> = [];
+    let prev: CapitalPoint | null = base;
+    let last: CapitalPoint | null = null;
+    for (let mth = 1; mth <= 12; mth++) {
+      const mm = String(mth).padStart(2, '0');
+      const pts = series.filter(p => p.date.startsWith(`${year}-${mm}`));
+      const pt = pts[pts.length - 1];
+      if (pt && prev) { cols.push({ label: MONTHS[mth - 1], move: buildMove(prev, pt) }); prev = pt; last = pt; }
+      else if (pt) { prev = pt; last = pt; cols.push({ label: MONTHS[mth - 1], move: null }); }
+      else cols.push({ label: MONTHS[mth - 1], move: null });
+    }
+    const y = base && last ? buildMove(base, last) : (last && series.filter(p => p.date.startsWith(year)).length > 1
+      ? buildMove(series.filter(p => p.date.startsWith(year))[0], last) : null);
+    return { columns: cols, ytd: y, baseline: base };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series, year]);
+
   const signed = (v: number | null) =>
     v === null ? '—' : (v < 0 ? `(${fmt(Math.abs(v), 1)})` : fmt(v, 1));
 
-  const rows: Array<[string, (m: typeof moves[number]) => number | null, boolean]> = [
+  const rows: Array<[string, (m: Move) => number | null, boolean]> = [
     ['P&L plus non-cash items', m => m.pnl, false],
     ['Dividend accrual', m => m.dividend, false],
     ['Share buy-back', m => m.buyback, false],
@@ -526,84 +536,77 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
     ['Total RWA movement', m => m.totalRwa, true],
     ['Net CET1 ratio movement (p.p.)', m => m.ratioDelta, true],
   ];
-
-  // Extra movement lines from the equity/deduction MEMO rows entered in the
-  // Workbench ("Share buyback programme", "Acquisition", "Shares sold"…):
-  // period-on-period delta of each memo balance, matched by label.
-  const memoRows = useMemo(() => {
-    const labels = new Set<string>();
-    series.forEach(p => Object.keys(p.memoBalances || {}).forEach(l => labels.add(l)));
-    return Array.from(labels).sort().map(label => ({
-      label,
-      get: (m: { idx: number }) => {
-        const a = series[m.idx - 1], b = series[m.idx];
-        if (!a.memoBalances && !b.memoBalances) return null;
-        return (b.memoBalances?.[label] ?? 0) - (a.memoBalances?.[label] ?? 0);
-      },
-    }));
+  const memoLabels = useMemo(() => {
+    const set = new Set<string>();
+    series.forEach(p => Object.keys(p.memoBalances || {}).forEach(l => set.add(l)));
+    return Array.from(set).sort();
   }, [series]);
+  const memoGet = (label: string) => (m: Move): number | null =>
+    (!m.a.memoBalances && !m.b.memoBalances) ? null : (m.b.memoBalances?.[label] ?? 0) - (m.a.memoBalances?.[label] ?? 0);
+
+  if (series.length < 2) return null;
+
+  const cell = (move: Move | null, get: (m: Move) => number | null, italic = false) => (
+    <td className={`px-3 py-1.5 text-right tabular-nums ${italic ? 'italic text-brand-text-secondary' : ''} ${move && (get(move) ?? 0) < 0 ? 'text-status-red' : ''} ${move?.isProjection ? 'italic' : ''}`}>
+      {move ? signed(get(move)) : ''}
+    </td>
+  );
 
   return (
     <Card>
-      <AuditedHeader title="CET1 movement details" suffix="period-on-period, CHF mn — negatives in ( )" queries={[{
-        what: 'CET1 & RWA movement decomposition',
-        object: 'kpisHistory.cet1CapitalBreakdown + capitalReports memo rows',
-        filter: `[entity=${entity}, consecutive period pairs]`,
-        endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
-        sql: `SELECT Entity, Date, Cet1Capital, Cet1CapitalBreakdown\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')`,
-        notes: [
-          'P&L / dividend / buy-back = period delta of the YTD composition figures (reset to zero on a new financial year).',
-          'Other equity movement = ΔCET1 − P&L − dividend − buy-back (residual).',
-          'Memorandum lines = period delta of each memo balance entered in the Workbench, matched by label.',
-        ],
-      }]} />
-      <div className="overflow-x-auto border border-efg-line rounded-lg">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <AuditedHeader title="CET1 movement details" suffix={`month-to-month ${year} · YTD vs ${baseline ? monthLabel(baseline.date) : 'first period of the year'} · CHF mn — negatives in ( )`} queries={[{
+          what: 'CET1 & RWA monthly movement decomposition',
+          object: 'kpisHistory.cet1CapitalBreakdown + capitalReports memo rows',
+          filter: `[entity=${entity}, year ${year}]`,
+          endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
+          sql: `SELECT Entity, Date, Cet1Capital, Cet1CapitalBreakdown FROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date`,
+          notes: [
+            'Each month = movement vs the previous available period; empty column = no data for that month.',
+            'YTD = last available period of the year vs December of the previous year.',
+            'P&L / dividend / buy-back are YTD accruals: they reset in January.',
+          ],
+        }]} />
+        <div>
+          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Year</label>
+          <select value={year} onChange={e => setYearSel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="overflow-x-auto border border-efg-line rounded-lg mt-2">
         <table className="w-full text-xs whitespace-nowrap">
           <thead className="bg-brand-bg-body">
             <tr>
               <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold sticky left-0 bg-brand-bg-body">CHF mn</th>
-              {moves.map(m => (
-                <th key={m.label} className={`px-3 py-2 text-right text-[10px] uppercase tracking-wider font-semibold ${m.isProjection ? 'text-brand-primary' : 'text-brand-text-secondary'}`}>
-                  {m.label}{m.isProjection ? ' (P)' : ''}
+              {columns.map(c => (
+                <th key={c.label} className={`px-3 py-2 text-right text-[10px] uppercase tracking-wider font-semibold ${c.move?.isProjection ? 'text-brand-primary' : 'text-brand-text-secondary'}`}>
+                  {c.label}{c.move?.isProjection ? ' (P)' : ''}
                 </th>
               ))}
-              <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/60">Cumulative</th>
+              <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/60">YTD {year}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(([label, get, strong]) => (
               <tr key={label} className={`border-t border-efg-line ${strong ? 'bg-brand-bg-body/60 font-semibold' : ''}`}>
                 <td className="px-3 py-1.5 text-brand-text-primary sticky left-0 bg-white">{label}</td>
-                {moves.map(m => {
-                  const v = get(m);
-                  return (
-                    <td key={m.label} className={`px-3 py-1.5 text-right tabular-nums ${v !== null && v < 0 ? 'text-status-red' : 'text-brand-text-primary'} ${m.isProjection ? 'italic' : ''}`}>
-                      {signed(v)}
-                    </td>
-                  );
-                })}
-                <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ (ytd(get) ?? 0) < 0 ? 'text-status-red' : 'text-brand-text-primary'}`}>{signed(ytd(get))}</td>
+                {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, get)}</React.Fragment>)}
+                <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ytd && (get(ytd) ?? 0) < 0 ? 'text-status-red' : ''}`}>{ytd ? signed(get(ytd)) : '—'}</td>
               </tr>
             ))}
-            {memoRows.length > 0 && (
+            {memoLabels.length > 0 && (
               <>
                 <tr className="border-t border-brand-text-primary/30 bg-brand-bg-body">
-                  <td colSpan={moves.length + 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
+                  <td colSpan={columns.length + 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
                     Memorandum movements (Workbench memo rows — not part of the CET1 total)
                   </td>
                 </tr>
-                {memoRows.map(({ label, get }) => (
+                {memoLabels.map(label => (
                   <tr key={label} className="border-t border-efg-line">
                     <td className="px-3 py-1.5 text-brand-text-secondary italic sticky left-0 bg-white">{label}</td>
-                    {moves.map(m => {
-                      const v = get(m);
-                      return (
-                        <td key={m.label} className={`px-3 py-1.5 text-right tabular-nums italic ${v !== null && v < 0 ? 'text-status-red' : 'text-brand-text-secondary'}`}>
-                          {signed(v)}
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-1.5 text-right tabular-nums italic bg-brand-bg-body/40 text-brand-text-secondary">{signed(ytd(get))}</td>
+                    {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, memoGet(label), true)}</React.Fragment>)}
+                    <td className="px-3 py-1.5 text-right tabular-nums italic bg-brand-bg-body/40 text-brand-text-secondary">{ytd ? signed(memoGet(label)(ytd)) : '—'}</td>
                   </tr>
                 ))}
               </>
@@ -611,15 +614,9 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
           </tbody>
         </table>
       </div>
-      {moves.some(m => m.pnl === null) && (
-        <p className="text-[11px] text-brand-text-secondary mt-2 italic">
-          P&L / dividend / buy-back splits need the CET1 composition on both periods (available for imported or workbench-entered data).
-        </p>
-      )}
       <p className="text-[11px] text-brand-text-secondary mt-2">
         To add more movement lines (acquisitions, disposals, RSUs, CTA…): enter them as <em>memo</em> rows in the
-        Workbench (Shareholder Equity / Deductions tabs) with the same label on each period — the table shows the
-        period-on-period delta automatically.
+        Workbench with the same label on each period — monthly deltas and YTD are computed automatically.
       </p>
     </Card>
   );
