@@ -884,8 +884,8 @@ const LcrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =>
     () => Array.from(new Set(lcrs.map(r => r.date))).sort(),
     [lcrs]
   );
-  // Reference = global as-of (falls back to the latest LCR date at or before it).
-  const effAsOf = dates.filter(d => d <= asOf).pop() || dates[dates.length - 1] || '';
+  // Reference = global as-of: strictly the latest LCR date at or before it.
+  const effAsOf = dates.filter(d => d <= asOf).pop() || '';
   const [compare, setCompare] = useState('');
   const prevDate = (compare && compare < effAsOf ? compare : undefined) || dates.filter(d => d < effAsOf).pop();
 
@@ -941,8 +941,14 @@ const LcrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =>
     { name: 'Other inflows', prev: prevTot && prevTot.reverseRepoInflows != null ? prevTot.inflowsAfterCap - prevTot.reverseRepoInflows : null, cur: curTot.reverseRepoInflows != null ? curTot.inflowsAfterCap - curTot.reverseRepoInflows : 0 },
   ] : [];
 
-  if (lcrs.length === 0) {
-    return <p className="text-brand-text-secondary py-10 text-center">No LCR data yet — import the SNB LCR_G file in the Workbench.</p>;
+  if (lcrs.length === 0 || !effAsOf) {
+    return (
+      <p className="text-brand-text-secondary py-10 text-center">
+        {lcrs.length === 0
+          ? 'No LCR data yet — import the SNB LCR_G file in the Workbench.'
+          : `No LCR report at or before the reference date. Earliest available: ${monthLabel(dates[0])}.`}
+      </p>
+    );
   }
 
   const lcrRow = (label: string, get: (r: LcrReport) => number | null, opts?: { strong?: boolean; pct?: boolean; indent?: boolean }) => (
@@ -1140,15 +1146,22 @@ const NsfrTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) =
     [data.nsfrReports, entity]
   );
   const [compare, setCompare] = useState('');
-  // Reference = global as-of (latest NSFR report at or before it).
-  const current = [...reports].reverse().find(r => r.date <= asOf) || reports[reports.length - 1];
+  // Reference = global as-of: strictly the latest report AT OR BEFORE it —
+  // never fall forward to future data.
+  const current = [...reports].reverse().find(r => r.date <= asOf);
   const previous = current
     ? (compare && compare < current.date ? reports.find(r => r.date === compare) : undefined)
       || [...reports].reverse().find(r => r.date < current.date)
     : undefined;
 
   if (!current) {
-    return <p className="text-brand-text-secondary py-10 text-center">No NSFR data for {entity} yet — import the SNB NSFR_G file in the Workbench.</p>;
+    const earliest = reports[0]?.date;
+    return (
+      <p className="text-brand-text-secondary py-10 text-center">
+        No NSFR report for {entity} at or before the reference date ({monthLabel(asOf)}).
+        {earliest ? <> Earliest available: {monthLabel(earliest)} — move the reference date forward to see it.</> : <> Import the SNB NSFR_G file in the Workbench.</>}
+      </p>
+    );
   }
 
   const rawTotal = (r: NsfrReport, section: string) =>
@@ -1274,7 +1287,8 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
     () => (data.finStatements || []).filter(s => s.entity === entity && s.kind === kind).sort((a, b) => a.date.localeCompare(b.date)),
     [data.finStatements, entity, kind]
   );
-  const current = [...all].reverse().find(s => s.date <= asOf) || all[all.length - 1];
+  // Strictly at or before the reference date — never fall forward.
+  const current = [...all].reverse().find(s => s.date <= asOf);
   const previous = current
     ? (compare && compare < current.date ? all.find(s => s.date === compare) : undefined)
       || [...all].reverse().find(s => s.date < current.date)
@@ -1473,11 +1487,44 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
 
 type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr' | 'financials';
 
+const TAB_TITLES: Record<ReportTab, string> = {
+  overview: 'Overview',
+  capital: 'Capital Adequacy',
+  lcr: 'Liquidity Coverage Ratio',
+  nsfr: 'Net Stable Funding Ratio',
+  financials: 'Financial Statements',
+};
+
 export const ManagementReportPage: React.FC = () => {
   const { data, allEntities } = useData();
   const [tab, setTab] = useState<ReportTab>('overview');
   const [entity, setEntity] = useState(allEntities[0] || 'Group');
   const [refDate, setRefDate] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+
+  const handleExportPdf = async () => {
+    if (!contentRef.current || exporting) return;
+    setExporting(true);
+    try {
+      const { exportSectionPdf } = await import('../services/pdfExport');
+      // The tab renders one wrapper div whose children are the section cards —
+      // capture those so each card paginates as its own block.
+      const wrapper = (contentRef.current.firstElementChild as HTMLElement) ?? contentRef.current;
+      await exportSectionPdf({
+        root: wrapper,
+        title: TAB_TITLES[tab],
+        entity: tab === 'overview' ? 'All entities' : entity,
+        date: asOf,
+        fileName: `Report_${TAB_TITLES[tab].replace(/[^A-Za-z]+/g, '')}_${tab === 'overview' ? 'All' : entity}_${asOf}.pdf`,
+      });
+    } catch (err) {
+      console.error('PDF export failed', err);
+      alert(`PDF export failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Reference basis dates: every actual (non-projection) period known across
   // capital, LCR, NSFR and the KPI history — for any entity.
@@ -1512,6 +1559,16 @@ export const ManagementReportPage: React.FC = () => {
               </select>
             </div>
           )}
+          <div className="flex items-end">
+            <button
+              onClick={handleExportPdf}
+              disabled={exporting}
+              title="Export the current section as a landscape PDF pack (one block per page section)"
+              className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2.5 px-5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {exporting ? 'Exporting…' : '⬇ Export PDF'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1525,7 +1582,7 @@ export const ManagementReportPage: React.FC = () => {
         </nav>
       </div>
 
-      <div className="animate-fade-in">
+      <div className="animate-fade-in" ref={contentRef}>
         {tab === 'overview' && <OverviewTab asOf={asOf} onDrill={(e, t) => { setEntity(e); setTab(t); }} />}
         {tab === 'capital' && <CapitalTab entity={entity} asOf={asOf} />}
         {tab === 'lcr' && <LcrTab entity={entity} asOf={asOf} />}
