@@ -37,7 +37,19 @@ public class RoleClaimsTransformation : IClaimsTransformation
             return Task.FromResult(principal);
 
         var identity = (ClaimsIdentity)principal.Identity;
-        identity.AddClaim(new Claim(ClaimTypes.Role, "Reader"));
+
+        // WindowsIdentity uses the GroupSid claim type for IsInRole(), so a
+        // plain ClaimTypes.Role claim would be invisible to it. Write the role
+        // under BOTH types: ClaimTypes.Role (enumeration, /auth/me) and the
+        // identity's own RoleClaimType (IsInRole, [Authorize(Roles=…)]).
+        void AddRole(string role)
+        {
+            identity.AddClaim(new Claim(ClaimTypes.Role, role));
+            if (identity.RoleClaimType != ClaimTypes.Role)
+                identity.AddClaim(new Claim(identity.RoleClaimType, role));
+        }
+
+        AddRole("Reader");
 
         var name = principal.Identity.Name ?? "";
         var adminUsers = _config.GetSection("Security:AdminUsers").Get<string[]>() ?? Array.Empty<string>();
@@ -54,7 +66,7 @@ public class RoleClaimsTransformation : IClaimsTransformation
             });
         }
 
-        if (isAdmin) identity.AddClaim(new Claim(ClaimTypes.Role, "Admin"));
+        if (isAdmin) AddRole("Admin");
         return Task.FromResult(principal);
     }
 }

@@ -62,6 +62,9 @@ public class AuthController : ControllerBase
                     shortName = RoleClaimsTransformation.ShortName(name),
                     adminUsersConfigured = adminUsers,
                     matchesAdminUsers = adminUsers.Any(u => RoleClaimsTransformation.UserMatches(u, name)),
+                    // The exact check the mutation filter performs — must be
+                    // true for PUT/POST/DELETE to be allowed.
+                    isInRoleAdmin = User.IsInRole("Admin"),
                 },
             };
         }
