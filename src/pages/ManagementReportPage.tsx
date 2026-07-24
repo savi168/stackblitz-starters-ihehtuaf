@@ -89,9 +89,11 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
           if (lc) rwaCcyLc[lc[1].toUpperCase()] = (rwaCcyLc[lc[1].toUpperCase()] || 0) + i.amount;
           else if (/^[A-Z]{3}$/.test(label)) rwaCcy[label] = (rwaCcy[label] || 0) + i.amount;
         }
-        // "[1.1.1.x] …" rows are the raw line-by-line import capture, not
-        // user memoranda — keep them out of the movement memo section.
-        if ((i.section === 'equity' || i.section === 'deduction') && i.memo && label && !label.startsWith('[')) {
+        // "[1.1.1.x] …" rows are the raw line-by-line import capture, not user
+        // memoranda; buy-back memo rows are promoted to the main Share buy-back
+        // movement line — keep both out of the memoranda section.
+        if ((i.section === 'equity' || i.section === 'deduction') && i.memo && label
+            && !label.startsWith('[') && !/own shares|buy-?back/i.test(label)) {
           memoBalances[label] = (memoBalances[label] || 0) + i.amount;
         }
       }
@@ -621,9 +623,10 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
       <p className="text-[11px] text-brand-text-secondary mt-2">
         To add more movement lines (acquisitions, disposals, RSUs, CTA…): enter them as <em>memo</em> rows in the
         Workbench with the same label on each period — monthly deltas and YTD are computed automatically.
-        The <em>Share buy-back</em> row reads the Workbench deduction "Own CET1 instruments (-)" (FINMA 1.1.1.11.1;
-        created at 0 on import) — type the cumulative buy-back amount there (negative), or add a deduction row whose
-        label contains "buy-back".
+        The <em>Share buy-back</em> row reads any Workbench equity/deduction row whose label contains "buy-back" or
+        "own shares" (cumulative for the year, negative). If the buy-back is already embedded in the reported figures
+        (usual case), enter it as a <em>memo</em> row — totals stay untouched and the equity residual absorbs it;
+        use the non-memo "Own CET1 instruments (-)" row (FINMA 1.1.1.11.1) only when it must reduce the computed CET1.
       </p>
     </Card>
   );

@@ -162,9 +162,12 @@ const buildBreakdown = (report: CapitalReport, summary: CapitalSummary): CET1Cap
   const pnl = items.filter(i => i.code === 'interimPnl').reduce((a, i) => a + i.amount, 0);
   const dividend = Math.abs(items.filter(i => i.code === 'futureDividends').reduce((a, i) => a + i.amount, 0));
   // By code (ownShares = FINMA 1.1.1.11.1) or, for rows added by hand in the
-  // Workbench, by label ("own shares", "buy-back", "buyback"…).
+  // Workbench, by label ("own shares", "buy-back", "buyback"…). Memo rows count
+  // too: when the buy-back is already embedded in the reported figures it is
+  // entered as a memo (totals untouched, the equity residual absorbs it) — the
+  // raw "[code]" import-capture rows are excluded.
   const shareBuyback = Math.abs(
-    items.filter(i => i.code === 'ownShares' || (!i.memo && /own shares|buy-?back/i.test(i.label)))
+    items.filter(i => i.code === 'ownShares' || (!i.label.startsWith('[') && /own shares|buy-?back/i.test(i.label)))
       .reduce((a, i) => a + i.amount, 0)
   );
   const goodwillIntangibles = Math.abs(
