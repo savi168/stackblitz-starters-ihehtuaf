@@ -483,21 +483,20 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
   const [yearSel, setYearSel] = useState('');
   const year = years.includes(yearSel) ? yearSel : years[years.length - 1] || '';
 
-  type Move = { pnl: number | null; dividend: number | null; buyback: number | null; other: number | null;
+  type Move = { pnl: number | null; dividend: number | null; buyback: number | null;
     totalCet1: number; credit: number; market: number; op: number; otherRwa: number; totalRwa: number;
-    ratioDelta: number | null; a: CapitalPoint; b: CapitalPoint; isProjection: boolean };
+    ratioDelta: number | null; newYear: boolean; a: CapitalPoint; b: CapitalPoint; isProjection: boolean };
 
   const buildMove = (a: CapitalPoint, b: CapitalPoint): Move => {
     const totalCet1 = b.cet1 - a.cet1;
     const newYear = b.date.slice(0, 4) !== a.date.slice(0, 4);
-    let pnl: number | null = null, dividend: number | null = null, buyback: number | null = null, other: number | null = null;
+    let pnl: number | null = null, dividend: number | null = null, buyback: number | null = null;
     if (a.breakdown && b.breakdown) {
       pnl = newYear ? b.breakdown.pnl : b.breakdown.pnl - a.breakdown.pnl;
       dividend = -(newYear ? (b.breakdown.dividend || 0) : (b.breakdown.dividend || 0) - (a.breakdown.dividend || 0));
       buyback = -(newYear ? b.breakdown.shareBuyback : b.breakdown.shareBuyback - a.breakdown.shareBuyback);
-      other = totalCet1 - pnl - dividend - buyback;
     }
-    return { pnl, dividend, buyback, other, totalCet1,
+    return { pnl, dividend, buyback, totalCet1, newYear,
       credit: b.creditRwa - a.creditRwa, market: b.marketRwa - a.marketRwa,
       op: b.opRwa - a.opRwa, otherRwa: b.otherRwa - a.otherRwa, totalRwa: b.rwaTotal - a.rwaTotal,
       ratioDelta: a.cet1Ratio != null && b.cet1Ratio != null ? b.cet1Ratio - a.cet1Ratio : null,
@@ -526,33 +525,134 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
 
   const signed = (v: number | null) =>
     v === null ? '—' : (v < 0 ? `(${fmt(Math.abs(v), 1)})` : fmt(v, 1));
+  const signedPct = (v: number | null) => (v === null ? '—' : `${v >= 0 ? '' : '-'}${Math.abs(v).toFixed(1)}%`);
 
-  const rows: Array<[string, (m: Move) => number | null, boolean]> = [
-    ['P&L plus non-cash items', m => m.pnl, false],
-    ['Dividend accrual', m => m.dividend, false],
-    ['Share buy-back', m => m.buyback, false],
-    ['Equity movement excl. dividend & buy-back', m => m.other, false],
-    ['Total CET1 movement', m => m.totalCet1, true],
-    ['Credit risk RWA Δ', m => m.credit, false],
-    ['Market risk RWA Δ', m => m.market, false],
-    ['Operational risk RWA Δ', m => m.op, false],
-    ['Other RWA Δ', m => m.otherRwa, false],
-    ['Total RWA movement', m => m.totalRwa, true],
-    ['Net CET1 ratio movement (p.p.)', m => m.ratioDelta, true],
+  // --- Fixed model layout (management pack labels). Every non-derived line is
+  // fed as YTD memo balances (Workbench "CET1 movements YTD" CSV, exact same
+  // labels); month deltas reset in January.
+  const memoDelta = (label: string) => (m: Move): number | null => {
+    const fed = series.some(p => (p.memoBalances || {})[label] !== undefined);
+    if (!fed) return null;
+    return (m.b.memoBalances?.[label] ?? 0) - (m.newYear ? 0 : (m.a.memoBalances?.[label] ?? 0));
+  };
+  const childSum = (labels: string[]) => (m: Move): number | null => {
+    const vals = labels.map(l => memoDelta(l)(m)).filter((v): v is number => v !== null);
+    return vals.length > 0 ? vals.reduce((a, v) => a + v, 0) : null;
+  };
+
+  const UNDERLYING_CHILDREN = ['Underlying P&L', 'Deferred tax on losses', 'Amortisation of software',
+    'Intangible activated', 'Equity-settled share-based plan expensed in the income statement'];
+  const DIVIDEND_CHILDREN = ['Ordinary Dividend', 'AT1 Dividend'];
+  const underlying = (m: Move): number | null => childSum(UNDERLYING_CHILDREN)(m) ?? m.pnl;
+  const dividendTotal = (m: Move): number | null => childSum(DIVIDEND_CHILDREN)(m) ?? m.dividend;
+  const nonUnderlying = memoDelta('Non-underlying P&L');
+  const acquisition = memoDelta('Acquisition impact');
+  const cta = memoDelta('Currency translation adjustment');
+  const regDeduction = memoDelta('Regulatory Capital Deduction');
+  // Residual so the capital block sums exactly to ΔCET1.
+  const equityResidual = (m: Move): number | null =>
+    m.totalCet1 - (underlying(m) ?? 0) - (dividendTotal(m) ?? 0) - (nonUnderlying(m) ?? 0)
+    - (acquisition(m) ?? 0) - (m.buyback ?? 0) - (cta(m) ?? 0) - (regDeduction(m) ?? 0);
+  // Generation ratios (provisional rules — adjust with the pack owner):
+  // gross = (underlying P&L + CTA) / closing RWA; net = gross + dividend / closing RWA.
+  const grossGen = (m: Move): number | null => {
+    const u = underlying(m);
+    return u === null || !(m.b.rwaTotal > 0) ? null : ((u + (cta(m) ?? 0)) / m.b.rwaTotal) * 100;
+  };
+  const netGen = (m: Move): number | null => {
+    const g = grossGen(m);
+    return g === null ? null : g + (((dividendTotal(m) ?? 0) / m.b.rwaTotal) * 100);
+  };
+
+  // Currency decomposition of credit RWA (memo rows "USD" = CHF eq, "USD (LC)").
+  const currencies = useMemo(() => {
+    const set = new Set<string>();
+    series.forEach(p => Object.keys(p.rwaCcy || {}).forEach(c => set.add(c)));
+    const preferred = ['USD', 'EUR', 'GBP'];
+    return [...preferred.filter(c => set.has(c)), ...Array.from(set).filter(c => !preferred.includes(c) && c !== 'CHF').sort()];
+  }, [series]);
+  const ccyDelta = (ccy: string) => (m: Move): number | null =>
+    (m.a.rwaCcy?.[ccy] === undefined && m.b.rwaCcy?.[ccy] === undefined)
+      ? null : (m.b.rwaCcy?.[ccy] ?? 0) - (m.a.rwaCcy?.[ccy] ?? 0);
+  const ccyParts = (ccy: string, m: Move): { fx: number; business: number } | null => {
+    const chfA = m.a.rwaCcy?.[ccy], chfB = m.b.rwaCcy?.[ccy];
+    const lcA = m.a.rwaCcyLc?.[ccy], lcB = m.b.rwaCcyLc?.[ccy];
+    if (chfA === undefined || chfB === undefined || !lcA || !lcB) return null;
+    const rateA = chfA / lcA, rateB = chfB / lcB;
+    return { fx: lcA * (rateB - rateA), business: (lcB - lcA) * rateB };
+  };
+  const allCcyDeltaSum = (m: Move): number =>
+    [...currencies, 'CHF'].reduce((a, c) => a + (ccyDelta(c)(m) ?? 0), 0);
+  const hasCcyData = series.some(p => p.rwaCcy && Object.keys(p.rwaCcy).length > 0);
+
+  type Spec = { key: string; label: string; kind: 'item' | 'group' | 'total' | 'header' | 'pct';
+    indent?: boolean; rwaBlock?: boolean; get?: (m: Move) => number | null };
+  const specs: Spec[] = [
+    { key: 'underlying', label: 'Underlying PL plus non cash items', kind: 'group', get: underlying },
+    ...UNDERLYING_CHILDREN.map(l => ({ key: `u:${l}`, label: l, kind: 'item' as const, indent: true, get: memoDelta(l) })),
+    { key: 'rwa', label: 'RWA', kind: 'group', rwaBlock: true, get: m => m.totalRwa },
+    { key: 'h:ofwhich', label: 'Of which:', kind: 'header' },
+    { key: 'credit', label: 'Credit risk', kind: 'item', rwaBlock: true, get: m => m.credit },
+    ...(hasCcyData ? [
+      { key: 'h:ccy', label: 'of which by currency', kind: 'header' as const },
+      ...currencies.map(c => ({ key: `c:${c}`, label: c, kind: 'item' as const, indent: true, rwaBlock: true, get: ccyDelta(c) })),
+      { key: 'h:fx', label: 'of which by currency FX movement impact', kind: 'header' as const },
+      ...currencies.map(c => ({ key: `fx:${c}`, label: c, kind: 'item' as const, indent: true, rwaBlock: true,
+        get: (m: Move) => ccyParts(c, m)?.fx ?? null })),
+      { key: 'h:biz', label: 'of which by currency business', kind: 'header' as const },
+      ...currencies.map(c => ({ key: `bz:${c}`, label: c, kind: 'item' as const, indent: true, rwaBlock: true,
+        get: (m: Move) => ccyParts(c, m)?.business ?? null })),
+      { key: 'bz:CHF', label: 'CHF', kind: 'item' as const, indent: true, rwaBlock: true, get: ccyDelta('CHF') },
+      { key: 'bz:other', label: 'Other', kind: 'item' as const, indent: true, rwaBlock: true,
+        get: (m: Move) => m.credit - allCcyDeltaSum(m) },
+    ] : []),
+    { key: 'market', label: 'Market risk', kind: 'item', rwaBlock: true, get: m => m.market },
+    { key: 'op', label: 'Operational risk', kind: 'item', rwaBlock: true, get: m => m.op },
+    { key: 'otherRwa', label: 'Other risk', kind: 'item', rwaBlock: true, get: m => m.otherRwa },
+    { key: 'gross', label: 'Gross CET1 Generation CTA incl.', kind: 'pct', get: grossGen },
+    { key: 'dividend', label: 'Dividend', kind: 'group', get: dividendTotal },
+    ...DIVIDEND_CHILDREN.map(l => ({ key: `d:${l}`, label: l, kind: 'item' as const, indent: true, get: memoDelta(l) })),
+    { key: 'net', label: 'Net CET1 Generation', kind: 'pct', get: netGen },
+    { key: 'nonUnderlying', label: 'Non-underlying P&L', kind: 'item', get: nonUnderlying },
+    { key: 'residual', label: 'Equity movement excl. CTA and Share buy-back', kind: 'item', get: equityResidual },
+    { key: 'acquisition', label: 'Acquisition impact', kind: 'item', get: acquisition },
+    { key: 'buyback', label: 'Share buy-back', kind: 'item', get: m => m.buyback },
+    { key: 'cta', label: 'Currency translation adjustment', kind: 'item', get: cta },
+    { key: 'regDeduction', label: 'Regulatory Capital Deduction', kind: 'item', get: regDeduction },
+    { key: 'total', label: 'Total CET1 movement', kind: 'total', get: m => m.totalCet1 },
   ];
+
+  // Labels consumed by the fixed layout stay out of the free memoranda section.
+  const FIXED_LABELS = new Set([...UNDERLYING_CHILDREN, ...DIVIDEND_CHILDREN,
+    'Non-underlying P&L', 'Acquisition impact', 'Currency translation adjustment', 'Regulatory Capital Deduction']
+    .map(l => l.toLowerCase()));
   const memoLabels = useMemo(() => {
     const set = new Set<string>();
-    series.forEach(p => Object.keys(p.memoBalances || {}).forEach(l => set.add(l)));
+    series.forEach(p => Object.keys(p.memoBalances || {}).forEach(l => { if (!FIXED_LABELS.has(l.toLowerCase())) set.add(l); }));
     return Array.from(set).sort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [series]);
   const memoGet = (label: string) => (m: Move): number | null =>
-    (!m.a.memoBalances && !m.b.memoBalances) ? null : (m.b.memoBalances?.[label] ?? 0) - (m.a.memoBalances?.[label] ?? 0);
+    (!m.a.memoBalances && !m.b.memoBalances) ? null : (m.b.memoBalances?.[label] ?? 0) - (m.newYear ? 0 : (m.a.memoBalances?.[label] ?? 0));
+
+  // YTD CET1 delta (last column, p.p. of the ratio): capital rows = amount /
+  // closing RWA; RWA rows = ratio impact of the RWA change at constant capital.
+  const ytdRatioDelta = (s: Spec): string => {
+    if (!ytd || !s.get || s.kind === 'header') return '';
+    if (s.kind === 'pct') return 'N/A';
+    const v = s.get(ytd);
+    if (v === null || !(ytd.b.rwaTotal > 0)) return '—';
+    const pp = s.rwaBlock
+      ? (ytd.a.rwaTotal > 0 ? -(ytd.b.cet1 * v) / (ytd.b.rwaTotal * ytd.a.rwaTotal) * 100 : null)
+      : (v / ytd.b.rwaTotal) * 100;
+    return pp === null ? '—' : signedPct(pp);
+  };
 
   if (series.length < 2) return null;
 
-  const cell = (move: Move | null, get: (m: Move) => number | null, italic = false) => (
-    <td className={`px-3 py-1.5 text-right tabular-nums ${italic ? 'italic text-brand-text-secondary' : ''} ${move && (get(move) ?? 0) < 0 ? 'text-status-red' : ''} ${move?.isProjection ? 'italic' : ''}`}>
-      {move ? signed(get(move)) : ''}
+  const cell = (move: Move | null, get: (m: Move) => number | null, opts?: { italic?: boolean; pct?: boolean }) => (
+    <td className={`px-3 py-1.5 text-right tabular-nums ${opts?.italic ? 'italic text-brand-text-secondary' : ''} ${move && (get(move) ?? 0) < 0 ? 'text-status-red' : ''} ${move?.isProjection ? 'italic' : ''}`}>
+      {move ? (opts?.pct ? signedPct(get(move)) : signed(get(move))) : ''}
     </td>
   );
 
@@ -566,11 +666,12 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
           endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
           sql: `SELECT Entity, Date, Cet1Capital, CreditRWA, MarketRWA, OpRWA, OtherRWA,\n       BreakdownEquity, BreakdownPnl, BreakdownShareBuyback, BreakdownDividend\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\n-- memorandum lines:\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')\n  AND i.Label NOT LIKE '[[]%' -- '[…]' rows = raw line-by-line import capture, not memoranda`,
           notes: [
-            'Each month = delta vs the previous available period (CET1 & RWA columns read directly from the rows above); empty column = no data for that month.',
-            'YTD = last available period of the year vs December of the previous year (fallback: first period of the year).',
-            'P&L / dividend / buy-back come from the KpiHistory Breakdown* columns (YTD accruals: reset in January); "Equity movement excl." = ΔCET1 − those three (residual).',
-            'Net CET1 ratio movement = CET1/RWA ratio delta between the two periods.',
-            'Memorandum lines = per-month delta of each memo balance, matched by label — never part of the totals.',
+            'Each month = delta vs the previous available period; empty column = no data for that month. YTD = last period of the year vs December of the previous year.',
+            'Detail lines (Underlying P&L components, dividends split, Non-underlying P&L, Acquisition impact, CTA, Regulatory Capital Deduction) are fed as YTD memo balances via the Workbench "CET1 movements YTD" CSV — exact same labels; deltas reset in January. Groups fall back to the CASABIS-derived P&L / dividend when no CSV data.',
+            'RWA rows derive from the reports (credit/market/operational); the by-currency blocks read the "<CCY>" / "<CCY> (LC)" memo rows (FX impact = LC_prev × Δrate; business = ΔLC × rate).',
+            '"Equity movement excl. CTA and Share buy-back" = ΔCET1 − all other capital lines (residual, so the block sums to the total).',
+            'Gross CET1 Generation = (Underlying + CTA) / closing RWA; Net = Gross + Dividend / closing RWA — provisional rules, adjust as agreed.',
+            'YTD CET1 Δ column: capital lines = YTD amount / closing RWA; RWA lines = ratio impact at constant capital.',
           ],
         }]} />
         <div>
@@ -591,28 +692,39 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
                 </th>
               ))}
               <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/60">YTD {year}</th>
+              <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold bg-efg-line/40">YTD CET1 Δ</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(([label, get, strong]) => (
-              <tr key={label} className={`border-t border-efg-line ${strong ? 'bg-brand-bg-body/60 font-semibold' : ''}`}>
-                <td className="px-3 py-1.5 text-brand-text-primary sticky left-0 bg-white">{label}</td>
-                {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, get)}</React.Fragment>)}
-                <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ytd && (get(ytd) ?? 0) < 0 ? 'text-status-red' : ''}`}>{ytd ? signed(get(ytd)) : '—'}</td>
+            {specs.map(s => s.kind === 'header' ? (
+              <tr key={s.key} className="border-t border-efg-line bg-brand-secondary/10">
+                <td colSpan={columns.length + 3} className="px-3 py-1 text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary sticky left-0">
+                  {s.label}
+                </td>
+              </tr>
+            ) : (
+              <tr key={s.key} className={`border-t border-efg-line ${s.kind === 'group' || s.kind === 'total' ? 'bg-brand-bg-body/60 font-semibold' : ''} ${s.kind === 'pct' ? 'bg-brand-primary/5 font-semibold' : ''}`}>
+                <td className={`px-3 py-1.5 text-brand-text-primary sticky left-0 bg-white ${s.indent ? 'pl-7' : ''}`}>{s.label}</td>
+                {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, s.get!, { pct: s.kind === 'pct' })}</React.Fragment>)}
+                <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-brand-bg-body/40 ${ytd && s.kind !== 'pct' && ((s.get!(ytd)) ?? 0) < 0 ? 'text-status-red' : ''}`}>
+                  {ytd ? (s.kind === 'pct' ? signedPct(s.get!(ytd)) : signed(s.get!(ytd))) : '—'}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary bg-efg-line/30">{ytdRatioDelta(s)}</td>
               </tr>
             ))}
             {memoLabels.length > 0 && (
               <>
                 <tr className="border-t border-brand-text-primary/30 bg-brand-bg-body">
-                  <td colSpan={columns.length + 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
+                  <td colSpan={columns.length + 3} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
                     Memorandum movements (Workbench memo rows — not part of the CET1 total)
                   </td>
                 </tr>
                 {memoLabels.map(label => (
                   <tr key={label} className="border-t border-efg-line">
                     <td className="px-3 py-1.5 text-brand-text-secondary italic sticky left-0 bg-white">{label}</td>
-                    {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, memoGet(label), true)}</React.Fragment>)}
+                    {columns.map(c => <React.Fragment key={c.label}>{cell(c.move, memoGet(label), { italic: true })}</React.Fragment>)}
                     <td className="px-3 py-1.5 text-right tabular-nums italic bg-brand-bg-body/40 text-brand-text-secondary">{ytd ? signed(memoGet(label)(ytd)) : '—'}</td>
+                    <td className="bg-efg-line/30" />
                   </tr>
                 ))}
               </>
@@ -621,12 +733,11 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
         </table>
       </div>
       <p className="text-[11px] text-brand-text-secondary mt-2">
-        To add more movement lines (acquisitions, disposals, RSUs, CTA…): enter them as <em>memo</em> rows in the
-        Workbench with the same label on each period — monthly deltas and YTD are computed automatically.
-        The <em>Share buy-back</em> row reads any Workbench equity/deduction row whose label contains "buy-back" or
-        "own shares" (cumulative for the year, negative). If the buy-back is already embedded in the reported figures
-        (usual case), enter it as a <em>memo</em> row — totals stay untouched and the equity residual absorbs it;
-        use the non-memo "Own CET1 instruments (-)" row (FINMA 1.1.1.11.1) only when it must reduce the computed CET1.
+        Detail lines are fed with the Workbench <strong>"CET1 movements YTD" CSV</strong> (one file, all periods:
+        date;label;ytd_amount) using exactly these labels — the table derives the month-to-month deltas (reset in
+        January) and the YTD. The by-currency blocks are fed with the <strong>"RWA by currency" CSV</strong>
+        (date;currency;rwa_chf;rwa_lc). <em>Share buy-back</em>: memo row labelled "Share buy-back" (cumulative,
+        negative). Any other memo label appears in the memorandum section below.
       </p>
     </Card>
   );
