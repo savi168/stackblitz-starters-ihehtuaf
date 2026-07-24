@@ -17,7 +17,7 @@ export interface ColumnMeta {
   pk?: boolean;
   /** Foreign key target, e.g. "Projects.Id". */
   fk?: string;
-  /** Stored as a JSON column (nested object). */
+  /** Stored as JSON (only the importMapping setting — everything else is relational). */
   json?: boolean;
   note?: string;
 }
@@ -64,8 +64,8 @@ export const BACKEND_TABLES: TableMeta[] = [
       { name: 'OtherRWA', type: 'number' },
       { name: 'Tier1', type: 'number' },
       { name: 'Exposure', type: 'number' },
-      { name: 'Cet1CapitalBreakdown', type: 'object', json: true },
-      { name: 'Liquidity', type: 'map<currency,obj>', json: true },
+      { name: 'BreakdownEquity … BreakdownDividend', type: 'number?', note: 'CET1 breakdown flattened into 7 columns (equity, pnl, shareBuyback, goodwillIntangibles, otherDeductions, toBeDefined, dividend)' },
+      { name: 'Liquidity', type: 'child table', fk: 'KpiLiquidity.KpiHistoryEntryId', note: '1 row per currency: Hqla, NetCashOutflows, Asf, Rsf + inflow/outflow/HQLA detail columns' },
     ],
     endpoints: [
       { method: 'GET', path: '/api/kpis?entity=', desc: 'List KPI entries (optionally by entity)' },
@@ -89,8 +89,8 @@ export const BACKEND_TABLES: TableMeta[] = [
       { name: 'DueDate', type: 'date' },
       { name: 'EndOfPeriod', type: 'date' },
       { name: 'OwnerGroup', type: 'string' },
-      { name: 'History', type: 'StatusLog[]', json: true },
-      { name: 'Attachments', type: 'Attachment[]', json: true },
+      { name: 'History', type: 'child table', fk: 'DeadlineHistory.DeadlineId', note: 'Timestamp, OldStatus, NewStatus' },
+      { name: 'Attachments', type: 'child table', fk: 'DeadlineAttachments.DeadlineId', note: 'Name, DataUrl, Type' },
     ],
     endpoints: [
       { method: 'GET', path: '/api/deadlines', desc: 'List deadlines' },
@@ -214,7 +214,7 @@ export const BACKEND_TABLES: TableMeta[] = [
       { name: 'Source', type: 'enum', note: 'manual | excel' },
       { name: 'FileName', type: 'string?' },
       { name: 'ImportedAt', type: 'datetime?' },
-      { name: 'KeyMetrics', type: 'object', json: true, note: 'KM1: CET1, T1, total, RWA, ratios, leverage' },
+      { name: 'Cet1Capital … LeverageRatio', type: 'number?', note: 'KM1 key metrics flattened into 9 columns (CET1, T1, total, RWA, 3 ratios, leverage exposure & ratio)' },
       { name: 'LineItems', type: 'CapitalLineItem[]', fk: 'CapitalLineItems.CapitalReportId', note: 'relational child table' },
     ],
     endpoints: [
@@ -253,12 +253,17 @@ export const BACKEND_TABLES: TableMeta[] = [
   },
   {
     key: 'riskAppetite',
-    table: 'AppSettings[riskAppetite]',
-    entity: 'Dictionary<string,EntityThresholds>',
+    table: 'RiskAppetite',
+    entity: 'RiskAppetiteEntry',
     kind: 'singleton',
-    description: 'Red/amber thresholds per KPI and per entity (stored as a JSON setting).',
+    description: 'Red/amber thresholds per KPI — one row per entity, flat columns.',
     columns: [
-      { name: '<entity>', type: 'object', json: true, note: 'cet1 / lcr / nsfr / leverage → { red, amber }' },
+      { name: 'Entity', type: 'string', pk: true },
+      { name: 'Cet1Red / Cet1Amber', type: 'number?' },
+      { name: 'LcrRed / LcrAmber', type: 'number?' },
+      { name: 'NsfrRed / NsfrAmber', type: 'number?' },
+      { name: 'LeverageRed / LeverageAmber', type: 'number?' },
+      { name: 'LocalCapitalRequirement', type: 'number?', note: '% of RWA (incl. Pillar 2)' },
     ],
     endpoints: [
       { method: 'GET', path: '/api/settings/risk-appetite', desc: 'Get all thresholds' },
@@ -354,10 +359,10 @@ export const BACKEND_TABLES: TableMeta[] = [
   },
   {
     key: 'bilan',
-    table: 'AppSettings[bilan]',
+    table: 'Bilan',
     entity: 'Bilan',
     kind: 'singleton',
-    description: 'Balance-sheet split by currency (stored as a JSON setting).',
+    description: 'Balance-sheet split by currency (single-row table, one column per currency).',
     columns: [
       { name: 'Chf', type: 'number' },
       { name: 'Eur', type: 'number' },

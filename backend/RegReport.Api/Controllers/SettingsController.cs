@@ -7,9 +7,10 @@ using RegReport.Api.Models;
 namespace RegReport.Api.Controllers;
 
 /// <summary>
-/// Granular GET/PUT for the two singleton settings blobs stored as JSON in AppSettings:
-///   bilan       — balance sheet totals (key = "bilan")
-///   riskAppetite — per-entity KPI thresholds (key = "riskAppetite")
+/// Granular GET/PUT for the singleton documents:
+///   bilan         — balance-sheet totals (single-row Bilan table)
+///   riskAppetite  — per-entity KPI thresholds (RiskAppetite table, one row per entity)
+///   importMapping — Excel template anchors (the only JSON setting, owned by the frontend parser)
 /// </summary>
 [ApiController]
 [Route("api/settings")]
@@ -20,60 +21,57 @@ public class SettingsController : ControllerBase
 
     public SettingsController(AppDbContext db) => _db = db;
 
-    // ---- Bilan ----
+    // ---- Bilan (single-row table) ----
 
     [HttpGet("bilan")]
-    public async Task<ActionResult<Bilan>> GetBilan()
-    {
-        var row = await _db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == "bilan");
-        if (row is null) return new Bilan();
-        return JsonSerializer.Deserialize<Bilan>(row.Value, _json) ?? new Bilan();
-    }
+    public async Task<ActionResult<Bilan>> GetBilan() =>
+        await _db.Bilans.AsNoTracking().FirstOrDefaultAsync() ?? new Bilan();
 
     [HttpPut("bilan")]
     public async Task<ActionResult<Bilan>> PutBilan(Bilan bilan)
     {
-        var json = JsonSerializer.Serialize(bilan, _json);
-        var row = await _db.Settings.FirstOrDefaultAsync(s => s.Key == "bilan");
-        if (row is null)
-        {
-            _db.Settings.Add(new AppSetting { Key = "bilan", Value = json });
-        }
-        else
-        {
-            row.Value = json;
-        }
+        _db.Bilans.RemoveRange(_db.Bilans);
+        _db.Bilans.Add(bilan);
         await _db.SaveChangesAsync();
         return bilan;
     }
 
-    // ---- Risk Appetite ----
+    // ---- Risk Appetite (one row per entity) ----
 
     [HttpGet("risk-appetite")]
     public async Task<ActionResult<Dictionary<string, EntityThresholds>>> GetRiskAppetite()
     {
-        var row = await _db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == "riskAppetite");
-        if (row is null) return new Dictionary<string, EntityThresholds>();
-        return JsonSerializer.Deserialize<Dictionary<string, EntityThresholds>>(row.Value, _json)
-               ?? new Dictionary<string, EntityThresholds>();
+        var rows = await _db.RiskAppetite.AsNoTracking().ToListAsync();
+        return rows.ToDictionary(r => r.Entity, r => r.Thresholds ?? new EntityThresholds());
     }
 
     [HttpPut("risk-appetite")]
     public async Task<ActionResult<Dictionary<string, EntityThresholds>>> PutRiskAppetite(
         Dictionary<string, EntityThresholds> appetite)
     {
-        var json = JsonSerializer.Serialize(appetite, _json);
-        var row = await _db.Settings.FirstOrDefaultAsync(s => s.Key == "riskAppetite");
+        _db.RiskAppetite.RemoveRange(_db.RiskAppetite);
+        _db.RiskAppetite.AddRange(appetite.Select(kv =>
+            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value }));
+        await _db.SaveChangesAsync();
+        return appetite;
+    }
+
+    /// <summary>Update thresholds for a single entity without touching the others.</summary>
+    [HttpPut("risk-appetite/{entity}")]
+    public async Task<ActionResult<EntityThresholds>> PutEntityThresholds(
+        string entity, EntityThresholds thresholds)
+    {
+        var row = await _db.RiskAppetite.FirstOrDefaultAsync(r => r.Entity == entity);
         if (row is null)
         {
-            _db.Settings.Add(new AppSetting { Key = "riskAppetite", Value = json });
+            _db.RiskAppetite.Add(new RiskAppetiteEntry { Entity = entity, Thresholds = thresholds });
         }
         else
         {
-            row.Value = json;
+            row.Thresholds = thresholds;
         }
         await _db.SaveChangesAsync();
-        return appetite;
+        return thresholds;
     }
 
     // ---- Import mapping (Excel template anchors) ----
@@ -101,28 +99,5 @@ public class SettingsController : ControllerBase
         }
         await _db.SaveChangesAsync();
         return mapping;
-    }
-
-    /// <summary>Update thresholds for a single entity without touching the others.</summary>
-    [HttpPut("risk-appetite/{entity}")]
-    public async Task<ActionResult<EntityThresholds>> PutEntityThresholds(
-        string entity, EntityThresholds thresholds)
-    {
-        var row = await _db.Settings.FirstOrDefaultAsync(s => s.Key == "riskAppetite");
-        var appetite = row is null
-            ? new Dictionary<string, EntityThresholds>()
-            : JsonSerializer.Deserialize<Dictionary<string, EntityThresholds>>(row.Value, _json)
-              ?? new Dictionary<string, EntityThresholds>();
-
-        appetite[entity] = thresholds;
-        var json = JsonSerializer.Serialize(appetite, _json);
-
-        if (row is null)
-            _db.Settings.Add(new AppSetting { Key = "riskAppetite", Value = json });
-        else
-            row.Value = json;
-
-        await _db.SaveChangesAsync();
-        return thresholds;
     }
 }

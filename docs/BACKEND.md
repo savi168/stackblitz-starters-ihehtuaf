@@ -158,10 +158,12 @@ C'est suffisant pour que le front tourne entièrement sur le back-end.
 
 ## 4. Option B — Schéma relationnel (cible)
 
-Schéma normalisé miroir de `types.ts`. Les structures imbriquées (liquidité par
-devise, breakdowns, historique/pièces jointes des deadlines) sont stockées en
-**colonnes JSON** (`NVARCHAR(MAX)`) — SQL Server sait les requêter via
-`JSON_VALUE`/`OPENJSON`.
+Schéma normalisé miroir de `types.ts`, **100 % relationnel** : les structures
+imbriquées sont soit aplaties en colonnes (breakdown CET1, key metrics), soit
+stockées dans des tables enfants (liquidité par devise, historique/pièces
+jointes des deadlines). Aucune colonne JSON — la seule exception est le
+paramètre `importMapping` (document de configuration du parseur Excel) dans la
+table clé/valeur `Settings`.
 
 ```sql
 -- KPI bruts (un enregistrement par entité + date)
@@ -176,9 +178,29 @@ CREATE TABLE dbo.KpiHistory (
     OtherRWA            DECIMAL(18,2) NOT NULL DEFAULT 0,
     Tier1               DECIMAL(18,2) NOT NULL,
     Exposure            DECIMAL(18,2) NOT NULL,
-    Cet1CapitalBreakdown NVARCHAR(MAX) NULL,   -- JSON
-    Liquidity            NVARCHAR(MAX) NULL,   -- JSON (LiquidityByCurrency)
+    -- Breakdown CET1 aplati en colonnes :
+    BreakdownEquity              DECIMAL(18,2) NULL,
+    BreakdownPnl                 DECIMAL(18,2) NULL,
+    BreakdownShareBuyback        DECIMAL(18,2) NULL,
+    BreakdownGoodwillIntangibles DECIMAL(18,2) NULL,
+    BreakdownOtherDeductions     DECIMAL(18,2) NULL,
+    BreakdownToBeDefined         DECIMAL(18,2) NULL,
+    BreakdownDividend            DECIMAL(18,2) NULL,
     CONSTRAINT UQ_KpiHistory UNIQUE (Entity, [Date])
+);
+
+-- Liquidité : une ligne par devise (table enfant de KpiHistory)
+CREATE TABLE dbo.KpiLiquidity (
+    Id                INT IDENTITY PRIMARY KEY,
+    KpiHistoryEntryId INT NOT NULL REFERENCES dbo.KpiHistory(Id) ON DELETE CASCADE,
+    Currency          NVARCHAR(8)   NOT NULL,   -- TOT | CHF | EUR | USD …
+    Hqla              DECIMAL(18,2) NULL,
+    NetCashOutflows   DECIMAL(18,2) NULL,
+    Asf               DECIMAL(18,2) NULL,
+    Rsf               DECIMAL(18,2) NULL,
+    -- Décomposition flux (5 colonnes Inflows*, 5 colonnes Outflows*)
+    -- et composition HQLA (5 colonnes Hqla*), toutes NULLables.
+    CONSTRAINT UQ_KpiLiquidity UNIQUE (KpiHistoryEntryId, Currency)
 );
 
 CREATE TABLE dbo.Deadlines (
@@ -192,9 +214,23 @@ CREATE TABLE dbo.Deadlines (
     OwnerGroup          NVARCHAR(128) NULL,
     Validator1          NVARCHAR(128) NULL,
     Validator2          NVARCHAR(128) NULL,
-    Comments            NVARCHAR(MAX) NULL,
-    History             NVARCHAR(MAX) NULL,     -- JSON (StatusLog[])
-    Attachments         NVARCHAR(MAX) NULL      -- JSON (Attachment[])
+    Comments            NVARCHAR(MAX) NULL
+);
+
+-- Historique de statut et pièces jointes : tables enfants
+CREATE TABLE dbo.DeadlineHistory (
+    Id INT IDENTITY PRIMARY KEY,
+    DeadlineId INT NOT NULL REFERENCES dbo.Deadlines(Id) ON DELETE CASCADE,
+    [Timestamp] NVARCHAR(64) NOT NULL,
+    OldStatus NVARCHAR(32) NOT NULL,
+    NewStatus NVARCHAR(32) NOT NULL
+);
+CREATE TABLE dbo.DeadlineAttachments (
+    Id INT IDENTITY PRIMARY KEY,
+    DeadlineId INT NOT NULL REFERENCES dbo.Deadlines(Id) ON DELETE CASCADE,
+    Name NVARCHAR(256) NOT NULL,
+    DataUrl NVARCHAR(MAX) NOT NULL,
+    [Type] NVARCHAR(128) NOT NULL
 );
 
 CREATE TABLE dbo.CounterpartyRwa (
@@ -233,10 +269,29 @@ CREATE TABLE dbo.ProjectTasks (
     ItTicket NVARCHAR(64) NULL
 );
 
--- RiskAppetite / Bilan : peu volumineux -> table clé/valeur JSON
-CREATE TABLE dbo.AppSettings (
-    [Key] NVARCHAR(64) PRIMARY KEY,           -- 'riskAppetite' | 'bilan'
-    Value NVARCHAR(MAX) NOT NULL              -- JSON
+-- Seuils red/amber : une ligne par entité, colonnes plates
+CREATE TABLE dbo.RiskAppetite (
+    Entity NVARCHAR(64) PRIMARY KEY,
+    Cet1Red DECIMAL(9,4) NULL,  Cet1Amber DECIMAL(9,4) NULL,
+    LcrRed DECIMAL(9,4) NULL,   LcrAmber DECIMAL(9,4) NULL,
+    NsfrRed DECIMAL(9,4) NULL,  NsfrAmber DECIMAL(9,4) NULL,
+    LeverageRed DECIMAL(9,4) NULL, LeverageAmber DECIMAL(9,4) NULL,
+    LocalCapitalRequirement DECIMAL(9,4) NULL  -- % des RWA (incl. pilier 2)
+);
+
+-- Bilan par devise : table à une seule ligne
+CREATE TABLE dbo.Bilan (
+    Id INT IDENTITY PRIMARY KEY,
+    Chf DECIMAL(18,2) NOT NULL, Eur DECIMAL(18,2) NOT NULL,
+    Usd DECIMAL(18,2) NOT NULL, Gbp DECIMAL(18,2) NOT NULL,
+    Other DECIMAL(18,2) NOT NULL
+);
+
+-- Seule exception JSON : le mapping d'import Excel (config du parseur,
+-- schéma libre qui suit les versions de templates FINMA/SNB)
+CREATE TABLE dbo.Settings (
+    [Key] NVARCHAR(64) PRIMARY KEY,           -- 'importMapping'
+    Value NVARCHAR(MAX) NOT NULL
 );
 ```
 

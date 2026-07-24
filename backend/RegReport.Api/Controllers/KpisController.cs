@@ -15,7 +15,7 @@ public class KpisController : ControllerBase
     [HttpGet]
     public async Task<IEnumerable<KpiHistoryEntry>> GetAll([FromQuery] string? entity)
     {
-        var query = _db.KpiHistory.AsNoTracking();
+        var query = _db.KpiHistory.AsNoTracking().Include(k => k.LiquidityRows).AsQueryable();
         if (!string.IsNullOrWhiteSpace(entity)) query = query.Where(k => k.Entity == entity);
         return await query.OrderBy(k => k.Entity).ThenBy(k => k.Date).ToListAsync();
     }
@@ -23,7 +23,7 @@ public class KpisController : ControllerBase
     [HttpGet("{entity}/{date}")]
     public async Task<ActionResult<KpiHistoryEntry>> Get(string entity, string date)
     {
-        var item = await _db.KpiHistory.AsNoTracking()
+        var item = await _db.KpiHistory.AsNoTracking().Include(k => k.LiquidityRows)
             .FirstOrDefaultAsync(k => k.Entity == entity && k.Date == date);
         return item is null ? NotFound() : item;
     }
@@ -35,7 +35,8 @@ public class KpisController : ControllerBase
         entry.Entity = entity;
         entry.Date = date;
 
-        var existing = await _db.KpiHistory.FirstOrDefaultAsync(k => k.Entity == entity && k.Date == date);
+        var existing = await _db.KpiHistory.Include(k => k.LiquidityRows)
+            .FirstOrDefaultAsync(k => k.Entity == entity && k.Date == date);
         if (existing is null)
         {
             entry.Id = 0;

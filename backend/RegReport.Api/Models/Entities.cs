@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace RegReport.Api.Models;
@@ -6,7 +7,9 @@ namespace RegReport.Api.Models;
 // Property names serialize to camelCase (ASP.NET Core default), matching the
 // JSON the frontend sends and expects.
 
-// ---- Nested value objects (stored as JSON columns) ----
+// ---- Nested value objects ----
+// Persisted as flat columns (EF Core owned types) or child tables — the SQL
+// schema contains no JSON columns except the importMapping setting.
 
 public class Cet1CapitalBreakdown
 {
@@ -118,9 +121,123 @@ public class KpiHistoryEntry
     public double Tier1 { get; set; }
     public double Exposure { get; set; }
 
+    // Flattened to Breakdown* columns on the KpiHistory table (owned type).
     public Cet1CapitalBreakdown? Cet1CapitalBreakdown { get; set; }
-    // Liquidity keyed by currency (e.g. "TOT", "CHF", "EUR").
-    public Dictionary<string, LiquidityDataPoint>? Liquidity { get; set; }
+
+    // Persisted as one flat row per currency in the KpiLiquidity table.
+    [JsonIgnore] public List<KpiLiquidityEntry> LiquidityRows { get; set; } = new();
+
+    /// <summary>API shape: liquidity keyed by currency (e.g. "TOT", "CHF", "EUR").</summary>
+    [NotMapped]
+    public Dictionary<string, LiquidityDataPoint>? Liquidity
+    {
+        get => LiquidityRows.Count == 0
+            ? null
+            : LiquidityRows.ToDictionary(r => r.Currency, r => r.ToDataPoint());
+        set => LiquidityRows = value is null
+            ? new List<KpiLiquidityEntry>()
+            : value.Select(kv => KpiLiquidityEntry.From(kv.Key, kv.Value)).ToList();
+    }
+}
+
+/// <summary>
+/// One liquidity data point per KpiHistory entry and currency — every value in
+/// its own column (converted to/from the LiquidityDataPoint API shape).
+/// </summary>
+public class KpiLiquidityEntry
+{
+    public int Id { get; set; }
+    public int KpiHistoryEntryId { get; set; }
+    public string Currency { get; set; } = "TOT";
+
+    public double? Hqla { get; set; }
+    public double? NetCashOutflows { get; set; }
+    public double? Asf { get; set; }
+    public double? Rsf { get; set; }
+
+    // Net cash outflow decomposition (nullable: only stored when provided).
+    public double? InflowsBankAndFi { get; set; }
+    public double? InflowsRetail { get; set; }
+    public double? InflowsCorporate { get; set; }
+    public double? InflowsDerivatives { get; set; }
+    public double? InflowsOther { get; set; }
+    public double? OutflowsBankAndFi { get; set; }
+    public double? OutflowsRetail { get; set; }
+    public double? OutflowsCorporate { get; set; }
+    public double? OutflowsDerivatives { get; set; }
+    public double? OutflowsOther { get; set; }
+
+    // HQLA composition (nullable: only stored when provided).
+    public double? HqlaCentralBank { get; set; }
+    public double? HqlaReverseRepo { get; set; }
+    public double? HqlaSovereign { get; set; }
+    public double? HqlaPublicSector { get; set; }
+    public double? HqlaOther { get; set; }
+
+    public static KpiLiquidityEntry From(string currency, LiquidityDataPoint p) => new()
+    {
+        Currency = currency,
+        Hqla = p.Hqla,
+        NetCashOutflows = p.NetCashOutflows,
+        Asf = p.Asf,
+        Rsf = p.Rsf,
+        InflowsBankAndFi = p.NetCashOutflowsBreakdown?.Inflows?.BankAndFi,
+        InflowsRetail = p.NetCashOutflowsBreakdown?.Inflows?.Retail,
+        InflowsCorporate = p.NetCashOutflowsBreakdown?.Inflows?.Corporate,
+        InflowsDerivatives = p.NetCashOutflowsBreakdown?.Inflows?.Derivatives,
+        InflowsOther = p.NetCashOutflowsBreakdown?.Inflows?.Other,
+        OutflowsBankAndFi = p.NetCashOutflowsBreakdown?.Outflows?.BankAndFi,
+        OutflowsRetail = p.NetCashOutflowsBreakdown?.Outflows?.Retail,
+        OutflowsCorporate = p.NetCashOutflowsBreakdown?.Outflows?.Corporate,
+        OutflowsDerivatives = p.NetCashOutflowsBreakdown?.Outflows?.Derivatives,
+        OutflowsOther = p.NetCashOutflowsBreakdown?.Outflows?.Other,
+        HqlaCentralBank = p.HqlaBreakdown?.CentralBank,
+        HqlaReverseRepo = p.HqlaBreakdown?.ReverseRepo,
+        HqlaSovereign = p.HqlaBreakdown?.Sovereign,
+        HqlaPublicSector = p.HqlaBreakdown?.PublicSector,
+        HqlaOther = p.HqlaBreakdown?.Other,
+    };
+
+    public LiquidityDataPoint ToDataPoint()
+    {
+        var hasInflows = InflowsBankAndFi ?? InflowsRetail ?? InflowsCorporate ?? InflowsDerivatives ?? InflowsOther;
+        var hasOutflows = OutflowsBankAndFi ?? OutflowsRetail ?? OutflowsCorporate ?? OutflowsDerivatives ?? OutflowsOther;
+        var hasHqla = HqlaCentralBank ?? HqlaReverseRepo ?? HqlaSovereign ?? HqlaPublicSector ?? HqlaOther;
+        return new LiquidityDataPoint
+        {
+            Hqla = Hqla,
+            NetCashOutflows = NetCashOutflows,
+            Asf = Asf,
+            Rsf = Rsf,
+            NetCashOutflowsBreakdown = hasInflows is null && hasOutflows is null ? null : new NetCashOutflowsBreakdown
+            {
+                Inflows = hasInflows is null ? null : new CashflowBreakdown
+                {
+                    BankAndFi = InflowsBankAndFi ?? 0,
+                    Retail = InflowsRetail ?? 0,
+                    Corporate = InflowsCorporate ?? 0,
+                    Derivatives = InflowsDerivatives ?? 0,
+                    Other = InflowsOther ?? 0,
+                },
+                Outflows = hasOutflows is null ? null : new CashflowBreakdown
+                {
+                    BankAndFi = OutflowsBankAndFi ?? 0,
+                    Retail = OutflowsRetail ?? 0,
+                    Corporate = OutflowsCorporate ?? 0,
+                    Derivatives = OutflowsDerivatives ?? 0,
+                    Other = OutflowsOther ?? 0,
+                },
+            },
+            HqlaBreakdown = hasHqla is null ? null : new HqlaBreakdown
+            {
+                CentralBank = HqlaCentralBank ?? 0,
+                ReverseRepo = HqlaReverseRepo ?? 0,
+                Sovereign = HqlaSovereign ?? 0,
+                PublicSector = HqlaPublicSector ?? 0,
+                Other = HqlaOther ?? 0,
+            },
+        };
+    }
 }
 
 public class Deadline
@@ -353,8 +470,27 @@ public class ScenarioShock
     public double Amount { get; set; }                 // mCHF, signed
 }
 
-// Small singletons (bilan, riskAppetite, diagnosisResults) live in a key/value
-// table as JSON to avoid over-modelling rarely-changing settings.
+/// <summary>One row per entity in the RiskAppetite table (flat threshold columns).</summary>
+public class RiskAppetiteEntry
+{
+    public string Entity { get; set; } = "";
+    public EntityThresholds? Thresholds { get; set; } = new();
+}
+
+/// <summary>One row per finding in the DiagnosisResults table.</summary>
+public class DiagnosisEntry
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Severity { get; set; } = "info";
+    public string Category { get; set; } = "";
+    public string Message { get; set; } = "";
+    public string? Field { get; set; }
+}
+
+// Key/value store. Only used for the Excel import mapping — a free-form JSON
+// document owned by the frontend parser whose schema follows the FINMA/SNB
+// template versions; everything else lives in real relational tables.
 public class AppSetting
 {
     public string Key { get; set; } = "";

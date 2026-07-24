@@ -562,11 +562,11 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
           object: 'kpisHistory (CET1, RWA by risk type, composition) + capitalReports memo rows',
           filter: `[entity=${entity}, year ${year}, baseline ${baseline ? baseline.date : 'first period of the year'}]`,
           endpoint: `GET /api/kpis?entity=${entity} · GET /api/capital-reports?entity=${entity}`,
-          sql: `SELECT Entity, Date, Cet1Capital, CreditRWA, MarketRWA, OpRWA, OtherRWA,\n       Cet1CapitalBreakdown\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\n-- memorandum lines:\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')\n  AND i.Label NOT LIKE '[[]%' -- '[…]' rows = raw line-by-line import capture, not memoranda`,
+          sql: `SELECT Entity, Date, Cet1Capital, CreditRWA, MarketRWA, OpRWA, OtherRWA,\n       BreakdownEquity, BreakdownPnl, BreakdownShareBuyback, BreakdownDividend\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\n-- memorandum lines:\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')\n  AND i.Label NOT LIKE '[[]%' -- '[…]' rows = raw line-by-line import capture, not memoranda`,
           notes: [
             'Each month = delta vs the previous available period (CET1 & RWA columns read directly from the rows above); empty column = no data for that month.',
             'YTD = last available period of the year vs December of the previous year (fallback: first period of the year).',
-            'P&L / dividend / buy-back come from Cet1CapitalBreakdown (YTD accruals: reset in January); "Equity movement excl." = ΔCET1 − those three (residual).',
+            'P&L / dividend / buy-back come from the KpiHistory Breakdown* columns (YTD accruals: reset in January); "Equity movement excl." = ΔCET1 − those three (residual).',
             'Net CET1 ratio movement = CET1/RWA ratio delta between the two periods.',
             'Memorandum lines = per-month delta of each memo balance, matched by label — never part of the totals.',
           ],
@@ -817,7 +817,7 @@ const EntitiesTable: React.FC = () => {
         object: 'capitalReports (latest per entity) + Settings[riskAppetite]',
         filter: '[latest non-projection date per entity; kpisHistory fallback when no detailed report]',
         endpoint: 'GET /api/capital-reports · GET /api/kpis · GET /api/settings/risk-appetite',
-        sql: `SELECT r.* FROM CapitalReports r\nWHERE (r.IsProjection IS NULL OR r.IsProjection = 0)\n  AND r.Date = (SELECT MAX(Date) FROM CapitalReports\n                WHERE Entity = r.Entity AND (IsProjection IS NULL OR IsProjection = 0));\n-- fallback for entities without a detailed report:\nSELECT * FROM KpiHistory k\nWHERE k.Date = (SELECT MAX(Date) FROM KpiHistory WHERE Entity = k.Entity);\nSELECT [Value] FROM Settings WHERE [Key] = 'riskAppetite'`,
+        sql: `SELECT r.* FROM CapitalReports r\nWHERE (r.IsProjection IS NULL OR r.IsProjection = 0)\n  AND r.Date = (SELECT MAX(Date) FROM CapitalReports\n                WHERE Entity = r.Entity AND (IsProjection IS NULL OR IsProjection = 0));\n-- fallback for entities without a detailed report:\nSELECT * FROM KpiHistory k\nWHERE k.Date = (SELECT MAX(Date) FROM KpiHistory WHERE Entity = k.Entity);\nSELECT Entity, LocalCapitalRequirement FROM RiskAppetite`,
         notes: [
           'Min capital requirement = Total RWA × local requirement %.',
           'Capital excess = eligible capital − minimum requirement.',

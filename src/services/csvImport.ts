@@ -96,7 +96,7 @@ export const CSV_EXAMPLES: Record<string, Record<string, string>> = {
 
 /** Notes shown in the import modal (accepted values, per table). */
 export const CSV_NOTES: Record<string, string> = {
-  kpisHistory: 'Amounts in mCHF. status keys: entity+date (existing rows for the same entity+date are replaced). JSON columns (cet1CapitalBreakdown, liquidity) are optional — leave empty or paste valid JSON.',
+  kpisHistory: 'Amounts in mCHF. status keys: entity+date (existing rows for the same entity+date are replaced). Nested fields (cet1CapitalBreakdown, liquidity) are optional — leave empty or paste valid JSON; the backend stores them relationally (Breakdown* columns / KpiLiquidity table).',
   deadlines: "status: completed | inprogress | upcoming · type: regulatory | internal · lightFull: Light | Full | (empty) · dates: YYYY-MM-DD · id empty = auto.",
   counterpartyRwa: 'industry: Bank | Corporate | Retail | Sovereign | Real Estate | Equity · rwa in mCHF.',
   largeExposures: 'Amounts in mCHF.',

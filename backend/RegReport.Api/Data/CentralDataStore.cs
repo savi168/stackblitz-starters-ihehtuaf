@@ -15,15 +15,14 @@ public static class CentralDataStore
 
     public static async Task<CentralData> ComposeAsync(AppDbContext db)
     {
-        var settings = await db.Settings.AsNoTracking().ToDictionaryAsync(s => s.Key, s => s.Value);
-
-        T? Get<T>(string key) =>
-            settings.TryGetValue(key, out var json) ? JsonSerializer.Deserialize<T>(json, JsonOpts) : default;
+        var riskRows = await db.RiskAppetite.AsNoTracking().ToListAsync();
+        var diagRows = await db.DiagnosisResults.AsNoTracking().ToListAsync();
+        var mappingRow = await db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Key == "importMapping");
 
         return new CentralData
         {
-            Deadlines = await db.Deadlines.AsNoTracking().ToListAsync(),
-            KpisHistory = await db.KpiHistory.AsNoTracking().ToListAsync(),
+            Deadlines = await db.Deadlines.AsNoTracking().ToListAsync(), // owned History/Attachments auto-included
+            KpisHistory = await db.KpiHistory.AsNoTracking().Include(k => k.LiquidityRows).ToListAsync(),
             CounterpartyRwa = await db.CounterpartyRwa.AsNoTracking().ToListAsync(),
             LargeExposures = await db.LargeExposures.AsNoTracking().ToListAsync(),
             Team = await db.Team.AsNoTracking().ToListAsync(),
@@ -34,10 +33,19 @@ public static class CentralDataStore
             NsfrReports = await db.NsfrReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             FinStatements = await db.FinStatements.AsNoTracking().Include(s => s.LineItems).ToListAsync(),
             Scenarios = await db.Scenarios.AsNoTracking().Include(s => s.Shocks).ToListAsync(),
-            Bilan = Get<Bilan>("bilan") ?? new Bilan(),
-            RiskAppetite = Get<Dictionary<string, EntityThresholds>>("riskAppetite") ?? new(),
-            DiagnosisResults = Get<Dictionary<string, List<DiagnosisResult>>>("diagnosisResults"),
-            ImportMapping = Get<System.Text.Json.JsonElement?>("importMapping"),
+            Bilan = await db.Bilans.AsNoTracking().FirstOrDefaultAsync() ?? new Bilan(),
+            RiskAppetite = riskRows.ToDictionary(r => r.Entity, r => r.Thresholds ?? new EntityThresholds()),
+            DiagnosisResults = diagRows.Count == 0
+                ? null
+                : diagRows.GroupBy(d => d.Entity).ToDictionary(
+                    g => g.Key,
+                    g => g.Select(d => new DiagnosisResult
+                    {
+                        Severity = d.Severity, Category = d.Category, Message = d.Message, Field = d.Field,
+                    }).ToList()),
+            ImportMapping = mappingRow is null
+                ? null
+                : JsonSerializer.Deserialize<JsonElement>(mappingRow.Value, JsonOpts),
         };
     }
 
@@ -45,7 +53,8 @@ public static class CentralDataStore
     {
         await using var tx = await db.Database.BeginTransactionAsync();
 
-        db.Deadlines.RemoveRange(db.Deadlines);
+        db.Deadlines.RemoveRange(db.Deadlines); // owned History/Attachments cascade
+        db.KpiLiquidity.RemoveRange(db.KpiLiquidity);
         db.KpiHistory.RemoveRange(db.KpiHistory);
         db.CounterpartyRwa.RemoveRange(db.CounterpartyRwa);
         db.LargeExposures.RemoveRange(db.LargeExposures);
@@ -61,10 +70,17 @@ public static class CentralDataStore
         db.FinStatements.RemoveRange(db.FinStatements);
         db.ScenarioShocks.RemoveRange(db.ScenarioShocks);
         db.Scenarios.RemoveRange(db.Scenarios);
+        db.Bilans.RemoveRange(db.Bilans);
+        db.RiskAppetite.RemoveRange(db.RiskAppetite);
+        db.DiagnosisResults.RemoveRange(db.DiagnosisResults);
         await db.SaveChangesAsync();
 
         // Reset surrogate identity ids so they are auto-generated on insert.
-        foreach (var k in data.KpisHistory) k.Id = 0;
+        foreach (var k in data.KpisHistory)
+        {
+            k.Id = 0;
+            foreach (var r in k.LiquidityRows) { r.Id = 0; r.KpiHistoryEntryId = 0; }
+        }
         foreach (var c in data.CounterpartyRwa) c.Id = 0;
         foreach (var l in data.LargeExposures) l.Id = 0;
         foreach (var r in data.CapitalReports)
@@ -90,7 +106,7 @@ public static class CentralDataStore
         }
 
         db.Deadlines.AddRange(data.Deadlines);
-        db.KpiHistory.AddRange(data.KpisHistory);
+        db.KpiHistory.AddRange(data.KpisHistory); // LiquidityRows inserted via navigation
         db.CounterpartyRwa.AddRange(data.CounterpartyRwa);
         db.LargeExposures.AddRange(data.LargeExposures);
         db.Team.AddRange(data.Team);
@@ -101,11 +117,20 @@ public static class CentralDataStore
         db.NsfrReports.AddRange(data.NsfrReports);
         db.FinStatements.AddRange(data.FinStatements);
         db.Scenarios.AddRange(data.Scenarios);
+        db.Bilans.Add(data.Bilan);
+        db.RiskAppetite.AddRange(data.RiskAppetite.Select(kv =>
+            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value }));
+        if (data.DiagnosisResults is not null)
+        {
+            db.DiagnosisResults.AddRange(data.DiagnosisResults.SelectMany(kv =>
+                kv.Value.Select(d => new DiagnosisEntry
+                {
+                    Entity = kv.Key, Severity = d.Severity, Category = d.Category,
+                    Message = d.Message, Field = d.Field,
+                })));
+        }
 
-        Upsert(db, "bilan", data.Bilan);
-        Upsert(db, "riskAppetite", data.RiskAppetite);
-        if (data.DiagnosisResults is not null) Upsert(db, "diagnosisResults", data.DiagnosisResults);
-        if (data.ImportMapping is not null) Upsert(db, "importMapping", data.ImportMapping);
+        if (data.ImportMapping is not null) UpsertImportMapping(db, data.ImportMapping.Value);
 
         await db.SaveChangesAsync();
         await tx.CommitAsync();
@@ -114,11 +139,11 @@ public static class CentralDataStore
     /// <summary>Synchronous variant used by the seeder at startup.</summary>
     public static void Replace(AppDbContext db, CentralData data) => ReplaceAsync(db, data).GetAwaiter().GetResult();
 
-    private static void Upsert<T>(AppDbContext db, string key, T value)
+    private static void UpsertImportMapping(AppDbContext db, JsonElement mapping)
     {
-        var json = JsonSerializer.Serialize(value, JsonOpts);
-        var existing = db.Settings.Find(key);
-        if (existing is null) db.Settings.Add(new AppSetting { Key = key, Value = json });
+        var json = JsonSerializer.Serialize(mapping, JsonOpts);
+        var existing = db.Settings.Find("importMapping");
+        if (existing is null) db.Settings.Add(new AppSetting { Key = "importMapping", Value = json });
         else existing.Value = json;
     }
 }

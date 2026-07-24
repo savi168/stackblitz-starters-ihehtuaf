@@ -392,7 +392,7 @@ public class DataController : ControllerBase
 
   <section id="be-schema">
     <h2><span class="num">D</span>Option B — Schéma relationnel (cible)</h2>
-    <p>Schéma normalisé miroir de <code>types.ts</code>. Les structures imbriquées (liquidité par devise, breakdowns, historique/pièces jointes) sont stockées en <strong>colonnes JSON</strong> (<code>NVARCHAR(MAX)</code>) — SQL Server sait les requêter via <code>JSON_VALUE</code> / <code>OPENJSON</code>.</p>
+    <p>Schéma normalisé miroir de <code>types.ts</code>, <strong>100 % relationnel</strong> : les structures imbriquées sont aplaties en colonnes (breakdown CET1, key metrics) ou stockées dans des tables enfants (liquidité par devise, historique/pièces jointes). Aucune colonne JSON, à l'exception du paramètre <code>importMapping</code> (config du parseur Excel) dans <code>Settings</code>.</p>
     <pre><code>-- KPI bruts (un enregistrement par entité + date)
 CREATE TABLE dbo.KpiHistory (
     Id           INT IDENTITY PRIMARY KEY,
@@ -404,13 +404,16 @@ CREATE TABLE dbo.KpiHistory (
     OpRWA        DECIMAL(18,2) NOT NULL,
     Tier1        DECIMAL(18,2) NOT NULL,
     Exposure     DECIMAL(18,2) NOT NULL,
-    Cet1CapitalBreakdown NVARCHAR(MAX) NULL,   -- JSON
-    Liquidity            NVARCHAR(MAX) NULL,   -- JSON (par devise)
+    BreakdownEquity … BreakdownDividend DECIMAL(18,2) NULL, -- 7 colonnes
     CONSTRAINT UQ_KpiHistory UNIQUE (Entity, [Date])
 );
 
+-- KpiLiquidity : 1 ligne par devise (FK KpiHistory, colonnes plates)
+-- DeadlineHistory / DeadlineAttachments : tables enfants des deadlines
+-- RiskAppetite : 1 ligne par entité (seuils en colonnes)
+-- Bilan : table à une ligne (une colonne par devise)
 -- + Deadlines, CounterpartyRwa, LargeExposures, TeamMembers,
---   Projects, ProjectTasks, AppSettings (clé/valeur JSON)</code></pre>
+--   Projects, ProjectTasks, Settings (uniquement importMapping)</code></pre>
     <p>Mappez chaque table à une entité EF Core et exposez un <code>DbSet&lt;&gt;</code> par ressource. Le contrôleur <code>/api/data</code> devient alors un <strong>agrégateur</strong> qui recompose <code>CentralData</code> à partir des tables (et inversement au <code>PUT</code>).</p>
   </section>
 

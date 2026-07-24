@@ -35,8 +35,13 @@ public class DeadlinesController : ControllerBase
     public async Task<IActionResult> Update(int id, Deadline deadline)
     {
         if (id != deadline.Id) return BadRequest("Route id and body id differ.");
-        if (!await _db.Deadlines.AnyAsync(d => d.Id == id)) return NotFound();
-        _db.Entry(deadline).State = EntityState.Modified;
+        // Load + copy (instead of attaching as Modified) so the owned
+        // History/Attachments rows are replaced correctly.
+        var existing = await _db.Deadlines.FirstOrDefaultAsync(d => d.Id == id);
+        if (existing is null) return NotFound();
+        _db.Entry(existing).CurrentValues.SetValues(deadline);
+        existing.History = deadline.History;
+        existing.Attachments = deadline.Attachments;
         await _db.SaveChangesAsync();
         return NoContent();
     }

@@ -344,8 +344,9 @@ const DataExplorer: React.FC = () => {
                     return { key: c, type };
                 });
         }
-        // No rows yet: derive from the static schema (camelCased), scalar only.
-        return table.columns.filter(c => !c.json).map(c => ({
+        // No rows yet: derive from the static schema (camelCased), scalar only —
+        // skip JSON docs, child tables (fk) and composite labels ("A … B").
+        return table.columns.filter(c => !c.json && !c.fk && /^[A-Za-z0-9_]+$/.test(c.name)).map(c => ({
             key: camel(c.name),
             type: c.type.includes('number') || c.type === 'int' ? 'number' : c.type === 'bool' ? 'boolean' : 'string',
         }));

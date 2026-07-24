@@ -1,17 +1,17 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RegReport.Api.Models;
 
 namespace RegReport.Api.Data;
 
+// Fully relational schema: every value has its own column (owned types flatten
+// fixed-shape objects, child tables hold collections). The only JSON left in
+// the database is the importMapping document in Settings.
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<KpiHistoryEntry> KpiHistory => Set<KpiHistoryEntry>();
+    public DbSet<KpiLiquidityEntry> KpiLiquidity => Set<KpiLiquidityEntry>();
     public DbSet<Deadline> Deadlines => Set<Deadline>();
     public DbSet<CounterpartyRwa> CounterpartyRwa => Set<CounterpartyRwa>();
     public DbSet<LargeExposure> LargeExposures => Set<LargeExposure>();
@@ -27,9 +27,10 @@ public class AppDbContext : DbContext
     public DbSet<FinStatementLineItem> FinStatementLineItems => Set<FinStatementLineItem>();
     public DbSet<Scenario> Scenarios => Set<Scenario>();
     public DbSet<ScenarioShock> ScenarioShocks => Set<ScenarioShock>();
+    public DbSet<Bilan> Bilans => Set<Bilan>();
+    public DbSet<RiskAppetiteEntry> RiskAppetite => Set<RiskAppetiteEntry>();
+    public DbSet<DiagnosisEntry> DiagnosisResults => Set<DiagnosisEntry>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
-
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -37,16 +38,47 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.Entity, x.Date }).IsUnique();
-            e.Property(x => x.Cet1CapitalBreakdown).HasJsonConversion();
-            e.Property(x => x.Liquidity).HasJsonConversion();
+            // CET1 capital breakdown flattened into Breakdown* columns.
+            e.OwnsOne(x => x.Cet1CapitalBreakdown, o =>
+            {
+                o.Property(p => p.Equity).HasColumnName("BreakdownEquity");
+                o.Property(p => p.Pnl).HasColumnName("BreakdownPnl");
+                o.Property(p => p.ShareBuyback).HasColumnName("BreakdownShareBuyback");
+                o.Property(p => p.GoodwillIntangibles).HasColumnName("BreakdownGoodwillIntangibles");
+                o.Property(p => p.OtherDeductions).HasColumnName("BreakdownOtherDeductions");
+                o.Property(p => p.ToBeDefined).HasColumnName("BreakdownToBeDefined");
+                o.Property(p => p.Dividend).HasColumnName("BreakdownDividend");
+            });
+            e.HasMany(x => x.LiquidityRows).WithOne()
+                .HasForeignKey(x => x.KpiHistoryEntryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<KpiLiquidityEntry>(e =>
+        {
+            e.ToTable("KpiLiquidity");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.KpiHistoryEntryId, x.Currency }).IsUnique();
         });
 
         b.Entity<Deadline>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever(); // ids come from the frontend
-            e.Property(x => x.History).HasJsonConversion();
-            e.Property(x => x.Attachments).HasJsonConversion();
+            e.OwnsMany(x => x.History, h =>
+            {
+                h.ToTable("DeadlineHistory");
+                h.WithOwner().HasForeignKey("DeadlineId");
+                h.Property<int>("Id").ValueGeneratedOnAdd();
+                h.HasKey("Id");
+            });
+            e.OwnsMany(x => x.Attachments, a =>
+            {
+                a.ToTable("DeadlineAttachments");
+                a.WithOwner().HasForeignKey("DeadlineId");
+                a.Property<int>("Id").ValueGeneratedOnAdd();
+                a.HasKey("Id");
+            });
         });
 
         b.Entity<CounterpartyRwa>().HasKey(x => x.Id);
@@ -74,7 +106,19 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.Entity, x.Date }).IsUnique();
-            e.Property(x => x.KeyMetrics).HasJsonConversion();
+            // KM1 key metrics flattened into columns.
+            e.OwnsOne(x => x.KeyMetrics, o =>
+            {
+                o.Property(p => p.Cet1Capital).HasColumnName("Cet1Capital");
+                o.Property(p => p.Tier1Capital).HasColumnName("Tier1Capital");
+                o.Property(p => p.TotalCapital).HasColumnName("TotalCapital");
+                o.Property(p => p.Rwa).HasColumnName("Rwa");
+                o.Property(p => p.Cet1Ratio).HasColumnName("Cet1Ratio");
+                o.Property(p => p.Tier1Ratio).HasColumnName("Tier1Ratio");
+                o.Property(p => p.TotalCapitalRatio).HasColumnName("TotalCapitalRatio");
+                o.Property(p => p.LeverageExposure).HasColumnName("LeverageExposure");
+                o.Property(p => p.LeverageRatio).HasColumnName("LeverageRatio");
+            });
             e.HasMany(x => x.LineItems)
                 .WithOne()
                 .HasForeignKey(x => x.CapitalReportId)
@@ -127,27 +171,52 @@ public class AppDbContext : DbContext
         });
         b.Entity<ScenarioShock>(e => { e.HasKey(x => x.Id); e.HasIndex(x => x.ScenarioId); });
 
+        // Balance-sheet currency totals: single-row table (shadow identity key).
+        b.Entity<Bilan>(e =>
+        {
+            e.ToTable("Bilan");
+            e.Property<int>("Id").ValueGeneratedOnAdd();
+            e.HasKey("Id");
+        });
+
+        // Risk appetite: one row per entity, thresholds flattened into columns.
+        b.Entity<RiskAppetiteEntry>(e =>
+        {
+            e.ToTable("RiskAppetite");
+            e.HasKey(x => x.Entity);
+            e.OwnsOne(x => x.Thresholds, t =>
+            {
+                t.OwnsOne(x => x.Cet1, c =>
+                {
+                    c.Property(p => p.Red).HasColumnName("Cet1Red");
+                    c.Property(p => p.Amber).HasColumnName("Cet1Amber");
+                });
+                t.OwnsOne(x => x.Lcr, c =>
+                {
+                    c.Property(p => p.Red).HasColumnName("LcrRed");
+                    c.Property(p => p.Amber).HasColumnName("LcrAmber");
+                });
+                t.OwnsOne(x => x.Nsfr, c =>
+                {
+                    c.Property(p => p.Red).HasColumnName("NsfrRed");
+                    c.Property(p => p.Amber).HasColumnName("NsfrAmber");
+                });
+                t.OwnsOne(x => x.Leverage, c =>
+                {
+                    c.Property(p => p.Red).HasColumnName("LeverageRed");
+                    c.Property(p => p.Amber).HasColumnName("LeverageAmber");
+                });
+                t.Property(p => p.LocalCapitalRequirement).HasColumnName("LocalCapitalRequirement");
+            });
+        });
+
+        b.Entity<DiagnosisEntry>(e =>
+        {
+            e.ToTable("DiagnosisResults");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Entity);
+        });
+
         b.Entity<AppSetting>().HasKey(x => x.Key);
-    }
-}
-
-internal static class JsonConversionExtensions
-{
-    private static readonly JsonSerializerOptions Opts = new(JsonSerializerDefaults.Web);
-
-    /// <summary>Stores a property as a JSON string in an nvarchar(max) column.</summary>
-    public static PropertyBuilder<T> HasJsonConversion<T>(this PropertyBuilder<T> builder)
-    {
-        var converter = new ValueConverter<T, string>(
-            v => JsonSerializer.Serialize(v, Opts),
-            v => JsonSerializer.Deserialize<T>(v, Opts)!);
-
-        var comparer = new ValueComparer<T>(
-            (a, b) => JsonSerializer.Serialize(a, Opts) == JsonSerializer.Serialize(b, Opts),
-            v => v == null ? 0 : JsonSerializer.Serialize(v, Opts).GetHashCode(),
-            v => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(v, Opts), Opts)!);
-
-        builder.HasConversion(converter, comparer).HasColumnType("nvarchar(max)");
-        return builder;
     }
 }
