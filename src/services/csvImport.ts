@@ -347,6 +347,127 @@ export const convertCapitalItemsCsv = (lines: string[][]): CapitalItemsCsvResult
   return { items, warnings };
 };
 
+// --- CET1 movements YTD bulk load (all periods at once) -----------------------------
+
+/** Accepts YYYY-MM-DD or DD.MM.YYYY; returns ISO or undefined. */
+const normDate = (raw: string): string | undefined => {
+  const s = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return undefined;
+};
+
+/**
+ * CSV for feeding the CET1 movement detail across ALL periods in one file:
+ * YTD (cumulative for the year) amounts per line and per month-end — the
+ * month-to-month deltas and the YTD column are computed by the report.
+ * Rows become memo line items (never in the CET1 totals), upserted by
+ * section+label on each period's capital report.
+ */
+export const buildMovementsCsvTemplate = (delim = ','): string => {
+  const rows = [
+    ['date', 'label', 'ytd_amount', 'section'],
+    ['2025-01-31', 'Share buy-back', '-12.5', 'equity'],
+    ['2025-02-28', 'Share buy-back', '-25.0', 'equity'],
+    ['2025-01-31', 'Acquisition Spark', '12.5', 'equity'],
+    ['2025-02-28', 'Acquisition Spark', '12.5', 'equity'],
+    ['2025-01-31', 'RSU vesting', '4.2', 'equity'],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export interface MovementsCsvResult {
+  rows: Array<{ date: string; label: string; amount: number; section: string }>;
+  warnings: string[];
+}
+
+export const convertMovementsCsv = (lines: string[][]): MovementsCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
+  const iDate = col('date'), iLabel = col('label', 'line');
+  const iAmount = col('ytd_amount', 'ytd', 'amount'), iSection = col('section');
+  if (iDate === -1 || iLabel === -1 || iAmount === -1) {
+    throw new Error('The header must contain: date, label, ytd_amount (plus optional section).');
+  }
+  const rows: MovementsCsvResult['rows'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cells = lines[li];
+    const date = normDate(cells[iDate] ?? '');
+    const label = (cells[iLabel] ?? '').trim();
+    const rawAmount = (cells[iAmount] ?? '').trim();
+    if (!date && !label) continue;
+    if (!date) { warnings.push(`Line ${li + 1}: invalid date "${cells[iDate]}" (expected YYYY-MM-DD or DD.MM.YYYY) — skipped.`); continue; }
+    if (!label) { warnings.push(`Line ${li + 1}: empty label — skipped.`); continue; }
+    const amount = Number(rawAmount.replace(',', '.'));
+    if (isNaN(amount)) { warnings.push(`Line ${li + 1}: amount "${rawAmount}" is not a number — skipped.`); continue; }
+    const section = iSection >= 0 ? (cells[iSection] ?? '').trim().toLowerCase() || 'equity' : 'equity';
+    if (!CAPITAL_SECTIONS.has(section)) {
+      warnings.push(`Line ${li + 1}: unknown section "${section}" — skipped.`);
+      continue;
+    }
+    rows.push({ date, label, amount, section });
+  }
+  return { rows, warnings };
+};
+
+// --- RWA by currency bulk load (all periods at once) --------------------------------
+
+/**
+ * CSV for feeding the RWA-by-currency table across ALL periods in one file.
+ * Each row becomes two memo line items on the period's capital report:
+ * "<CCY>" (CHF equivalent) and "<CCY> (LC)" (original currency, optional) —
+ * the implied FX rates and the FX-vs-business decomposition are computed
+ * by the report.
+ */
+export const buildRwaCcyTemplate = (delim = ','): string => {
+  const rows = [
+    ['date', 'currency', 'rwa_chf', 'rwa_lc'],
+    ['2025-01-31', 'CHF', '2450', ''],
+    ['2025-01-31', 'USD', '1634', '2089'],
+    ['2025-01-31', 'EUR', '980', '1046'],
+    ['2025-01-31', 'GBP', '410', '385'],
+    ['2025-02-28', 'USD', '1702', '2140'],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export interface RwaCcyCsvResult {
+  rows: Array<{ date: string; currency: string; rwaChf: number; rwaLc?: number }>;
+  warnings: string[];
+}
+
+export const convertRwaCcyCsv = (lines: string[][]): RwaCcyCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
+  const iDate = col('date'), iCcy = col('currency', 'ccy');
+  const iChf = col('rwa_chf', 'chf', 'amount_chf'), iLc = col('rwa_lc', 'lc', 'amount_lc');
+  if (iDate === -1 || iCcy === -1 || iChf === -1) {
+    throw new Error('The header must contain: date, currency, rwa_chf (plus optional rwa_lc).');
+  }
+  const rows: RwaCcyCsvResult['rows'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const cells = lines[li];
+    const date = normDate(cells[iDate] ?? '');
+    const currency = (cells[iCcy] ?? '').trim().toUpperCase();
+    const rawChf = (cells[iChf] ?? '').trim();
+    if (!date && !currency) continue;
+    if (!date) { warnings.push(`Line ${li + 1}: invalid date "${cells[iDate]}" (expected YYYY-MM-DD or DD.MM.YYYY) — skipped.`); continue; }
+    if (!/^[A-Z]{3}$/.test(currency)) { warnings.push(`Line ${li + 1}: currency "${currency}" is not a 3-letter code — skipped.`); continue; }
+    const rwaChf = Number(rawChf.replace(',', '.'));
+    if (isNaN(rwaChf)) { warnings.push(`Line ${li + 1}: rwa_chf "${rawChf}" is not a number — skipped.`); continue; }
+    const rawLc = iLc >= 0 ? (cells[iLc] ?? '').trim() : '';
+    const rwaLc = rawLc === '' ? undefined : Number(rawLc.replace(',', '.'));
+    if (rwaLc !== undefined && isNaN(rwaLc)) { warnings.push(`Line ${li + 1}: rwa_lc "${rawLc}" is not a number — skipped.`); continue; }
+    rows.push({ date, currency, rwaChf, ...(rwaLc !== undefined ? { rwaLc } : {}) });
+  }
+  return { rows, warnings };
+};
+
 // --- Financial statements bulk load (Workbench) ------------------------------------
 
 const FIN_SECTIONS: Record<string, string[]> = {

@@ -22,8 +22,9 @@ import {
 } from '../services/capital';
 import { resolveMapping } from '../services/importMapping';
 import {
-  buildCapitalItemsTemplate, buildFinStatementTemplate, convertCapitalItemsCsv,
-  convertFinStatementCsv, downloadCsv, parseCsv,
+  buildCapitalItemsTemplate, buildFinStatementTemplate, buildMovementsCsvTemplate,
+  buildRwaCcyTemplate, convertCapitalItemsCsv, convertFinStatementCsv,
+  convertMovementsCsv, convertRwaCcyCsv, downloadCsv, parseCsv,
 } from '../services/csvImport';
 import type { ParsedImport } from '../services/excelImport';
 
@@ -860,6 +861,8 @@ export const CapitalWorkbenchPage: React.FC = () => {
   const [showMapping, setShowMapping] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const itemsCsvInput = useRef<HTMLInputElement>(null);
+  const movementsCsvInput = useRef<HTMLInputElement>(null);
+  const rwaCcyCsvInput = useRef<HTMLInputElement>(null);
 
   const capitalReports = data.capitalReports || [];
   const lcrReports = data.lcrReports || [];
@@ -1035,6 +1038,100 @@ export const CapitalWorkbenchPage: React.FC = () => {
     }
   };
 
+  // Multi-period memo upsert shared by the movements-YTD and RWA-by-currency
+  // CSVs: writes memo line items on the existing report of each date, then
+  // re-projects the KPI history for every touched period.
+  const applyMemoItemsByDate = useCallback((byDate: Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>) => {
+    setData(prev => {
+      const reports = [...(prev.capitalReports || [])];
+      for (const [d, items] of byDate) {
+        const idx = reports.findIndex(r => r.entity === entity && r.date === d);
+        if (idx < 0) continue; // validated by the caller
+        const lineItems = [...reports[idx].lineItems];
+        for (const it of items) {
+          const j = lineItems.findIndex(x =>
+            x.section === it.section && !!x.memo && x.label.trim().toLowerCase() === it.label.toLowerCase());
+          if (j >= 0) lineItems[j] = { ...lineItems[j], amount: it.amount };
+          else lineItems.push({ id: newItemId(), section: it.section, code: `csv${Date.now() % 100000}${lineItems.length}`, label: it.label, amount: it.amount, memo: true });
+        }
+        reports[idx] = { ...reports[idx], lineItems };
+      }
+      let next = { ...prev, capitalReports: reports };
+      for (const d of byDate.keys()) {
+        next = { ...next, kpisHistory: projectToKpiHistory(next, entity, d) };
+      }
+      return next;
+    });
+  }, [setData, entity]);
+
+  const checkDatesHaveReports = (dates: string[]): string[] =>
+    dates.filter(d => !(data.capitalReports || []).some(r => r.entity === entity && r.date === d));
+
+  // CET1 movements YTD CSV: date;label;ytd_amount(;section) — cumulative for
+  // the year on every period; the report derives month-to-month and YTD.
+  const handleMovementsCsv = async (file: File) => {
+    setImportError(null);
+    try {
+      const { rows, warnings } = convertMovementsCsv(parseCsv(await file.text()));
+      if (rows.length === 0) throw new Error('No valid movement lines found in the CSV.' + (warnings.length ? ` ${warnings[0]}` : ''));
+      const dates = Array.from(new Set(rows.map(r => r.date))).sort();
+      const missing = checkDatesHaveReports(dates);
+      if (missing.length > 0) {
+        throw new Error(`No capital report for ${entity} on: ${missing.join(', ')}. Import the CASABIS (or create the period manually) first — the movement lines attach to it.`);
+      }
+      if (!window.confirm(
+        `Import ${rows.length} YTD movement value(s) for ${entity} across ${dates.length} period(s) (${dates[0]} → ${dates[dates.length - 1]})?\n` +
+        `Values are cumulative for the year; existing memo rows with the same label are updated.` +
+        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
+      )) return;
+      const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
+      for (const r of rows) {
+        const list = byDate.get(r.date) || [];
+        list.push({ section: r.section as CapitalSection, label: r.label, amount: r.amount });
+        byDate.set(r.date, list);
+      }
+      applyMemoItemsByDate(byDate);
+      setNotice(`${rows.length} YTD movement value(s) imported for ${entity} across ${dates.length} period(s). The CET1 movement table computes the month-to-month deltas.`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (movementsCsvInput.current) movementsCsvInput.current.value = '';
+    }
+  };
+
+  // RWA by currency CSV: date;currency;rwa_chf(;rwa_lc) — closing balances per
+  // period; becomes the "USD" / "USD (LC)" memo rows of each report.
+  const handleRwaCcyCsv = async (file: File) => {
+    setImportError(null);
+    try {
+      const { rows, warnings } = convertRwaCcyCsv(parseCsv(await file.text()));
+      if (rows.length === 0) throw new Error('No valid RWA-by-currency lines found in the CSV.' + (warnings.length ? ` ${warnings[0]}` : ''));
+      const dates = Array.from(new Set(rows.map(r => r.date))).sort();
+      const missing = checkDatesHaveReports(dates);
+      if (missing.length > 0) {
+        throw new Error(`No capital report for ${entity} on: ${missing.join(', ')}. Import the CASABIS (or create the period manually) first — the currency rows attach to it.`);
+      }
+      if (!window.confirm(
+        `Import RWA by currency for ${entity}: ${rows.length} row(s) across ${dates.length} period(s)?\n` +
+        `Existing "<CCY>" / "<CCY> (LC)" memo rows are updated.` +
+        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
+      )) return;
+      const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
+      for (const r of rows) {
+        const list = byDate.get(r.date) || [];
+        list.push({ section: 'rwa', label: r.currency, amount: r.rwaChf });
+        if (r.rwaLc !== undefined) list.push({ section: 'rwa', label: `${r.currency} (LC)`, amount: r.rwaLc });
+        byDate.set(r.date, list);
+      }
+      applyMemoItemsByDate(byDate);
+      setNotice(`RWA by currency imported for ${entity} across ${dates.length} period(s) — the report table, implied FX and FX-vs-business split update automatically.`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (rwaCcyCsvInput.current) rwaCcyCsvInput.current.value = '';
+    }
+  };
+
   const confirmImport = (targetEntity: string) => {
     if (!parsed) return;
     if (parsed.kind === 'capital') {
@@ -1203,6 +1300,41 @@ export const CapitalWorkbenchPage: React.FC = () => {
           </button>
           <span className="text-[11px] text-brand-text-secondary">
             columns: section (equity|deduction|at1|t2|rwa) · label · amount · memo (true/false) · code — upsert by section+label into {entity} — {effectiveDate || 'today'}
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <input ref={movementsCsvInput} type="file" accept=".csv,text/csv" className="hidden"
+            onChange={e => e.target.files?.[0] && handleMovementsCsv(e.target.files[0])} />
+          <input ref={rwaCcyCsvInput} type="file" accept=".csv,text/csv" className="hidden"
+            onChange={e => e.target.files?.[0] && handleRwaCcyCsv(e.target.files[0])} />
+          <button
+            onClick={() => movementsCsvInput.current?.click()}
+            title="All periods in one file: date;label;ytd_amount(;section) — YTD cumulative values; the report derives the month-to-month deltas"
+            className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬆ CET1 movements YTD (CSV, all periods)
+          </button>
+          <button
+            onClick={() => downloadCsv('Cet1Movements_template.csv', buildMovementsCsvTemplate())}
+            className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬇ template
+          </button>
+          <button
+            onClick={() => rwaCcyCsvInput.current?.click()}
+            title="All periods in one file: date;currency;rwa_chf(;rwa_lc) — closing balances; becomes the currency memo rows of each report"
+            className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬆ RWA by currency (CSV, all periods)
+          </button>
+          <button
+            onClick={() => downloadCsv('RwaByCurrency_template.csv', buildRwaCcyTemplate())}
+            className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors"
+          >
+            ⬇ template
+          </button>
+          <span className="text-[11px] text-brand-text-secondary">
+            multi-period feeds for {entity} — each date needs its capital report (CASABIS import or manual) first
           </span>
         </div>
         {importError && (
