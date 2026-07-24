@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
-import { CET1CapitalBreakdown, FinStatementKind, LcrReport, NsfrReport } from '../types';
+import { CET1CapitalBreakdown, FinStatement, FinStatementKind, LcrReport, NsfrReport } from '../types';
 import { computeFinSummary, DEFAULT_GAAP, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import { computeCapitalSummary } from '../services/capital';
 import { formatDate } from '../utils';
@@ -535,24 +535,106 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
     if (!fed) return null;
     return (m.b.memoBalances?.[label] ?? 0) - (m.newYear ? 0 : (m.a.memoBalances?.[label] ?? 0));
   };
-  const childSum = (labels: string[]) => (m: Move): number | null => {
-    const vals = labels.map(l => memoDelta(l)(m)).filter((v): v is number => v !== null);
-    return vals.length > 0 ? vals.reduce((a, v) => a + v, 0) : null;
+  // --- Statement sources: the internal finance extracts imported in the
+  // Workbench (P&L monthly = periodic values summed over the move's months;
+  // equity statement = YTD levels; CASABIS = balance deltas).
+  const { data } = useData();
+  const mk = (d: string) => d.slice(0, 7); // YYYY-MM
+  const plByMonth = useMemo(() => {
+    const map = new Map<string, FinStatement>();
+    (data.finStatements || []).filter(s => s.entity === entity && s.kind === 'pnl')
+      .sort((x, y) => x.date.localeCompare(y.date)).forEach(s => map.set(mk(s.date), s));
+    return map;
+  }, [data.finStatements, entity]);
+  const eqByMonth = useMemo(() => {
+    const map = new Map<string, FinStatement>();
+    (data.finStatements || []).filter(s => s.entity === entity && s.kind === 'equity')
+      .sort((x, y) => x.date.localeCompare(y.date)).forEach(s => map.set(mk(s.date), s));
+    return map;
+  }, [data.finStatements, entity]);
+  const lineOf = (s: FinStatement | undefined, matcher: { code?: string; label: RegExp }): number | undefined => {
+    const it = s?.lineItems.find(i =>
+      (matcher.code && i.code === matcher.code) || matcher.label.test(i.label.trim()));
+    return it?.amount;
+  };
+  /** Sum of the P&L periodic line over the months in (a, b]; null if no statement in range. */
+  const sumPeriodic = (matcher: { code?: string; label: RegExp }) => (m: Move): number | null => {
+    const from = m.newYear ? `${m.b.date.slice(0, 4)}-00` : mk(m.a.date);
+    const to = mk(m.b.date);
+    let sum = 0, seen = false;
+    for (const [key, s] of plByMonth) {
+      if (key <= from || key > to) continue;
+      const v = lineOf(s, matcher);
+      if (v !== undefined) { sum += v; seen = true; }
+    }
+    return seen ? sum : null;
+  };
+  /** Delta of a YTD level from the equity statement (levels reset at new year). */
+  const eqDelta = (matcher: { label: RegExp }) => (m: Move): number | null => {
+    const levelAt = (key: string, year: string): number | undefined => {
+      let best: FinStatement | undefined;
+      for (const [k, s] of eqByMonth) if (k.startsWith(year) && k <= key) best = s;
+      return lineOf(best, matcher);
+    };
+    const lb = levelAt(mk(m.b.date), m.b.date.slice(0, 4));
+    if (lb === undefined) return null;
+    const la = m.newYear ? 0 : (levelAt(mk(m.a.date), m.a.date.slice(0, 4)) ?? 0);
+    return lb - la;
+  };
+  /** Balance delta of a CASABIS capital line (code), × sign. */
+  const capDelta = (code: string, sign: number) => (m: Move): number | null => {
+    const level = (d: string): number | undefined =>
+      (data.capitalReports || []).find(r => r.entity === entity && r.date === d)
+        ?.lineItems.find(i => i.code === code && !i.memo)?.amount;
+    const la = level(m.a.date), lb = level(m.b.date);
+    return la === undefined || lb === undefined ? null : (lb - la) * sign;
+  };
+  const pick = (...getters: Array<(m: Move) => number | null>) => (m: Move): number | null => {
+    for (const g of getters) { const v = g(m); if (v !== null) return v; }
+    return null;
   };
 
-  const UNDERLYING_CHILDREN = ['Underlying P&L', 'Deferred tax on losses', 'Amortisation of software',
-    'Intangible activated', 'Equity-settled share-based plan expensed in the income statement'];
+  // Per-line rules agreed with the pack owner (statements → CSV memo → CASABIS).
+  const CHILD_GET: Record<string, (m: Move) => number | null> = {
+    'Underlying P&L': pick(sumPeriodic({ label: /^underlying p&l$/i }), memoDelta('Underlying P&L')),
+    'Deferred tax on losses': pick(capDelta('dtaFutureProfit', -1), memoDelta('Deferred tax on losses')),
+    'Amortisation of software': pick(
+      m => { const v = sumPeriodic({ code: '641 07 00', label: /^amorti[sz]ation & impairment of softwares?$/i })(m); return v === null ? null : -v; },
+      memoDelta('Amortisation of software')),
+    'Intangible activated': memoDelta('Intangible activated'),
+    'Equity-settled share-based plan expensed in the income statement': pick(
+      eqDelta({ label: /^equity-settled share-based plan/i }),
+      memoDelta('Equity-settled share-based plan expensed in the income statement')),
+  };
+  const UNDERLYING_CHILDREN = Object.keys(CHILD_GET);
   const DIVIDEND_CHILDREN = ['Ordinary Dividend', 'AT1 Dividend'];
-  const underlying = (m: Move): number | null => childSum(UNDERLYING_CHILDREN)(m) ?? m.pnl;
-  const dividendTotal = (m: Move): number | null => childSum(DIVIDEND_CHILDREN)(m) ?? m.dividend;
-  const nonUnderlying = memoDelta('Non-underlying P&L');
-  const acquisition = memoDelta('Acquisition impact');
-  const cta = memoDelta('Currency translation adjustment');
+  const DIVIDEND_GET: Record<string, (m: Move) => number | null> = {
+    'Ordinary Dividend': memoDelta('Ordinary Dividend'), // split entered manually (CASABIS carries the total)
+    'AT1 Dividend': pick(eqDelta({ label: /^equity instruments issuance, redemption/i }), memoDelta('AT1 Dividend')),
+  };
+  const childSumOf = (getters: Array<(m: Move) => number | null>) => (m: Move): number | null => {
+    const vals = getters.map(g => g(m)).filter((v): v is number => v !== null);
+    return vals.length > 0 ? vals.reduce((a, v) => a + v, 0) : null;
+  };
+  const underlying = (m: Move): number | null => childSumOf(Object.values(CHILD_GET))(m) ?? m.pnl;
+  const dividendTotal = (m: Move): number | null => childSumOf(Object.values(DIVIDEND_GET))(m) ?? m.dividend;
+  const nonUnderlying = pick(sumPeriodic({ label: /^life insurance$/i }), memoDelta('Non-underlying P&L'));
+  const acquisition = pick(eqDelta({ label: /^a[cq]?quisition of subsidiaries/i }), memoDelta('Acquisition impact'));
+  const cta = pick(
+    m => {
+      const a = eqDelta({ label: /^currency translation difference/i })(m);
+      const b = eqDelta({ label: /^foreign exchange (loss|gain) on net investments/i })(m);
+      return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
+    },
+    memoDelta('Currency translation adjustment'));
   const regDeduction = memoDelta('Regulatory Capital Deduction');
+  const buybackGet = (m: Move): number | null =>
+    eqDelta({ label: /^ordinary shares repurchased/i })(m) ?? m.buyback;
+  const sharesSold = pick(eqDelta({ label: /^ordinary shares sold/i }), memoDelta('Ordinary shares sold'));
   // Residual so the capital block sums exactly to ΔCET1.
   const equityResidual = (m: Move): number | null =>
     m.totalCet1 - (underlying(m) ?? 0) - (dividendTotal(m) ?? 0) - (nonUnderlying(m) ?? 0)
-    - (acquisition(m) ?? 0) - (m.buyback ?? 0) - (cta(m) ?? 0) - (regDeduction(m) ?? 0);
+    - (acquisition(m) ?? 0) - (buybackGet(m) ?? 0) - (sharesSold(m) ?? 0) - (cta(m) ?? 0) - (regDeduction(m) ?? 0);
   // Generation ratios (provisional rules — adjust with the pack owner):
   // gross = (underlying P&L + CTA) / closing RWA; net = gross + dividend / closing RWA.
   const grossGen = (m: Move): number | null => {
@@ -589,7 +671,7 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
     indent?: boolean; rwaBlock?: boolean; get?: (m: Move) => number | null };
   const specs: Spec[] = [
     { key: 'underlying', label: 'Underlying PL plus non cash items', kind: 'group', get: underlying },
-    ...UNDERLYING_CHILDREN.map(l => ({ key: `u:${l}`, label: l, kind: 'item' as const, indent: true, get: memoDelta(l) })),
+    ...UNDERLYING_CHILDREN.map(l => ({ key: `u:${l}`, label: l, kind: 'item' as const, indent: true, get: CHILD_GET[l] })),
     { key: 'rwa', label: 'RWA', kind: 'group', rwaBlock: true, get: m => m.totalRwa },
     { key: 'h:ofwhich', label: 'Of which:', kind: 'header' },
     { key: 'credit', label: 'Credit risk', kind: 'item', rwaBlock: true, get: m => m.credit },
@@ -611,12 +693,13 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
     { key: 'otherRwa', label: 'Other risk', kind: 'item', rwaBlock: true, get: m => m.otherRwa },
     { key: 'gross', label: 'Gross CET1 Generation CTA incl.', kind: 'pct', get: grossGen },
     { key: 'dividend', label: 'Dividend', kind: 'group', get: dividendTotal },
-    ...DIVIDEND_CHILDREN.map(l => ({ key: `d:${l}`, label: l, kind: 'item' as const, indent: true, get: memoDelta(l) })),
+    ...DIVIDEND_CHILDREN.map(l => ({ key: `d:${l}`, label: l, kind: 'item' as const, indent: true, get: DIVIDEND_GET[l] })),
     { key: 'net', label: 'Net CET1 Generation', kind: 'pct', get: netGen },
     { key: 'nonUnderlying', label: 'Non-underlying P&L', kind: 'item', get: nonUnderlying },
     { key: 'residual', label: 'Equity movement excl. CTA and Share buy-back', kind: 'item', get: equityResidual },
     { key: 'acquisition', label: 'Acquisition impact', kind: 'item', get: acquisition },
-    { key: 'buyback', label: 'Share buy-back', kind: 'item', get: m => m.buyback },
+    { key: 'buyback', label: 'Share buy-back', kind: 'item', get: buybackGet },
+    { key: 'sharesSold', label: 'Ordinary shares sold', kind: 'item', get: sharesSold },
     { key: 'cta', label: 'Currency translation adjustment', kind: 'item', get: cta },
     { key: 'regDeduction', label: 'Regulatory Capital Deduction', kind: 'item', get: regDeduction },
     { key: 'total', label: 'Total CET1 movement', kind: 'total', get: m => m.totalCet1 },
@@ -624,7 +707,8 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
 
   // Labels consumed by the fixed layout stay out of the free memoranda section.
   const FIXED_LABELS = new Set([...UNDERLYING_CHILDREN, ...DIVIDEND_CHILDREN,
-    'Non-underlying P&L', 'Acquisition impact', 'Currency translation adjustment', 'Regulatory Capital Deduction']
+    'Non-underlying P&L', 'Acquisition impact', 'Currency translation adjustment', 'Regulatory Capital Deduction',
+    'Ordinary shares sold']
     .map(l => l.toLowerCase()));
   const memoLabels = useMemo(() => {
     const set = new Set<string>();
@@ -667,7 +751,7 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
           sql: `SELECT Entity, Date, Cet1Capital, CreditRWA, MarketRWA, OpRWA, OtherRWA,\n       BreakdownEquity, BreakdownPnl, BreakdownShareBuyback, BreakdownDividend\nFROM KpiHistory WHERE Entity = '${entity}' ORDER BY Date;\n-- memorandum lines:\nSELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Memo = 1 AND i.Section IN ('equity','deduction')\n  AND i.Label NOT LIKE '[[]%' -- '[…]' rows = raw line-by-line import capture, not memoranda`,
           notes: [
             'Each month = delta vs the previous available period; empty column = no data for that month. YTD = last period of the year vs December of the previous year.',
-            'Detail lines (Underlying P&L components, dividends split, Non-underlying P&L, Acquisition impact, CTA, Regulatory Capital Deduction) are fed as YTD memo balances via the Workbench "CET1 movements YTD" CSV — exact same labels; deltas reset in January. Groups fall back to the CASABIS-derived P&L / dividend when no CSV data.',
+            'Line sources, in priority order: (1) imported finance extracts — P&L monthly (Underlying P&L, Amortisation of software ×−1, Life Insurance → Non-underlying), equity statement (share-based plan, AT1 dividend, CTA + FX on net investments, acquisition, shares repurchased / sold), CASABIS (Deferred tax on losses = DTA deduction ×−1, dividend accrual); (2) "CET1 movements YTD" CSV memo balances (same labels, January reset); (3) CASABIS-derived P&L / dividend fallbacks.',
             'RWA rows derive from the reports (credit/market/operational); the by-currency blocks read the "<CCY>" / "<CCY> (LC)" memo rows (FX impact = LC_prev × Δrate; business = ΔLC × rate).',
             '"Equity movement excl. CTA and Share buy-back" = ΔCET1 − all other capital lines (residual, so the block sums to the total).',
             'Gross CET1 Generation = (Underlying + CTA) / closing RWA; Net = Gross + Dividend / closing RWA — provisional rules, adjust as agreed.',

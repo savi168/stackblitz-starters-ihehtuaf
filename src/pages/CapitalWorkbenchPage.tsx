@@ -988,13 +988,43 @@ export const CapitalWorkbenchPage: React.FC = () => {
     try {
       const { parseWorkbook } = await import('../services/excelImport');
       const buffer = await file.arrayBuffer();
-      setParsed(parseWorkbook(buffer, file.name, data.importMapping));
+      try {
+        setParsed(parseWorkbook(buffer, file.name, data.importMapping));
+      } catch (regErr) {
+        // Not a FINMA/SNB return: try the internal finance extracts
+        // (balance sheet / P&L monthly / equity statement).
+        const { parseFinWorkbook } = await import('../services/finStatementImport');
+        const fin = parseFinWorkbook(buffer, file.name, effectiveDate || new Date().toISOString().slice(0, 10));
+        applyFinImport(fin);
+      }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
       setImporting(false);
       if (fileInput.current) fileInput.current.value = '';
     }
+  };
+
+  // Import parsed internal finance statements (BS / P&L monthly / equity) for
+  // the CURRENT entity: upsert by entity+date+kind+gaap.
+  const applyFinImport = (fin: { fileName: string; statements: Array<Omit<FinStatement, 'id' | 'entity'>> }) => {
+    const listed = fin.statements.slice(0, 14).map(s => `• ${KIND_LABELS[s.kind]} — ${s.date}`).join('\n');
+    const more = fin.statements.length > 14 ? `\n… + ${fin.statements.length - 14} more` : '';
+    if (!window.confirm(
+      `"${fin.fileName}" recognized as internal finance extract.\n` +
+      `Import ${fin.statements.length} statement(s) for ${entity}?\n${listed}${more}\n` +
+      `Existing statements for the same period/kind/GAAP are replaced.`
+    )) return;
+    setData(prev => {
+      let fs = [...(prev.finStatements || [])];
+      for (const s of fin.statements) {
+        const g = s.gaap || DEFAULT_GAAP;
+        fs = fs.filter(x => !(x.entity === entity && x.date === s.date && x.kind === s.kind && gaapOf(x) === g));
+        fs.push({ ...s, id: newItemId(), entity });
+      }
+      return { ...prev, finStatements: fs };
+    });
+    setNotice(`${fin.statements.length} statement(s) imported for ${entity} from ${fin.fileName} — they feed the Financials tab and the CET1 movement details.`);
   };
 
   // Bulk line-items CSV (memoranda, CET1 detail, RWA by currency…): upserts
