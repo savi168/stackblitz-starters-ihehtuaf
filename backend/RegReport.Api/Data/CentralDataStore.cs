@@ -119,7 +119,7 @@ public static class CentralDataStore
         db.Scenarios.AddRange(data.Scenarios);
         db.Bilans.Add(data.Bilan);
         db.RiskAppetite.AddRange(data.RiskAppetite.Select(kv =>
-            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value }));
+            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value ?? new EntityThresholds() }));
         if (data.DiagnosisResults is not null)
         {
             db.DiagnosisResults.AddRange(data.DiagnosisResults.SelectMany(kv =>

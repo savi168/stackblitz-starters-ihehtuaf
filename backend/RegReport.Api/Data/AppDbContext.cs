@@ -208,6 +208,9 @@ public class AppDbContext : DbContext
                 });
                 t.Property(p => p.LocalCapitalRequirement).HasColumnName("LocalCapitalRequirement");
             });
+            // All threshold columns are nullable, so EF needs the navigation to
+            // be required to know an instance always exists for a row.
+            e.Navigation(x => x.Thresholds).IsRequired();
         });
 
         b.Entity<DiagnosisEntry>(e =>

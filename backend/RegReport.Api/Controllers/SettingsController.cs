@@ -51,7 +51,7 @@ public class SettingsController : ControllerBase
     {
         _db.RiskAppetite.RemoveRange(_db.RiskAppetite);
         _db.RiskAppetite.AddRange(appetite.Select(kv =>
-            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value }));
+            new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value ?? new EntityThresholds() }));
         await _db.SaveChangesAsync();
         return appetite;
     }
