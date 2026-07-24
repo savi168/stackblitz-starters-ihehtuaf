@@ -621,6 +621,9 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
       <p className="text-[11px] text-brand-text-secondary mt-2">
         To add more movement lines (acquisitions, disposals, RSUs, CTA…): enter them as <em>memo</em> rows in the
         Workbench with the same label on each period — monthly deltas and YTD are computed automatically.
+        The <em>Share buy-back</em> row reads the Workbench deduction "Own CET1 instruments (-)" (FINMA 1.1.1.11.1;
+        created at 0 on import) — type the cumulative buy-back amount there (negative), or add a deduction row whose
+        label contains "buy-back".
       </p>
     </Card>
   );

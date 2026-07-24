@@ -161,7 +161,12 @@ const buildBreakdown = (report: CapitalReport, summary: CapitalSummary): CET1Cap
   // aggregate equity figure; manually it is an additive row. Both map to pnl.
   const pnl = items.filter(i => i.code === 'interimPnl').reduce((a, i) => a + i.amount, 0);
   const dividend = Math.abs(items.filter(i => i.code === 'futureDividends').reduce((a, i) => a + i.amount, 0));
-  const shareBuyback = Math.abs(items.filter(i => i.code === 'ownShares').reduce((a, i) => a + i.amount, 0));
+  // By code (ownShares = FINMA 1.1.1.11.1) or, for rows added by hand in the
+  // Workbench, by label ("own shares", "buy-back", "buyback"…).
+  const shareBuyback = Math.abs(
+    items.filter(i => i.code === 'ownShares' || (!i.memo && /own shares|buy-?back/i.test(i.label)))
+      .reduce((a, i) => a + i.amount, 0)
+  );
   const goodwillIntangibles = Math.abs(
     items.filter(i => ['goodwill', 'dtlGoodwill', 'intangibles', 'dtlIntangibles'].includes(i.code) && !i.memo)
       .reduce((a, i) => a + i.amount, 0)

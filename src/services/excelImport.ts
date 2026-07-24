@@ -194,13 +194,17 @@ const parseCapital = (wb: XLSX.WorkBook, fileName: string, m: Required<ImportMap
 
     for (const def of m.capitalRows as CapitalRowMap[]) {
       const v = capVal(def.finma);
-      if (v === undefined || (v === 0 && def.memo)) continue;
+      // "Of which" memo rows only when the form carries a value; standard
+      // additive rows are always created (0 when the cell is empty) so
+      // post-import adjustments (own shares / buy-back, dividends…) can be
+      // typed straight into the Workbench.
+      if (def.memo && !v) continue;
       lineItems.push({
         id: newItemId(),
         section: def.section,
         code: def.code,
         label: def.label,
-        amount: kToM(v)!,
+        amount: kToM(v) ?? 0,
         ...(def.memo ? { memo: true } : {}),
       });
     }
