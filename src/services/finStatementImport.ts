@@ -134,6 +134,25 @@ const parsePnl = (ws: Sheet, fileName: string): Array<Omit<FinStatement, 'id' | 
       if (n !== undefined && n > 1990 && n < 2100) { col.year = n; break; }
     }
   }
+  // The files carry several column groups (Periodic, YTD, next year…): keep
+  // only Periodic columns and the first occurrence of each year+month.
+  const groupOf = (c: number): string => {
+    for (let r = monthRow - 1; r >= 0; r--) {
+      const v = norm(cellV(ws, r, c)).toLowerCase();
+      if (v === 'periodic' || v === 'ytd') return v;
+    }
+    return '';
+  };
+  const seenMonths = new Set<string>();
+  const kept = cols.filter(col => {
+    if (!col.year || groupOf(col.c) === 'ytd') return false;
+    const k = `${col.year}-${col.month}`;
+    if (seenMonths.has(k)) return false;
+    seenMonths.add(k);
+    return true;
+  });
+  cols.length = 0;
+  cols.push(...kept);
   const labelColCell = findCell(ws, v => v === 'net interest income' || v === 'operating income');
   const labelCol = labelColCell ? labelColCell[1] : 3; // usually column D
 

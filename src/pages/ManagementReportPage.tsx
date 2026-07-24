@@ -540,17 +540,22 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
   // equity statement = YTD levels; CASABIS = balance deltas).
   const { data } = useData();
   const mk = (d: string) => d.slice(0, 7); // YYYY-MM
+  // IFRS statements win over other GAAPs for the same month (consolidated view).
+  const ifrsLast = (x: FinStatement, y: FinStatement) =>
+    x.date.localeCompare(y.date) || ((x.gaap === 'IFRS' ? 1 : 0) - (y.gaap === 'IFRS' ? 1 : 0));
   const plByMonth = useMemo(() => {
     const map = new Map<string, FinStatement>();
     (data.finStatements || []).filter(s => s.entity === entity && s.kind === 'pnl')
-      .sort((x, y) => x.date.localeCompare(y.date)).forEach(s => map.set(mk(s.date), s));
+      .sort(ifrsLast).forEach(s => map.set(mk(s.date), s));
     return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.finStatements, entity]);
   const eqByMonth = useMemo(() => {
     const map = new Map<string, FinStatement>();
     (data.finStatements || []).filter(s => s.entity === entity && s.kind === 'equity')
-      .sort((x, y) => x.date.localeCompare(y.date)).forEach(s => map.set(mk(s.date), s));
+      .sort(ifrsLast).forEach(s => map.set(mk(s.date), s));
     return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.finStatements, entity]);
   const lineOf = (s: FinStatement | undefined, matcher: { code?: string; label: RegExp }): number | undefined => {
     const it = s?.lineItems.find(i =>

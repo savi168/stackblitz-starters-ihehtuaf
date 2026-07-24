@@ -347,6 +347,32 @@ export const convertCapitalItemsCsv = (lines: string[][]): CapitalItemsCsvResult
   return { items, warnings };
 };
 
+// --- Round-trip exports (edit outside, re-import in the tool's format) --------------
+
+/** Current capital line items → CSV in the exact Bulk-line-items import format. */
+export const buildCapitalItemsExport = (
+  items: Array<{ section: string; label: string; amount: number; memo?: boolean; code?: string }>,
+  delim = ','
+): string => {
+  const rows = [
+    ['section', 'label', 'amount', 'memo', 'code'],
+    ...items.map(i => [i.section, i.label, String(i.amount), i.memo ? 'true' : 'false', i.code || '']),
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+/** Current financial statement lines → CSV in the exact statement import format. */
+export const buildFinStatementExport = (
+  items: Array<{ section: string; label: string; amount: number; memo?: boolean }>,
+  delim = ','
+): string => {
+  const rows = [
+    ['section', 'label', 'amount', 'memo'],
+    ...items.map(i => [i.section, i.label, String(i.amount), i.memo ? 'true' : 'false']),
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
 // --- CET1 movements YTD bulk load (all periods at once) -----------------------------
 
 /** Accepts YYYY-MM-DD or DD.MM.YYYY; returns ISO or undefined. */

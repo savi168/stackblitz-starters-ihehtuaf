@@ -22,9 +22,10 @@ import {
 } from '../services/capital';
 import { resolveMapping } from '../services/importMapping';
 import {
-  buildCapitalItemsTemplate, buildFinStatementTemplate, buildMovementsCsvTemplate,
-  buildRwaCcyTemplate, convertCapitalItemsCsv, convertFinStatementCsv,
-  convertMovementsCsv, convertRwaCcyCsv, downloadCsv, parseCsv,
+  buildCapitalItemsExport, buildCapitalItemsTemplate, buildFinStatementExport,
+  buildFinStatementTemplate, buildMovementsCsvTemplate, buildRwaCcyTemplate,
+  convertCapitalItemsCsv, convertFinStatementCsv, convertMovementsCsv,
+  convertRwaCcyCsv, downloadCsv, parseCsv,
 } from '../services/csvImport';
 import type { ParsedImport } from '../services/excelImport';
 
@@ -683,6 +684,14 @@ const FinStatementEditor: React.FC<{
           ⬇ CSV template
         </button>
         {statement && (
+          <button
+            onClick={() => downloadCsv(`${entity}_${date}_${kind}_${gaap.replace(/\s+/g, '')}.csv`, buildFinStatementExport(statement.lineItems))}
+            title="Export the current statement in the import format — edit outside and re-import"
+            className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-2 px-4 rounded-md transition-colors">
+            ⬇ Export current
+          </button>
+        )}
+        {statement && (
           <button onClick={onDelete} className="text-sm text-status-red/80 hover:text-status-red underline ml-auto">
             delete statement
           </button>
@@ -874,9 +883,10 @@ export const CapitalWorkbenchPage: React.FC = () => {
     capitalReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
     lcrReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
     nsfrReports.filter(r => r.entity === entity).forEach(r => set.add(r.date));
+    (data.finStatements || []).filter(s => s.entity === entity).forEach(s => set.add(s.date));
     data.kpisHistory.filter(k => k.entity === entity).forEach(k => set.add(k.date));
     return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [capitalReports, lcrReports, nsfrReports, data.kpisHistory, entity]);
+  }, [capitalReports, lcrReports, nsfrReports, data.finStatements, data.kpisHistory, entity]);
 
   const effectiveDate = date || datesForEntity[0] || '';
 
@@ -1006,25 +1016,33 @@ export const CapitalWorkbenchPage: React.FC = () => {
   };
 
   // Import parsed internal finance statements (BS / P&L monthly / equity) for
-  // the CURRENT entity: upsert by entity+date+kind+gaap.
+  // the CURRENT entity: upsert by entity+date+kind+gaap, after choosing the
+  // accounting framework. Statements previously imported from a file with the
+  // same name are purged first (clean re-import).
   const applyFinImport = (fin: { fileName: string; statements: Array<Omit<FinStatement, 'id' | 'entity'>> }) => {
+    const raw = window.prompt(
+      `"${fin.fileName}" recognized as internal finance extract (${fin.statements.length} statement(s) for ${entity}).\n` +
+      `Accounting framework? (${GAAP_OPTIONS.join(' / ')})`,
+      fin.statements[0]?.gaap || 'IFRS');
+    if (raw === null) return; // cancelled
+    const gaap = GAAP_OPTIONS.find(g => g.toLowerCase() === raw.trim().toLowerCase()) || raw.trim() || DEFAULT_GAAP;
     const listed = fin.statements.slice(0, 14).map(s => `• ${KIND_LABELS[s.kind]} — ${s.date}`).join('\n');
     const more = fin.statements.length > 14 ? `\n… + ${fin.statements.length - 14} more` : '';
     if (!window.confirm(
-      `"${fin.fileName}" recognized as internal finance extract.\n` +
-      `Import ${fin.statements.length} statement(s) for ${entity}?\n${listed}${more}\n` +
-      `Existing statements for the same period/kind/GAAP are replaced.`
+      `Import ${fin.statements.length} statement(s) for ${entity} in ${gaap}?\n${listed}${more}\n` +
+      `Existing statements for the same period/kind/GAAP (or previously imported from "${fin.fileName}") are replaced.`
     )) return;
+    const kinds = new Set(fin.statements.map(s => s.kind));
     setData(prev => {
-      let fs = [...(prev.finStatements || [])];
+      let fs = (prev.finStatements || []).filter(x =>
+        !(x.entity === entity && kinds.has(x.kind) && gaapOf(x) === gaap && x.fileName === fin.fileName));
       for (const s of fin.statements) {
-        const g = s.gaap || DEFAULT_GAAP;
-        fs = fs.filter(x => !(x.entity === entity && x.date === s.date && x.kind === s.kind && gaapOf(x) === g));
-        fs.push({ ...s, id: newItemId(), entity });
+        fs = fs.filter(x => !(x.entity === entity && x.date === s.date && x.kind === s.kind && gaapOf(x) === gaap));
+        fs.push({ ...s, gaap, id: newItemId(), entity });
       }
       return { ...prev, finStatements: fs };
     });
-    setNotice(`${fin.statements.length} statement(s) imported for ${entity} from ${fin.fileName} — they feed the Financials tab and the CET1 movement details.`);
+    setNotice(`${fin.statements.length} statement(s) imported for ${entity} (${gaap}) from ${fin.fileName} — they feed the Financials tab and the CET1 movement details.`);
   };
 
   // Bulk line-items CSV (memoranda, CET1 detail, RWA by currency…): upserts
@@ -1328,6 +1346,15 @@ export const CapitalWorkbenchPage: React.FC = () => {
           >
             ⬇ CSV template
           </button>
+          {report && (
+            <button
+              onClick={() => downloadCsv(`${entity}_${effectiveDate}_capital_lineitems.csv`, buildCapitalItemsExport(report.lineItems))}
+              title="Export the current report's line items in the import format — edit outside and re-import"
+              className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors"
+            >
+              ⬇ Export current
+            </button>
+          )}
           <span className="text-[11px] text-brand-text-secondary">
             columns: section (equity|deduction|at1|t2|rwa) · label · amount · memo (true/false) · code — upsert by section+label into {entity} — {effectiveDate || 'today'}
           </span>
