@@ -1,8 +1,141 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useData } from '../context/DataContext';
 import { Deadline, Attachment } from '../types';
 import { calculateRegulatoryDeadline, getStatusBadge, getTypeBadge } from '../utils';
 import { Card, PageHeader, BackButton, Select, Modal, SortableHeader, SectionHeader } from '../components';
+import {
+    buildCsvTemplate, buildDeadlinesExport, convertCsvRows, CSV_NOTES,
+    downloadCsv, parseCsv,
+} from '../services/csvImport';
+
+/**
+ * CSV bulk feed for the deadlines list — the production workflow is:
+ * download the template (or export the current list), maintain it in Excel,
+ * then re-import it here. Rows are previewed (with warnings) before anything
+ * is written; import either merges by id or replaces the whole list.
+ */
+const DeadlineCsvImportModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onApply: (rows: Deadline[], mode: 'merge' | 'replace') => void;
+}> = ({ isOpen, onClose, onApply }) => {
+    const fileInput = useRef<HTMLInputElement>(null);
+    const [fileName, setFileName] = useState<string | null>(null);
+    const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+    const [warnings, setWarnings] = useState<string[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [mode, setMode] = useState<'merge' | 'replace'>('merge');
+
+    const reset = () => { setFileName(null); setRows([]); setWarnings([]); setError(null); };
+
+    const handleFile = async (file: File) => {
+        reset();
+        setFileName(file.name);
+        try {
+            const text = await file.text();
+            const result = convertCsvRows('deadlines', parseCsv(text));
+            setRows(result.rows);
+            setWarnings(result.warnings);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    };
+
+    const handleClose = () => { reset(); onClose(); };
+
+    if (!isOpen) return null;
+    return (
+        <Modal isOpen onClose={handleClose} title="Deadlines — CSV import">
+            <div className="space-y-4 text-sm">
+                <ol className="list-decimal list-inside text-brand-text-secondary space-y-1">
+                    <li>Download the template below — headers plus <strong>one example row</strong> showing the accepted values.</li>
+                    <li>Fill it in Excel and save as CSV (comma or semicolon both work).</li>
+                    <li>Load the file — rows are previewed before anything is written.</li>
+                </ol>
+
+                <button
+                    onClick={() => downloadCsv('deadlines_template.csv', buildCsvTemplate('deadlines'))}
+                    className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors"
+                >
+                    ⬇ Download CSV template
+                </button>
+
+                {CSV_NOTES.deadlines && (
+                    <p className="text-xs text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2">
+                        <strong>Accepted values —</strong> {CSV_NOTES.deadlines}
+                    </p>
+                )}
+
+                <div>
+                    <input ref={fileInput} type="file" accept=".csv,text/csv" className="hidden"
+                        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                    <button
+                        onClick={() => fileInput.current?.click()}
+                        className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors"
+                    >
+                        Choose CSV file…
+                    </button>
+                    {fileName && <span className="ml-3 text-brand-text-secondary break-all">{fileName}</span>}
+                </div>
+
+                {error && <p className="text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-3 py-2">{error}</p>}
+                {warnings.map((w, i) => (
+                    <p key={i} className="text-status-amber bg-status-amber/10 border border-status-amber/30 rounded-md px-3 py-2 text-xs">⚠ {w}</p>
+                ))}
+
+                {rows.length > 0 && (
+                    <>
+                        <p className="font-semibold text-brand-text-primary">{rows.length} row(s) ready to import — preview:</p>
+                        <div className="overflow-x-auto border border-efg-line rounded-md">
+                            <table className="w-full text-xs text-left">
+                                <thead className="bg-brand-bg-body text-brand-text-primary uppercase">
+                                    <tr>
+                                        {['Title', 'Entity', 'Reporting date', 'Due date', 'Type', 'Status'].map(h => (
+                                            <th key={h} className="px-3 py-2 whitespace-nowrap">{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {rows.slice(0, 8).map((r, i) => (
+                                        <tr key={i} className="border-t border-efg-line">
+                                            <td className="px-3 py-2">{String(r.name ?? '')}</td>
+                                            <td className="px-3 py-2">{String(r.entity ?? '')}</td>
+                                            <td className="px-3 py-2 whitespace-nowrap">{String(r.endOfPeriod ?? '')}</td>
+                                            <td className="px-3 py-2 whitespace-nowrap">{String(r.dueDate ?? '')}</td>
+                                            <td className="px-3 py-2">{String(r.type ?? '')}</td>
+                                            <td className="px-3 py-2">{String(r.status ?? '')}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {rows.length > 8 && <p className="text-xs text-brand-text-secondary">…and {rows.length - 8} more row(s).</p>}
+
+                        <div className="space-y-1">
+                            <label className="flex items-center gap-2">
+                                <input type="radio" name="csv-mode" checked={mode === 'merge'} onChange={() => setMode('merge')} />
+                                <span>Add / update — rows whose <code>id</code> matches an existing deadline replace it; the rest are appended.</span>
+                            </label>
+                            <label className="flex items-center gap-2">
+                                <input type="radio" name="csv-mode" checked={mode === 'replace'} onChange={() => setMode('replace')} />
+                                <span className="text-status-red font-semibold">Replace the whole deadlines list with the file content.</span>
+                            </label>
+                        </div>
+
+                        <div className="text-right">
+                            <button
+                                onClick={() => { onApply(rows as unknown as Deadline[], mode); reset(); }}
+                                className="bg-brand-primary hover:bg-brand-primary-dark text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                            >
+                                Import {rows.length} row(s)
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </Modal>
+    );
+};
 
 
 const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
@@ -51,9 +184,9 @@ const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
                 <h2 className="text-lg font-semibold text-brand-text-primary capitalize">{monthName}</h2>
                 <button onClick={() => changeMonth(1)} className="p-2 rounded-full hover:bg-gray-100">&gt;</button>
             </div>
-            <div className="grid grid-cols-7 gap-1 text-center">
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1 text-center">
                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                    <div key={day} className="font-bold text-sm text-brand-text-secondary py-2">{day}</div>
+                    <div key={day} className="font-bold text-xs sm:text-sm text-brand-text-secondary py-2">{day}</div>
                 ))}
                 {calendarDays.map((day, index) => {
                     if (!day) return <div key={`empty-${index}`} className="border rounded-lg border-gray-100"></div>;
@@ -68,11 +201,19 @@ const CalendarView: React.FC<{ deadlines: Deadline[] }> = ({ deadlines }) => {
                     const isToday = today.getTime() === day.getTime();
 
                     return (
-                        <div key={dateKey} className="border rounded-lg p-1 min-h-[120px] flex flex-col bg-white">
-                            <span className={`font-semibold text-sm ${isToday ? 'bg-brand-primary text-white rounded-full w-6 h-6 flex items-center justify-center mx-auto' : 'text-brand-text-primary'}`}>
+                        <div key={dateKey} className="border rounded-lg p-0.5 sm:p-1 min-h-[52px] sm:min-h-[120px] flex flex-col bg-white">
+                            <span className={`font-semibold text-xs sm:text-sm ${isToday ? 'bg-brand-primary text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center mx-auto' : 'text-brand-text-primary'}`}>
                                 {day.getDate()}
                             </span>
-                            <div className="flex-grow mt-1 space-y-1 overflow-y-auto">
+                            {/* Phones: no room for chips — a count badge stands in for the day's deadlines. */}
+                            {dayDeadlines.length > 0 && (
+                                <div className="sm:hidden flex justify-center mt-0.5">
+                                    <span className="text-[10px] font-bold bg-brand-primary text-white rounded-full min-w-[16px] px-1 py-px">
+                                        {dayDeadlines.length}
+                                    </span>
+                                </div>
+                            )}
+                            <div className="hidden sm:block flex-grow mt-1 space-y-1 overflow-y-auto">
                                 {dayDeadlines.map(d => (
                                     <div key={d.id} title={d.name} className={`p-1 text-xs rounded truncate ${getStatusBadge(d.status)}`}>
                                         {d.name}
@@ -93,6 +234,8 @@ export const DeadlinesPage: React.FC = () => {
     const [view, setView] = useState<'table' | 'calendar'>('table');
     const [selectedDeadline, setSelectedDeadline] = useState<Deadline | null>(null);
     const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+    const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+    const [importNotice, setImportNotice] = useState<string | null>(null);
     const [editableDetails, setEditableDetails] = useState<{ ownerGroup: string; validator1: string; validator2: string; comments: string } | null>(null);
 
     const [newDeadline, setNewDeadline] = useState<Partial<Deadline>>({
@@ -276,6 +419,25 @@ export const DeadlinesPage: React.FC = () => {
         setNewDeadline({ name: '', entity: '', dueDate: '', ownerGroup: '', type: 'regulatory' });
     }, [data.deadlines, newDeadline, setData]);
     
+    const handleCsvApply = useCallback((imported: Deadline[], mode: 'merge' | 'replace') => {
+        setData(prevData => {
+            let next: Deadline[];
+            if (mode === 'replace') {
+                next = imported;
+            } else {
+                const importedIds = new Set(imported.map(r => r.id));
+                next = [...prevData.deadlines.filter(d => !importedIds.has(d.id)), ...imported];
+            }
+            return { ...prevData, deadlines: next };
+        });
+        setIsCsvModalOpen(false);
+        setImportNotice(`${imported.length} deadline(s) imported (${mode === 'replace' ? 'list replaced' : 'added/updated by id'}). Saved to the current data source.`);
+    }, [setData]);
+
+    const handleCsvExport = useCallback(() => {
+        downloadCsv('deadlines_export.csv', buildDeadlinesExport(data.deadlines as unknown as Record<string, unknown>[]));
+    }, [data.deadlines]);
+
     const openDetailsModal = useCallback((deadline: Deadline) => {
         setSelectedDeadline(deadline);
         setEditableDetails({ ownerGroup: deadline.ownerGroup, validator1: deadline.validator1, validator2: deadline.validator2, comments: deadline.comments });
@@ -351,10 +513,29 @@ export const DeadlinesPage: React.FC = () => {
                              <button onClick={() => setView('calendar')} className={`px-3 py-1 text-sm font-semibold rounded ${view === 'calendar' ? 'bg-white shadow-card' : 'text-brand-text-secondary'}`}>Calendar</button>
                         </div>
                      </div>
-                     <button onClick={() => setShowForm(!showForm)} className="bg-brand-primary hover:bg-brand-primary-dark text-white text-sm font-semibold py-2 px-4 rounded-md transition-colors">
-                        {showForm ? 'Cancel' : '+ Add Deadline'}
-                    </button>
+                     <div className="flex items-center gap-2 flex-wrap">
+                        <button onClick={handleCsvExport}
+                            title="Export the current list as CSV (re-importable format)"
+                            className="text-sm font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-2 px-4 rounded-md transition-colors">
+                            ⬇ Export CSV
+                        </button>
+                        <button onClick={() => setIsCsvModalOpen(true)}
+                            title="Bulk-load the deadlines list from a CSV file"
+                            className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors">
+                            ⬆ Import CSV
+                        </button>
+                        <button onClick={() => setShowForm(!showForm)} className="bg-brand-primary hover:bg-brand-primary-dark text-white text-sm font-semibold py-2 px-4 rounded-md transition-colors">
+                            {showForm ? 'Cancel' : '+ Add Deadline'}
+                        </button>
+                     </div>
                  </div>
+
+                 {importNotice && (
+                    <p className="text-xs text-brand-text-primary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2 mb-4 flex justify-between items-center gap-3">
+                        <span>{importNotice}</span>
+                        <button onClick={() => setImportNotice(null)} className="text-brand-text-secondary hover:text-brand-text-primary" aria-label="Dismiss import notice">×</button>
+                    </p>
+                 )}
                  
                  {view === 'table' && (
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -431,7 +612,81 @@ export const DeadlinesPage: React.FC = () => {
 
             {view === 'table' ? (
                 <Card>
-                    <div className="overflow-x-auto">
+                    {/* Phones: the 12-column table can't fit — stacked cards instead. */}
+                    <div className="md:hidden space-y-3">
+                        {filteredAndSortedDeadlines.map(d => (
+                            <div key={d.id} className="border border-efg-line rounded-lg p-3 space-y-2 bg-white">
+                                <div className="flex justify-between items-start gap-2">
+                                    <p className="font-medium text-brand-text-primary text-sm">{d.name}</p>
+                                    <button
+                                        onClick={() => handleDeadlineDelete(d.id)}
+                                        className="p-1 text-red-500 hover:bg-red-100 rounded-full transition-colors flex-shrink-0"
+                                        aria-label={`Delete deadline ${d.name}`}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <p className="text-xs text-brand-text-secondary">{d.entity}{d.ownerGroup ? ` · ${d.ownerGroup}` : ''}</p>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                    <div>
+                                        <p className="text-brand-text-secondary">Reporting</p>
+                                        <p className="text-brand-text-primary">{d.endOfPeriod || '—'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-brand-text-secondary">Internal</p>
+                                        <p className="text-brand-text-primary">{d.dueDate}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-brand-text-secondary">Regulatory</p>
+                                        <p className="font-semibold text-brand-text-primary">{calculateRegulatoryDeadline(d.dueDate)}</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <select
+                                        value={d.type}
+                                        onChange={(e) => handleTypeChange(d.id, e.target.value as Deadline['type'])}
+                                        className={`w-full p-2 text-xs font-semibold rounded-lg border-transparent focus:ring-2 focus:ring-brand-primary focus:border-transparent ${getTypeBadge(d.type)}`}
+                                        aria-label={`Update type for ${d.name}`}
+                                    >
+                                        <option value="regulatory">Regulatory</option>
+                                        <option value="internal">Internal</option>
+                                    </select>
+                                    <select
+                                        value={d.status}
+                                        onChange={(e) => handleStatusChange(d.id, e.target.value as Deadline['status'])}
+                                        className={`w-full p-2 text-xs font-semibold rounded-lg border-transparent focus:ring-2 focus:ring-brand-primary focus:border-transparent ${getStatusBadge(d.status)}`}
+                                        aria-label={`Update status for ${d.name}`}
+                                    >
+                                        <option value="upcoming">Upcoming</option>
+                                        <option value="inprogress">In Progress</option>
+                                        <option value="completed">Completed</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <button onClick={() => openDetailsModal(d)} className="text-xs bg-brand-secondary hover:bg-brand-secondary-dark text-white font-bold py-1.5 px-3 rounded-lg transition-colors">
+                                        Details
+                                    </button>
+                                    {d.path && d.path.startsWith('shp/') && (
+                                        <a
+                                            href={`https://inside.efgz.efg.corp/${d.path}/EditForm.aspx?ID=${d.id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-brand-primary hover:underline text-xs"
+                                            aria-label={`Open SharePoint link for ${d.name}`}
+                                        >
+                                            SharePoint ↗
+                                        </a>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {filteredAndSortedDeadlines.length === 0 && (
+                            <p className="text-sm text-brand-text-secondary text-center py-6">No deadlines match the current filters.</p>
+                        )}
+                    </div>
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left text-brand-text-secondary">
                             <thead className="text-xs text-brand-text-primary uppercase bg-brand-bg-body">
                                 <tr>
@@ -524,7 +779,13 @@ export const DeadlinesPage: React.FC = () => {
                     </div>
                 </Card>
             ) : <CalendarView deadlines={filteredAndSortedDeadlines} />}
-            
+
+            <DeadlineCsvImportModal
+                isOpen={isCsvModalOpen}
+                onClose={() => setIsCsvModalOpen(false)}
+                onApply={handleCsvApply}
+            />
+
             <Modal isOpen={isDetailsModalOpen} onClose={() => setIsDetailsModalOpen(false)} title={`Details for: ${selectedDeadline?.name}`}>
                 {selectedDeadline && editableDetails && (
                     <div className="space-y-6 text-sm">

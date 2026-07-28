@@ -11,7 +11,9 @@ bank's regulatory reporting function.
   PDF export of reports.
 - **Daily Reports** — daily/weekly LCR and Large Exposure monitoring for key entities.
 - **Deadlines** — regulatory & internal deadline tracking with status history,
-  attachments, and a visual calendar.
+  attachments, and a visual calendar. The list can be fed in production from a
+  CSV file (template download, preview with warnings, merge-by-id or full
+  replace) and exported back to CSV for round-trip maintenance in Excel.
 - **Projects** — project task tracking with assignees and statuses.
 - **Team Directory** — contact information for the reporting team.
 - **Business Case** — ROI and operational-benefit presentation.
@@ -27,6 +29,17 @@ All data is stored locally in the browser (`localStorage`); there is no backend.
 - React Router (hash routing)
 - Recharts (charts)
 - jsPDF + html2canvas (PDF export, lazy-loaded on demand)
+
+## Mobile / smartphone use
+
+The dashboard is a **Progressive Web App (PWA)**: open the production URL on a
+phone and use *Add to Home Screen* (Android Chrome shows an install prompt;
+iOS Safari: Share → Add to Home Screen) to get an app-like, full-screen
+experience with its own icon. A service worker (production builds only)
+caches the app shell so it still opens offline — data lives in
+`localStorage` (or the REST API when configured). The layout is responsive:
+the navigation collapses into a hamburger menu and the deadlines table
+becomes a card list on small screens.
 
 ## Run locally
 

@@ -283,6 +283,26 @@ export const NATURAL_KEYS: Record<string, string[]> = {
   deadlines: ['id'],
 };
 
+/**
+ * Current deadlines → CSV in the exact bulk-import format (round-trip:
+ * export, maintain the list in Excel, re-import as the production feed).
+ * Column order follows the CSV template (CSV_EXAMPLES.deadlines).
+ */
+export const buildDeadlinesExport = (
+  deadlines: Array<Record<string, unknown>>,
+  delim = ','
+): string => {
+  const headers = Object.keys(CSV_EXAMPLES.deadlines);
+  const rows = [
+    headers,
+    ...deadlines.map(d => headers.map(h => {
+      const v = d[h];
+      return v === undefined || v === null ? '' : String(v);
+    })),
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
 // --- Capital line-items bulk load (Workbench) -----------------------------------
 
 /**

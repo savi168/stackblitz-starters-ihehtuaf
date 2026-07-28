@@ -14,3 +14,13 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// PWA: production builds only — a service worker in dev would serve stale
+// modules. Relative path so the app works when deployed under a sub-path.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('Service worker registration failed', err);
+    });
+  });
+}

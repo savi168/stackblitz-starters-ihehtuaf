@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import { ErrorBoundary } from './components';
@@ -48,32 +48,79 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const NavBar: React.FC = () => {
   const { isAdmin, currentUser } = useData();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const items = NAV_ITEMS.filter(item => !item.adminOnly || isAdmin);
+
   return (
-    <div className="flex items-center gap-1 sm:gap-2">
-      {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map(item => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
-              isActive
-                ? 'border-brand-primary text-brand-primary'
-                : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
-            }`
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-      {currentUser.securityMode !== 'None' && (
-        <span
-          title={`Signed in as ${currentUser.name} (${currentUser.roles.join(', ')})`}
-          className="ml-2 pl-2 border-l border-efg-line text-xs text-brand-text-secondary hidden md:inline"
-        >
-          {currentUser.name.split('\\').pop()}{isAdmin ? '' : ' · read-only'}
-        </span>
+    <>
+      {/* Desktop / tablet: inline links. */}
+      <div className="hidden md:flex items-center gap-1 lg:gap-2">
+        {items.map(item => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
+                isActive
+                  ? 'border-brand-primary text-brand-primary'
+                  : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
+              }`
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+        {currentUser.securityMode !== 'None' && (
+          <span
+            title={`Signed in as ${currentUser.name} (${currentUser.roles.join(', ')})`}
+            className="ml-2 pl-2 border-l border-efg-line text-xs text-brand-text-secondary"
+          >
+            {currentUser.name.split('\\').pop()}{isAdmin ? '' : ' · read-only'}
+          </span>
+        )}
+      </div>
+
+      {/* Phones: hamburger toggling a full-width dropdown under the header. */}
+      <button
+        onClick={() => setMenuOpen(o => !o)}
+        className="md:hidden p-2 -mr-2 text-brand-text-primary"
+        aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        aria-expanded={menuOpen}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          {menuOpen
+            ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />}
+        </svg>
+      </button>
+      {menuOpen && (
+        <div className="md:hidden absolute top-16 left-0 right-0 bg-white border-b border-efg-line shadow-card z-40">
+          <div className="flex flex-col py-2">
+            {items.map(item => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setMenuOpen(false)}
+                className={({ isActive }) =>
+                  `px-6 py-3 text-sm font-medium border-l-4 transition-colors ${
+                    isActive
+                      ? 'border-brand-primary text-brand-primary bg-brand-bg-body'
+                      : 'border-transparent text-brand-text-secondary'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+            {currentUser.securityMode !== 'None' && (
+              <span className="px-6 py-3 text-xs text-brand-text-secondary border-t border-efg-line">
+                {currentUser.name.split('\\').pop()}{isAdmin ? '' : ' · read-only'}
+              </span>
+            )}
+          </div>
+        </div>
       )}
-    </div>
+    </>
   );
 };
 
@@ -84,8 +131,8 @@ const App: React.FC = () => {
     <DataProvider>
       <HashRouter>
         <div className="min-h-screen flex flex-col bg-brand-bg-body text-brand-text-primary">
-          <header className="bg-white border-b border-efg-line sticky top-0 z-40">
-            <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
+          <header className="bg-white border-b border-efg-line sticky top-0 z-40 relative">
+            <nav className="container mx-auto px-4 sm:px-6 h-16 flex justify-between items-center">
               <Link to="/" className="flex items-center gap-2 group">
                 <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
                   Reg<span className="text-brand-primary">Report</span>
