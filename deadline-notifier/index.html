@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Deadline Notifier — Regulatory Reporting</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#2B3338" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Deadlines" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <style>
+    /* Palette identique au dashboard RegReport (EFG-style). */
+    :root {
+      --ink: #2B3338; --muted: #6B7780; --red: #8C3A38; --red-dark: #6E2A28;
+      --slate: #52616A; --line: #E4E6E4; --bg: #F4F5F4;
+      --green: #3F7A5E; --amber: #B8862E; --alert: #A33A33;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      padding-bottom: 40px;
+    }
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: #fff; border-bottom: 1px solid var(--line);
+      padding: 14px 16px; display: flex; align-items: center; gap: 10px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+    header h1 span { color: var(--red); }
+    header .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    main { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .card {
+      background: #fff; border: 1px solid var(--line); border-radius: 10px;
+      padding: 14px 16px; margin-bottom: 14px;
+      box-shadow: 0 1px 2px rgb(43 51 56 / 0.04), 0 1px 3px rgb(43 51 56 / 0.06);
+    }
+    .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+    select, input[type="search"] {
+      width: 100%; padding: 9px 10px; font-size: 14px; font-family: inherit;
+      border: 2px solid #e5e7e9; border-radius: 8px; background: #fff; color: var(--ink);
+    }
+    .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .filters .full { grid-column: 1 / -1; }
+    button {
+      font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      border-radius: 8px; padding: 9px 14px; border: 1px solid transparent;
+      transition: background .15s, color .15s;
+    }
+    .btn-primary { background: var(--red); color: #fff; }
+    .btn-primary:hover { background: var(--red-dark); }
+    .btn-outline { background: #fff; color: var(--slate); border-color: var(--slate); }
+    .btn-outline:hover { background: var(--slate); color: #fff; }
+    .notif-status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .notif-status .ok { color: var(--green); font-weight: 600; }
+    .notif-status .ko { color: var(--alert); font-weight: 600; }
+    .deadline {
+      display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line);
+      align-items: flex-start;
+    }
+    .deadline:last-child { border-bottom: none; }
+    .due-badge {
+      min-width: 62px; text-align: center; border-radius: 8px; padding: 6px 4px;
+      font-size: 11px; font-weight: 700; line-height: 1.3; flex-shrink: 0;
+    }
+    .due-badge small { display: block; font-size: 10px; font-weight: 500; }
+    .b-over { background: rgba(163,58,51,.12); color: var(--alert); }
+    .b-soon { background: rgba(184,134,46,.14); color: var(--amber); }
+    .b-ok   { background: rgba(82,97,106,.10); color: var(--slate); }
+    .deadline .body { flex: 1; min-width: 0; }
+    .deadline .code { font-size: 14px; font-weight: 600; }
+    .deadline .code em { font-style: normal; font-weight: 400; color: var(--muted); font-size: 12px; }
+    .deadline .desc { font-size: 12px; color: var(--muted); margin: 2px 0 5px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip {
+      font-size: 10px; padding: 2px 7px; border-radius: 999px;
+      background: var(--bg); border: 1px solid var(--line); color: var(--slate);
+    }
+    .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .empty { text-align: center; color: var(--muted); font-size: 13px; padding: 24px 0; }
+    .count { font-size: 12px; color: var(--muted); font-weight: 400; }
+    footer { text-align: center; font-size: 11px; color: var(--muted); padding: 10px; }
+    @media (min-width: 560px) { .filters { grid-template-columns: 1fr 1fr 1fr; } .filters .full { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <header>
+    <svg width="34" height="34" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="96" fill="#2B3338"/><rect x="96" y="128" width="320" height="288" rx="24" fill="#F4F5F4"/><path d="M96 152a24 24 0 0 1 24-24h272a24 24 0 0 1 24 24v48H96z" fill="#8C3A38"/><rect x="152" y="88" width="24" height="64" rx="12" fill="#F4F5F4"/><rect x="336" y="88" width="24" height="64" rx="12" fill="#F4F5F4"/><g fill="#52616A"><circle cx="168" cy="264" r="16"/><circle cx="256" cy="264" r="16"/><circle cx="344" cy="264" r="16"/><circle cx="168" cy="336" r="16"/><circle cx="344" cy="336" r="16"/></g><circle cx="256" cy="336" r="22" fill="#8C3A38"/></svg>
+    <div>
+      <h1>Deadline <span>Notifier</span></h1>
+      <p class="sub">Masterlist Swiss — reporting réglementaire</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <h2>🔔 Notifications</h2>
+      <div class="row">
+        <button id="enableBtn" class="btn-primary">Activer les notifications</button>
+        <button id="testBtn" class="btn-outline">Tester</button>
+        <div style="flex:1;min-width:130px">
+          <label for="leadDays">Préavis</label>
+          <select id="leadDays">
+            <option value="1">1 jour avant</option>
+            <option value="3">3 jours avant</option>
+            <option value="7" selected>7 jours avant</option>
+            <option value="14">14 jours avant</option>
+            <option value="30">30 jours avant</option>
+          </select>
+        </div>
+      </div>
+      <p class="notif-status" id="notifStatus"></p>
+    </div>
+
+    <div class="card">
+      <h2>Filtres</h2>
+      <div class="filters">
+        <div>
+          <label for="entity">Entité</label>
+          <select id="entity"><option value="all">Toutes les entités</option></select>
+        </div>
+        <div>
+          <label for="horizon">Horizon</label>
+          <select id="horizon">
+            <option value="30">30 jours</option>
+            <option value="60">60 jours</option>
+            <option value="90" selected>90 jours</option>
+            <option value="180">180 jours</option>
+            <option value="365">12 mois</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="search">Recherche</label>
+          <input type="search" id="search" placeholder="Code ou description…" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Échéances à venir <span class="count" id="count"></span></h2>
+      <div id="list"></div>
+    </div>
+  </main>
+  <footer>Source : Copy of Masterlist Worldwide.xlsx (onglet Masterlist_Swiss) · échéance = fin de période + délai réglementaire</footer>
+
+<script>
+// --- Données extraites du fichier Excel (Masterlist_Swiss, 41 rapports) ---
+const MASTERLIST = [
+  {"code":"ASTA2","description":"Consolidated Banking Statistics (BIS)","frequency":"Quarterly","offset":"2 months","entities":["EFG Bank"]},
+  {"code":"ARIS","description":"Solvency risk of counterparties in the interbank sector","frequency":"Quarterly","offset":"6 weeks","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"AURH_U","description":"Supervisory reporting","frequency":"Semi-Annual","offset":"60 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"AUR_U","description":"Supervisory reporting","frequency":"Semi-Annual","offset":"60 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"AUR_UES","description":"Supervisory reporting","frequency":"Semi-Annual","offset":"60 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"BUWO_U","description":"Breakdown of domestic mortgage claims denominated in Swiss francs","frequency":"Quarterly","offset":"1 month","entities":["EFG Bank"]},
+  {"code":"CABQ","description":"Current account survey","frequency":"Quarterly","offset":"1 month","entities":["EFG Bank"]},
+  {"code":"CAGQ","description":"Current account survey","frequency":"Quarterly","offset":"1 month","entities":["EFG Bank"]},
+  {"code":"DDUM","description":"OTC Derivatives Statistics (BIS)","frequency":"every 3 years","offset":"1 month","entities":["EFG Bank"]},
+  {"code":"EURO2","description":"Locational Banking Statistics (BIS)","frequency":"Quarterly","offset":"25 days","entities":["EFG Bank"]},
+  {"code":"JAHR_B","description":"Comprehensive year-end statistics","frequency":"Annually","offset":"3 months","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"JAHR_U","description":"Comprehensive year-end statistics","frequency":"Annually","offset":"3 months","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"JAHR_UEA","description":"Comprehensive year-end statistics","frequency":"Annually","offset":"3 months","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"JAHR_UEB","description":"Comprehensive year-end statistics","frequency":"Annually","offset":"3 months","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"JAHR_UL","description":"Comprehensive year-end statistics","frequency":"Annually","offset":"3 months","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group"]},
+  {"code":"KRED","description":"Credit volume statistics","frequency":"Monthly","offset":"20 days","entities":["EFG Bank"]},
+  {"code":"KWERA","description":"Value adjustments and provisions for default risks","frequency":"Monthly","offset":"20 days","entities":["EFG Bank"]},
+  {"code":"LCR_G","description":"Reporting of short-term liquidity coverage ratio (LCR)","frequency":"Monthly","offset":"20 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"LER20_U","description":"Large Exposure Reporting (LER)","frequency":"Annually","offset":"6 weeks","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"LER_U","description":"Large Exposure Reporting (LER)","frequency":"Quarterly","offset":"6 weeks","entities":["EFG Bank","BSI SA","EFG European financial Group"]},
+  {"code":"LER_K","description":"Large Exposure Reporting (LER)","frequency":"Semi-Annual","offset":"6 weeks","entities":["EFG International","BSI Consol","EFG European financial Group - Consolidated"]},
+  {"code":"LMT_GO","description":"Liquidity Monitoring Tools (LMT)","frequency":"Quarterly","offset":"60 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"MIRE_U","description":"Minimum reserves","frequency":"Monthly","offset":"1 month","entities":["EFG Bank","EFG European financial Group"]},
+  {"code":"MONA_B","description":"Comprehensive monthly balance sheet","frequency":"Monthly","offset":"17 days","entities":["EFG Bank","EFG European financial Group"]},
+  {"code":"MONA_U","description":"Comprehensive monthly balance sheet","frequency":"Monthly","offset":"17 days","entities":["EFG Bank","EFG European financial Group"]},
+  {"code":"MONA_US","description":"Comprehensive monthly balance sheet","frequency":"Monthly","offset":"17 days","entities":["EFG Bank","EFG European financial Group"]},
+  {"code":"NSFR_GQ","description":"Reporting of net stable funding ratio (NSFR)","frequency":"Quarterly","offset":"60 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"P_CRSABIS","description":"Capital adequacy reporting form in the context of Basel III","frequency":"Quarterly","offset":"6 weeks","entities":["EFG Bank","BSI SA","EFG European financial Group"]},
+  {"code":"P_SR","description":"Capital adequacy reporting form in the context of Basel III","frequency":"Quarterly","offset":"6 weeks","entities":["EFG Bank","BSI SA","EFG European financial Group"]},
+  {"code":"C_CRSABIS","description":"Capital adequacy reporting form in the context of Basel III","frequency":"Semi-Annual","offset":"6 weeks","entities":["EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"C_SR","description":"Capital adequacy reporting form in the context of Basel III","frequency":"Semi-Annual","offset":"6 weeks","entities":["EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"WEBM","description":"Securities holdings","frequency":"Monthly","offset":"25 days","entities":["EFG Bank"]},
+  {"code":"WELA2","description":"Breakdown by country of the stock of securities (IMF Coordinated Portfolio Investment Survey)","frequency":"Quarterly","offset":"25 days","entities":["EFG Bank"]},
+  {"code":"WEUM","description":"Securities turnover","frequency":"Quarterly","offset":"25 days","entities":["EFG Bank"]},
+  {"code":"ZIR_U","description":"Interest rate risk report","frequency":"Quarterly","offset":"45 days","entities":["EFG Bank","EFG International","BSI SA","BSI Consol"]},
+  {"code":"ZIR_K","description":"Interest rate risk report","frequency":"Semi-Annual","offset":"45 days","entities":["EFG International","BSI SA","BSI Consol","EFG European financial Group","EFG European financial Group - Consolidated"]},
+  {"code":"ZISA_B","description":"Published end-of-month interest rates for new transactions","frequency":"Monthly","offset":"10 days","entities":["EFG Bank"]},
+  {"code":"INP","description":"Cross-border capital linkages","frequency":"Annually","offset":"4 months","entities":["EFG International"]},
+  {"code":"INQ","description":"Cross-border capital linkages","frequency":"Quarterly","offset":"1 month","entities":["EFG International"]},
+  {"code":"Pillar 3 - Year end","description":"Disclosure - Year end on Capital Adequacy","frequency":"Annually","offset":"7 weeks","entities":["EFG International","EFG European financial Group - Consolidated"]},
+  {"code":"Pillar 3 - Half-Year end","description":"Disclosure - Half-Year end on Capital Adequacy","frequency":"Semi-Annual","offset":"3 weeks","entities":["EFG International","EFG European financial Group - Consolidated"]}
+];
+
+// --- Génération des occurrences -------------------------------------------
+// Échéance = fin de période (selon la fréquence) + délai réglementaire (offset).
+const DAY = 24 * 3600 * 1000;
+const iso = d => d.toISOString().slice(0, 10);
+const endOfMonth = (y, m) => new Date(Date.UTC(y, m + 1, 0)); // m: 0-11
+
+/** Fins de période dans [from, to] pour une fréquence donnée. */
+function periodEnds(frequency, from, to) {
+  const ends = [];
+  for (let y = from.getUTCFullYear(); y <= to.getUTCFullYear(); y++) {
+    const months =
+      frequency === 'Monthly' ? [0,1,2,3,4,5,6,7,8,9,10,11] :
+      frequency === 'Quarterly' ? [2,5,8,11] :
+      frequency === 'Semi-Annual' ? [5,11] :
+      [11]; // Annually + 'every 3 years'
+    if (frequency === 'every 3 years' && y % 3 !== 0) continue; // cycle triennal (BIS)
+    for (const m of months) {
+      const e = endOfMonth(y, m);
+      if (e >= from && e <= to) ends.push(e);
+    }
+  }
+  return ends;
+}
+
+/** "20 days" | "6 weeks" | "2 months" → date d'échéance depuis la fin de période. */
+function addOffset(periodEnd, offset) {
+  const m = offset.match(/^(\d+)\s*(day|week|month)s?$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === 'day') return new Date(periodEnd.getTime() + n * DAY);
+  if (unit === 'week') return new Date(periodEnd.getTime() + n * 7 * DAY);
+  // Mois calendaires, borné à la fin du mois cible (31 déc + 2 mois → 28/29 fév).
+  const y = periodEnd.getUTCFullYear(), mo = periodEnd.getUTCMonth(), d = periodEnd.getUTCDate();
+  const lastDay = endOfMonth(y, mo + n).getUTCDate();
+  return new Date(Date.UTC(y, mo + n, Math.min(d, lastDay)));
+}
+
+/** Toutes les occurrences (rapport × fin de période) sur la fenêtre donnée. */
+function buildOccurrences(fromDays, toDays) {
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const from = new Date(today.getTime() - fromDays * DAY);
+  const to = new Date(today.getTime() + toDays * DAY);
+  const occurrences = [];
+  for (const report of MASTERLIST) {
+    // Une fin de période peut tomber avant `from` mais échoir dans la fenêtre :
+    // on remonte 8 mois de plus pour ne pas rater ces échéances-là.
+    for (const pe of periodEnds(report.frequency, new Date(from.getTime() - 245 * DAY), to)) {
+      const due = addOffset(pe, report.offset);
+      if (!due || due < from || due > to) continue;
+      occurrences.push({
+        report, periodEnd: iso(pe), due: iso(due),
+        daysLeft: Math.round((due - today) / DAY),
+      });
+    }
+  }
+  return occurrences.sort((a, b) => a.due.localeCompare(b.due) || a.report.code.localeCompare(b.report.code));
+}
+
+// --- État / rendu -----------------------------------------------------------
+const $ = id => document.getElementById(id);
+const settings = JSON.parse(localStorage.getItem('dn-settings') || '{}');
+if (settings.leadDays) $('leadDays').value = String(settings.leadDays);
+if (settings.entity) $('entity').dataset.pending = settings.entity;
+if (settings.horizon) $('horizon').value = String(settings.horizon);
+
+const allEntities = [...new Set(MASTERLIST.flatMap(r => r.entities))].sort();
+for (const e of allEntities) {
+  const opt = document.createElement('option');
+  opt.value = e; opt.textContent = e;
+  $('entity').appendChild(opt);
+}
+if ($('entity').dataset.pending) $('entity').value = $('entity').dataset.pending;
+
+function saveSettings() {
+  localStorage.setItem('dn-settings', JSON.stringify({
+    leadDays: Number($('leadDays').value),
+    entity: $('entity').value,
+    horizon: Number($('horizon').value),
+  }));
+}
+
+const fmtDate = s => new Date(s + 'T00:00:00Z').toLocaleDateString('fr-CH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const FREQ_FR = { Monthly: 'Mensuel', Quarterly: 'Trimestriel', 'Semi-Annual': 'Semestriel', Annually: 'Annuel', 'every 3 years': 'Triennal' };
+
+function render() {
+  const horizon = Number($('horizon').value);
+  const entity = $('entity').value;
+  const q = $('search').value.trim().toLowerCase();
+  // 45 jours de passé pour garder les échéances dépassées visibles.
+  let occ = buildOccurrences(45, horizon);
+  if (entity !== 'all') occ = occ.filter(o => o.report.entities.includes(entity));
+  if (q) occ = occ.filter(o => (o.report.code + ' ' + o.report.description).toLowerCase().includes(q));
+
+  $('count').textContent = `(${occ.length})`;
+  const list = $('list');
+  list.innerHTML = '';
+  if (!occ.length) {
+    list.innerHTML = '<p class="empty">Aucune échéance sur cette période.</p>';
+    return;
+  }
+  for (const o of occ) {
+    const badgeClass = o.daysLeft < 0 ? 'b-over' : o.daysLeft <= 7 ? 'b-soon' : 'b-ok';
+    const badgeText = o.daysLeft < 0 ? `J+${-o.daysLeft}<small>dépassée</small>`
+      : o.daysLeft === 0 ? `Aujourd’hui`
+      : `J−${o.daysLeft}<small>restants</small>`;
+    const div = document.createElement('div');
+    div.className = 'deadline';
+    div.innerHTML = `
+      <div class="due-badge ${badgeClass}">${badgeText}</div>
+      <div class="body">
+        <p class="code">${o.report.code} <em>· ${FREQ_FR[o.report.frequency] || o.report.frequency}</em></p>
+        <p class="desc">${o.report.description}</p>
+        <div class="chips">${o.report.entities.map(e => `<span class="chip">${e}</span>`).join('')}</div>
+        <p class="meta">Fin de période : ${fmtDate(o.periodEnd)} → <strong>échéance : ${fmtDate(o.due)}</strong> (délai : ${o.report.offset})</p>
+      </div>`;
+    list.appendChild(div);
+  }
+}
+
+// --- Notifications ----------------------------------------------------------
+function notifStatusText() {
+  const el = $('notifStatus');
+  if (!('Notification' in window)) { el.innerHTML = '<span class="ko">Non supportées par ce navigateur.</span>'; return; }
+  const p = Notification.permission;
+  el.innerHTML = p === 'granted'
+    ? '<span class="ok">Activées ✓</span> — vérification à l’ouverture puis toutes les 30 min tant que l’app est ouverte.'
+    : p === 'denied'
+      ? '<span class="ko">Refusées</span> — réautorisez-les dans les réglages du navigateur pour ce site.'
+      : 'Non activées — appuyez sur « Activer les notifications ».';
+}
+
+async function showNotification(title, body) {
+  // Android (PWA installée) exige le service worker ; new Notification() en secours.
+  const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+  const options = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
+  if (reg && reg.showNotification) reg.showNotification(title, options);
+  else new Notification(title, options);
+}
+
+function checkDeadlines() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const lead = Number($('leadDays').value);
+  const notified = JSON.parse(localStorage.getItem('dn-notified') || '{}');
+  const entity = $('entity').value;
+  let occ = buildOccurrences(0, lead);
+  if (entity !== 'all') occ = occ.filter(o => o.report.entities.includes(entity));
+  for (const o of occ.slice(0, 10)) { // au plus 10 notifications par vérification
+    const key = `${o.report.code}|${o.due}`;
+    if (notified[key]) continue;
+    notified[key] = Date.now();
+    const when = o.daysLeft === 0 ? 'aujourd’hui' : `dans ${o.daysLeft} jour${o.daysLeft > 1 ? 's' : ''}`;
+    showNotification(`⏰ ${o.report.code} — échéance ${when}`,
+      `${o.report.description}\nFin de période ${fmtDate(o.periodEnd)} → à remettre le ${fmtDate(o.due)}.`);
+  }
+  // Purge des marqueurs de plus de 6 mois pour ne pas gonfler le localStorage.
+  for (const [k, t] of Object.entries(notified)) if (Date.now() - t > 183 * DAY) delete notified[k];
+  localStorage.setItem('dn-notified', JSON.stringify(notified));
+}
+
+$('enableBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  await Notification.requestPermission();
+  notifStatusText();
+  checkDeadlines();
+});
+$('testBtn').addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') await Notification.requestPermission();
+  notifStatusText();
+  if (Notification.permission === 'granted') {
+    showNotification('🔔 Test — Deadline Notifier', 'Les notifications fonctionnent. Vous serez prévenu selon le préavis choisi.');
+  }
+});
+
+for (const id of ['entity', 'horizon', 'search']) $(id).addEventListener('input', () => { saveSettings(); render(); });
+$('leadDays').addEventListener('input', () => { saveSettings(); checkDeadlines(); });
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+notifStatusText();
+render();
+checkDeadlines();
+setInterval(checkDeadlines, 30 * 60 * 1000);
+</script>
+</body>
+</html>
