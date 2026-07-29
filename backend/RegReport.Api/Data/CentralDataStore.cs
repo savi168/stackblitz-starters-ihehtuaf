@@ -33,6 +33,9 @@ public static class CentralDataStore
             NsfrReports = await db.NsfrReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             FinStatements = await db.FinStatements.AsNoTracking().Include(s => s.LineItems).ToListAsync(),
             Scenarios = await db.Scenarios.AsNoTracking().Include(s => s.Shocks).ToListAsync(),
+            ProdCounterparties = await db.ProdCounterparties.AsNoTracking().ToListAsync(),
+            ProdSecurities = await db.ProdSecurities.AsNoTracking().ToListAsync(),
+            ProdGuaranteeRefs = await db.ProdGuaranteeRefs.AsNoTracking().ToListAsync(),
             Bilan = await db.Bilans.AsNoTracking().FirstOrDefaultAsync() ?? new Bilan(),
             RiskAppetite = riskRows.ToDictionary(r => r.Entity, r => r.Thresholds ?? new EntityThresholds()),
             DiagnosisResults = diagRows.Count == 0
@@ -70,6 +73,9 @@ public static class CentralDataStore
         db.FinStatements.RemoveRange(db.FinStatements);
         db.ScenarioShocks.RemoveRange(db.ScenarioShocks);
         db.Scenarios.RemoveRange(db.Scenarios);
+        db.ProdCounterparties.RemoveRange(db.ProdCounterparties);
+        db.ProdSecurities.RemoveRange(db.ProdSecurities);
+        db.ProdGuaranteeRefs.RemoveRange(db.ProdGuaranteeRefs);
         db.Bilans.RemoveRange(db.Bilans);
         db.RiskAppetite.RemoveRange(db.RiskAppetite);
         db.DiagnosisResults.RemoveRange(db.DiagnosisResults);
@@ -104,6 +110,9 @@ public static class CentralDataStore
             s.Id = 0;
             foreach (var i in s.Shocks) { i.Id = 0; i.ScenarioId = 0; }
         }
+        foreach (var p in data.ProdCounterparties) p.Id = 0;
+        foreach (var p in data.ProdSecurities) p.Id = 0;
+        foreach (var p in data.ProdGuaranteeRefs) p.Id = 0;
 
         db.Deadlines.AddRange(data.Deadlines);
         db.KpiHistory.AddRange(data.KpisHistory); // LiquidityRows inserted via navigation
@@ -117,6 +126,9 @@ public static class CentralDataStore
         db.NsfrReports.AddRange(data.NsfrReports);
         db.FinStatements.AddRange(data.FinStatements);
         db.Scenarios.AddRange(data.Scenarios);
+        db.ProdCounterparties.AddRange(data.ProdCounterparties);
+        db.ProdSecurities.AddRange(data.ProdSecurities);
+        db.ProdGuaranteeRefs.AddRange(data.ProdGuaranteeRefs);
         db.Bilans.Add(data.Bilan);
         db.RiskAppetite.AddRange(data.RiskAppetite.Select(kv =>
             new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value ?? new EntityThresholds() }));

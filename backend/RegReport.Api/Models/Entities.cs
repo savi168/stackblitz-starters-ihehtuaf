@@ -488,6 +488,56 @@ public class DiagnosisEntry
     public string? Field { get; set; }
 }
 
+// ---- Production controls (team): period-over-period consistency data ----
+
+/// <summary>One counterparty-level record of a production dataset (CSV-fed).</summary>
+public class ProdCounterpartyRecord
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    // liquidityAssets | dueFromBanks | dueToBanks | dueFromCustomers | dueToCustomers | mortgages
+    public string Dataset { get; set; } = "";
+    public string ClientNumber { get; set; } = "";
+    public string ClientType { get; set; } = "";
+    // Grouplexid: ultimate parent of the counterparty.
+    public string GroupLexId { get; set; } = "";
+    public string CounterpartyType { get; set; } = "";
+    public string? IssuerRating { get; set; }
+    public double? Amount { get; set; }
+    public string? Currency { get; set; }
+}
+
+/// <summary>One security record (ISIN vs security master, CSV-fed).</summary>
+public class ProdSecurityRecord
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string Isin { get; set; } = "";
+    public string? SecurityMaster { get; set; }
+    public string? SecurityType { get; set; }
+    public string? Rating { get; set; }
+    public bool? DailyReval { get; set; }
+    public string? IssuerLexId { get; set; }
+    public string? GuarantorLexId { get; set; }
+    public string? GuarantorName { get; set; }
+    public string? HqlaLevel { get; set; }
+    public double? Amount { get; set; }
+}
+
+/// <summary>Expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1).</summary>
+public class ProdGuaranteeRef
+{
+    public long Id { get; set; }
+    public string GroupLexId { get; set; } = "";
+    public string? Name { get; set; }
+    public string? GuarantorLexId { get; set; }
+    public string? GuarantorName { get; set; }
+    public string? ExpectedHqlaLevel { get; set; }
+    public string? Notes { get; set; }
+}
+
 // Key/value store. Only used for the Excel import mapping — a free-form JSON
 // document owned by the frontend parser whose schema follows the FINMA/SNB
 // template versions; everything else lives in real relational tables.
@@ -516,6 +566,9 @@ public class CentralData
     public List<NsfrReport> NsfrReports { get; set; } = new();
     public List<FinStatement> FinStatements { get; set; } = new();
     public List<Scenario> Scenarios { get; set; } = new();
+    public List<ProdCounterpartyRecord> ProdCounterparties { get; set; } = new();
+    public List<ProdSecurityRecord> ProdSecurities { get; set; } = new();
+    public List<ProdGuaranteeRef> ProdGuaranteeRefs { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

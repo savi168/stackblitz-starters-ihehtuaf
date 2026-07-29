@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { to: '/scenarios', label: 'Scenarios' },
   { to: '/details', label: 'KPI Analysis' },
   { to: '/capital', label: 'Workbench', adminOnly: true },
+  { to: '/production', label: 'Production', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
   { to: '/projects', label: 'Projects' },
@@ -33,6 +34,7 @@ const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(
 const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
 const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
+const ProductionPage = lazy(() => import('./pages/ProductionPage'));
 
 const PageLoader: React.FC = () => (
   <div className="flex items-center justify-center py-24 text-brand-text-secondary">
@@ -114,6 +116,7 @@ const App: React.FC = () => {
                   <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
                   <Route path="/report" element={<ManagementReportPage />} />
                   <Route path="/scenarios" element={<ScenariosPage />} />
+                  <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

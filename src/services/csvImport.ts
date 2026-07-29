@@ -494,6 +494,157 @@ export const convertRwaCcyCsv = (lines: string[][]): RwaCcyCsvResult => {
   return { rows, warnings };
 };
 
+// --- Production controls: counterparty datasets / securities / reference ------------
+
+const PROD_DATASET_KEYS = new Set(['liquidityAssets', 'dueFromBanks', 'dueToBanks', 'dueFromCustomers', 'dueToCustomers', 'mortgages']);
+
+export const buildProdCounterpartyTemplate = (delim = ','): string => {
+  const rows = [
+    ['date', 'dataset', 'client_number', 'client_type', 'group_lexid', 'counterparty_type', 'issuer_rating', 'amount', 'currency'],
+    ['2025-12-31', 'liquidityAssets', 'C-10001', 'BANKB', 'LEX-KFW', 'financial', 'AAA', '120.5', 'EUR'],
+    ['2025-12-31', 'dueFromBanks', 'C-20044', 'BANKB', 'LEX-UBS', 'retail bank', 'A+', '85.0', 'CHF'],
+    ['2025-12-31', 'dueFromCustomers', 'C-30412', 'PRIVP', 'LEX-30412', 'retail', '', '12.3', 'CHF'],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export interface ProdCounterpartyCsvResult {
+  rows: Array<{ date: string; dataset: string; clientNumber: string; clientType: string; groupLexId: string; counterpartyType: string; issuerRating?: string; amount?: number; currency?: string }>;
+  warnings: string[];
+}
+
+export const convertProdCounterpartyCsv = (lines: string[][]): ProdCounterpartyCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
+  const iDate = col('date'), iDs = col('dataset'), iClient = col('client_number', 'client');
+  const iCt = col('client_type'), iLex = col('group_lexid', 'grouplexid'), iCpt = col('counterparty_type', 'type');
+  const iRating = col('issuer_rating', 'rating'), iAmount = col('amount'), iCcy = col('currency');
+  if (iDate === -1 || iDs === -1 || iClient === -1) {
+    throw new Error('The header must contain: date, dataset, client_number (plus client_type, group_lexid, counterparty_type, issuer_rating, amount, currency).');
+  }
+  const rows: ProdCounterpartyCsvResult['rows'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const c = lines[li];
+    const date = normDate(c[iDate] ?? '');
+    const dataset = (c[iDs] ?? '').trim();
+    const clientNumber = (c[iClient] ?? '').trim();
+    if (!date && !clientNumber) continue;
+    if (!date) { warnings.push(`Line ${li + 1}: invalid date "${c[iDate]}" — skipped.`); continue; }
+    if (!PROD_DATASET_KEYS.has(dataset)) { warnings.push(`Line ${li + 1}: unknown dataset "${dataset}" (expected ${Array.from(PROD_DATASET_KEYS).join('|')}) — skipped.`); continue; }
+    if (!clientNumber) { warnings.push(`Line ${li + 1}: empty client_number — skipped.`); continue; }
+    const rawAmount = iAmount >= 0 ? (c[iAmount] ?? '').trim() : '';
+    const amount = rawAmount === '' ? undefined : Number(rawAmount.replace(',', '.'));
+    if (amount !== undefined && isNaN(amount)) { warnings.push(`Line ${li + 1}: amount "${rawAmount}" is not a number — skipped.`); continue; }
+    rows.push({
+      date, dataset, clientNumber,
+      clientType: iCt >= 0 ? (c[iCt] ?? '').trim() : '',
+      groupLexId: iLex >= 0 ? (c[iLex] ?? '').trim() : '',
+      counterpartyType: iCpt >= 0 ? (c[iCpt] ?? '').trim() : '',
+      ...(iRating >= 0 && (c[iRating] ?? '').trim() ? { issuerRating: (c[iRating] ?? '').trim() } : {}),
+      ...(amount !== undefined ? { amount } : {}),
+      ...(iCcy >= 0 && (c[iCcy] ?? '').trim() ? { currency: (c[iCcy] ?? '').trim().toUpperCase() } : {}),
+    });
+  }
+  return { rows, warnings };
+};
+
+export const buildProdSecuritiesTemplate = (delim = ','): string => {
+  const rows = [
+    ['date', 'isin', 'security_master', 'security_type', 'rating', 'daily_reval', 'issuer_lexid', 'guarantor_lexid', 'guarantor_name', 'hqla_level', 'amount'],
+    ['2025-12-31', 'DE000KFW0001', 'SM-88410', 'bond', 'AAA', 'true', 'LEX-KFW', 'LEX-DE-GOV', 'German government', 'L1', '54.2'],
+    ['2025-12-31', 'CH0012032048', 'SM-11220', 'equity', 'A', 'true', 'LEX-ROCHE', '', '', 'L2b', '12.7'],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export interface ProdSecuritiesCsvResult {
+  rows: Array<{ date: string; isin: string; securityMaster?: string; securityType?: string; rating?: string; dailyReval?: boolean; issuerLexId?: string; guarantorLexId?: string; guarantorName?: string; hqlaLevel?: string; amount?: number }>;
+  warnings: string[];
+}
+
+export const convertProdSecuritiesCsv = (lines: string[][]): ProdSecuritiesCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
+  const iDate = col('date'), iIsin = col('isin');
+  const iSm = col('security_master', 'securitymaster'), iType = col('security_type', 'type');
+  const iRating = col('rating'), iReval = col('daily_reval', 'reval');
+  const iIssuer = col('issuer_lexid'), iGLex = col('guarantor_lexid'), iGName = col('guarantor_name', 'guarantor');
+  const iHqla = col('hqla_level', 'hqla'), iAmount = col('amount');
+  if (iDate === -1 || iIsin === -1) throw new Error('The header must contain: date, isin (plus the security attributes).');
+  const rows: ProdSecuritiesCsvResult['rows'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const c = lines[li];
+    const date = normDate(c[iDate] ?? '');
+    const isin = (c[iIsin] ?? '').trim().toUpperCase();
+    if (!date && !isin) continue;
+    if (!date) { warnings.push(`Line ${li + 1}: invalid date "${c[iDate]}" — skipped.`); continue; }
+    if (!isin) { warnings.push(`Line ${li + 1}: empty isin — skipped.`); continue; }
+    const rawAmount = iAmount >= 0 ? (c[iAmount] ?? '').trim() : '';
+    const amount = rawAmount === '' ? undefined : Number(rawAmount.replace(',', '.'));
+    if (amount !== undefined && isNaN(amount)) { warnings.push(`Line ${li + 1}: amount "${rawAmount}" is not a number — skipped.`); continue; }
+    const get = (i: number) => (i >= 0 ? (c[i] ?? '').trim() : '');
+    const revalRaw = get(iReval).toLowerCase();
+    rows.push({
+      date, isin,
+      ...(get(iSm) ? { securityMaster: get(iSm) } : {}),
+      ...(get(iType) ? { securityType: get(iType) } : {}),
+      ...(get(iRating) ? { rating: get(iRating) } : {}),
+      ...(revalRaw ? { dailyReval: ['true', '1', 'yes', 'x'].includes(revalRaw) } : {}),
+      ...(get(iIssuer) ? { issuerLexId: get(iIssuer) } : {}),
+      ...(get(iGLex) ? { guarantorLexId: get(iGLex) } : {}),
+      ...(get(iGName) ? { guarantorName: get(iGName) } : {}),
+      ...(get(iHqla) ? { hqlaLevel: get(iHqla) } : {}),
+      ...(amount !== undefined ? { amount } : {}),
+    });
+  }
+  return { rows, warnings };
+};
+
+export const buildProdRefTemplate = (delim = ','): string => {
+  const rows = [
+    ['group_lexid', 'name', 'guarantor_lexid', 'guarantor_name', 'expected_hqla_level', 'notes'],
+    ['LEX-KFW', 'KFW', 'LEX-DE-GOV', 'German government', 'L1', 'explicit federal guarantee'],
+    ['LEX-DE-GOV', 'German government', '', '', 'L1', 'sovereign'],
+  ];
+  return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
+};
+
+export interface ProdRefCsvResult {
+  rows: Array<{ groupLexId: string; name?: string; guarantorLexId?: string; guarantorName?: string; expectedHqlaLevel?: string; notes?: string }>;
+  warnings: string[];
+}
+
+export const convertProdRefCsv = (lines: string[][]): ProdRefCsvResult => {
+  if (lines.length < 2) throw new Error('The CSV needs a header line and at least one data line.');
+  const header = lines[0].map(h => h.trim().toLowerCase());
+  const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
+  const iLex = col('group_lexid', 'grouplexid'), iName = col('name');
+  const iGLex = col('guarantor_lexid'), iGName = col('guarantor_name', 'guarantor');
+  const iHqla = col('expected_hqla_level', 'hqla_level', 'hqla'), iNotes = col('notes');
+  if (iLex === -1) throw new Error('The header must contain: group_lexid (plus name, guarantor_lexid, guarantor_name, expected_hqla_level, notes).');
+  const rows: ProdRefCsvResult['rows'] = [];
+  const warnings: string[] = [];
+  for (let li = 1; li < lines.length; li++) {
+    const c = lines[li];
+    const groupLexId = (c[iLex] ?? '').trim();
+    if (!groupLexId) { if (c.some(x => (x ?? '').trim())) warnings.push(`Line ${li + 1}: empty group_lexid — skipped.`); continue; }
+    const get = (i: number) => (i >= 0 ? (c[i] ?? '').trim() : '');
+    rows.push({
+      groupLexId,
+      ...(get(iName) ? { name: get(iName) } : {}),
+      ...(get(iGLex) ? { guarantorLexId: get(iGLex) } : {}),
+      ...(get(iGName) ? { guarantorName: get(iGName) } : {}),
+      ...(get(iHqla) ? { expectedHqlaLevel: get(iHqla) } : {}),
+      ...(get(iNotes) ? { notes: get(iNotes) } : {}),
+    });
+  }
+  return { rows, warnings };
+};
+
 // --- Financial statements bulk load (Workbench) ------------------------------------
 
 const FIN_SECTIONS: Record<string, string[]> = {

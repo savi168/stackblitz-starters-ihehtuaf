@@ -27,6 +27,9 @@ public class AppDbContext : DbContext
     public DbSet<FinStatementLineItem> FinStatementLineItems => Set<FinStatementLineItem>();
     public DbSet<Scenario> Scenarios => Set<Scenario>();
     public DbSet<ScenarioShock> ScenarioShocks => Set<ScenarioShock>();
+    public DbSet<ProdCounterpartyRecord> ProdCounterparties => Set<ProdCounterpartyRecord>();
+    public DbSet<ProdSecurityRecord> ProdSecurities => Set<ProdSecurityRecord>();
+    public DbSet<ProdGuaranteeRef> ProdGuaranteeRefs => Set<ProdGuaranteeRef>();
     public DbSet<Bilan> Bilans => Set<Bilan>();
     public DbSet<RiskAppetiteEntry> RiskAppetite => Set<RiskAppetiteEntry>();
     public DbSet<DiagnosisEntry> DiagnosisResults => Set<DiagnosisEntry>();
@@ -170,6 +173,26 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.ScenarioId).OnDelete(DeleteBehavior.Cascade);
         });
         b.Entity<ScenarioShock>(e => { e.HasKey(x => x.Id); e.HasIndex(x => x.ScenarioId); });
+
+        // Production controls: counterparty datasets, securities, reference.
+        b.Entity<ProdCounterpartyRecord>(e =>
+        {
+            e.ToTable("ProdCounterparties");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date, x.Dataset });
+        });
+        b.Entity<ProdSecurityRecord>(e =>
+        {
+            e.ToTable("ProdSecurities");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date });
+        });
+        b.Entity<ProdGuaranteeRef>(e =>
+        {
+            e.ToTable("ProdGuaranteeRefs");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupLexId);
+        });
 
         // Balance-sheet currency totals: single-row table (shadow identity key).
         b.Entity<Bilan>(e =>

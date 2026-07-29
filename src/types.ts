@@ -242,7 +242,60 @@ export interface FinStatement {
   lineItems: FinStatementLineItem[];
 }
 
-// ---- Scenario simulation (what-if shocks on the regulatory ratios) ----
+// ---- Production controls (team): period-over-period consistency checks ----
+
+export type ProdDataset =
+  | 'liquidityAssets' | 'dueFromBanks' | 'dueToBanks'
+  | 'dueFromCustomers' | 'dueToCustomers' | 'mortgages';
+
+/** One counterparty-level record of a production dataset (CSV-fed). */
+export interface ProdCounterpartyRecord {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  dataset: ProdDataset;
+  clientNumber: string;
+  /** Client type from the internal data model. */
+  clientType: string;
+  /** Grouplexid: ultimate parent of the counterparty. */
+  groupLexId: string;
+  /** Counterparty type (retail bank, financial…). */
+  counterpartyType: string;
+  issuerRating?: string;
+  amount?: number; // mCHF
+  currency?: string;
+}
+
+/** One security record (ISIN vs security master, CSV-fed). */
+export interface ProdSecurityRecord {
+  id: number;
+  entity: string;
+  date: string; // YYYY-MM-DD
+  isin: string;
+  /** Security master identifier of the collateral. */
+  securityMaster?: string;
+  securityType?: string;
+  rating?: string;
+  dailyReval?: boolean;
+  /** Grouplexid of the issuer's ultimate parent. */
+  issuerLexId?: string;
+  guarantorLexId?: string;
+  guarantorName?: string;
+  hqlaLevel?: string; // L1 | L2a | L2b | nonHqla
+  amount?: number; // mCHF
+}
+
+/** Reference: expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1). */
+export interface ProdGuaranteeRef {
+  id: number;
+  groupLexId: string;
+  name?: string;
+  guarantorLexId?: string;
+  guarantorName?: string;
+  expectedHqlaLevel?: string;
+  notes?: string;
+}
+
 
 export type ShockTarget = 'capital' | 'lcr' | 'nsfr';
 
@@ -388,6 +441,9 @@ export interface CentralData {
   nsfrReports?: NsfrReport[];
   finStatements?: FinStatement[];
   scenarios?: Scenario[];
+  prodCounterparties?: ProdCounterpartyRecord[];
+  prodSecurities?: ProdSecurityRecord[];
+  prodGuaranteeRefs?: ProdGuaranteeRef[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }
