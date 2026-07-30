@@ -118,6 +118,80 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
     );
   };
 
+
+/** Correction aid: pick the value to keep among divergent attributes — the
+ * tool prepares the targeted UPDATE for MERCURY (review, then run in SSMS;
+ * PointInTime is resolved from core_loads, loadid = PIT convention). */
+const CORR_CPTY_COLS: Record<string, string> = {
+  clientType: 'TypeOf', groupLexId: 'GroupLEXId',
+  counterpartyType: 'EconomicActivityType', issuerRating: 'RatingClass',
+};
+const CORR_SEC_COLS: Record<string, string> = {
+  securityType: 'TypeOf', rating: 'RatingClass', hqlaLevel: 'HQLACategory',
+};
+const sqlLit = (v: string) => (/^\d+$/.test(v) ? v : `'${v.replace(/'/g, "''")}'`);
+
+const CorrectionHelper: React.FC<{ kind: 'cpty' | 'sec'; rows: Array<Record<string, unknown>>; keyValue: string }> =
+  ({ kind, rows, keyValue }) => {
+    const [script, setScript] = useState('');
+    const cols = kind === 'cpty' ? CORR_CPTY_COLS : CORR_SEC_COLS;
+    const divergent = Object.keys(cols).filter(f => {
+      const vals = new Set(rows.map(r => String(r[f] ?? '')).filter(Boolean));
+      return vals.size > 1;
+    });
+    if (divergent.length === 0) return null;
+
+    const prepare = (field: string, keep: string) => {
+      const table = kind === 'cpty' ? 'list_counterparties' : 'list_securities';
+      const keyCol = kind === 'cpty' ? 'Id' : 'ISIN';
+      const col = cols[field];
+      const wrongRows = rows.filter(r => String(r[field] ?? '') !== keep && String(r[field] ?? ''));
+      const wrongVals = Array.from(new Set(wrongRows.map(r => String(r[field]))));
+      const dates = Array.from(new Set(wrongRows.map(r => String(r.date))));
+      const sql = [
+        `-- Correction prepared by RegReport Production on ${new Date().toISOString().slice(0, 10)}`,
+        `-- Decision: keep ${col} = ${keep} for ${keyValue}; fix the load(s) of ${dates.join(', ')}`,
+        `-- Review before executing on MERCURY, then re-run the feed (loadid = PointInTime convention).`,
+        `UPDATE t SET t.${col} = ${sqlLit(keep)}`,
+        `FROM ${table} t`,
+        `WHERE t.${keyCol} = '${keyValue.replace(/'/g, "''")}'`,
+        `  AND t.${col} IN (${wrongVals.map(sqlLit).join(', ')})`,
+        `  AND t.PointInTime IN (SELECT LoadId FROM core_loads`,
+        `                        WHERE ReportingDate IN (${dates.map(d => `'${d}'`).join(', ')}));`,
+      ].join('\n');
+      setScript(sql);
+    };
+
+    return (
+      <div className="mt-2 border-t border-efg-line pt-2">
+        <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1">
+          Correction aid — pick the value to keep
+        </p>
+        <div className="flex flex-wrap gap-2 mb-2">
+          {divergent.map(field => {
+            const vals = Array.from(new Set(rows.map(r => String(r[field] ?? '')).filter(Boolean)));
+            return vals.map(v => (
+              <button key={`${field}:${v}`} onClick={() => prepare(field, v)}
+                className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-2.5 rounded-md transition-colors">
+                {cols[field]}: keep "{v}"
+              </button>
+            ));
+          })}
+        </div>
+        {script && (
+          <div>
+            <textarea readOnly value={script} rows={script.split('\n').length}
+              className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
+            <button onClick={() => navigator.clipboard.writeText(script)}
+              className="mt-1 text-[11px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1 px-3 rounded-md transition-colors">
+              📋 Copy UPDATE (run in SSMS after review)
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities } = useData();
   const [tab, setTab] = useState<'prereq' | 'controls'>('prereq');
@@ -458,6 +532,10 @@ const ProductionPage: React.FC = () => {
                                         </tr>))}
                                   </tbody>
                                 </table>
+                              )}
+                              {detail.length > 0 && (
+                                <CorrectionHelper kind={isSec ? 'sec' : 'cpty'}
+                                  rows={detail as unknown as Array<Record<string, unknown>>} keyValue={f.key} />
                               )}
                             </td>
                           </tr>
