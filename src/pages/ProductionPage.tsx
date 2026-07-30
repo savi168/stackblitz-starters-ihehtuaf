@@ -27,6 +27,97 @@ const SEV_STYLE: Record<ControlFinding['severity'], string> = {
   info: 'bg-brand-bg-body text-brand-text-secondary border-efg-line',
 };
 
+/** Trigger the MERCURY-side feed (TVF) for a loadid + product type. */
+const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; onError: (msg: string) => void }> =
+  ({ entity, onLoaded, onError }) => {
+    const { mode, apiBaseUrl, reload } = useData();
+    const [target, setTarget] = useState<'counterparties' | 'securities'>('counterparties');
+    const [dataset, setDataset] = useState('liquidityAssets');
+    const [date, setDate] = useState('');
+    const [loadId, setLoadId] = useState('');
+    const [productType, setProductType] = useState('');
+    const [busy, setBusy] = useState(false);
+
+    if (mode !== 'api') {
+      return (
+        <Card>
+          <SectionHeader title="0 — Feed from MERCURY" suffix="requires the API backend" />
+          <p className="text-sm text-brand-text-secondary">
+            Connect the app to the .NET backend to trigger the MERCURY TVF feed (loadid + product type) —
+            see docs/MERCURY_INTEGRATION.md.
+          </p>
+        </Card>
+      );
+    }
+
+    const run = async () => {
+      if (!date || !loadId) { onError('MERCURY feed: reporting date and loadid are required.'); return; }
+      setBusy(true);
+      try {
+        const res = await fetch(`${apiBaseUrl}/production/mercury/load`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ target, entity, date, loadId, productType: productType || null, dataset }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`);
+        }
+        const out = await res.json() as { inserted: number; skipped: number; tvf: string };
+        await reload();
+        onLoaded(`MERCURY feed OK: ${out.inserted} row(s) loaded into ${target} for ${entity} — ${date} (loadid ${loadId}${productType ? `, ${productType}` : ''}) via ${out.tvf}${out.skipped ? ` · ${out.skipped} row(s) without key skipped` : ''}.`);
+      } catch (err) {
+        onError(`MERCURY feed failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally { setBusy(false); }
+    };
+
+    const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
+    return (
+      <Card>
+        <SectionHeader title="0 — Feed from MERCURY" suffix="trigger the TVF by loadid + product type — replaces the scope, then run the controls" />
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Target</label>
+            <select value={target} onChange={e => setTarget(e.target.value as 'counterparties' | 'securities')} className={input}>
+              <option value="counterparties">Counterparty datasets</option>
+              <option value="securities">Securities</option>
+            </select>
+          </div>
+          {target === 'counterparties' && (
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Dataset (if TVF has none)</label>
+              <select value={dataset} onChange={e => setDataset(e.target.value)} className={input}>
+                {PROD_DATASETS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+              </select>
+            </div>
+          )}
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={input} />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
+            <input value={loadId} onChange={e => setLoadId(e.target.value)} placeholder="e.g. 20251231-01" className={input} />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Product type (optional)</label>
+            <input value={productType} onChange={e => setProductType(e.target.value)} placeholder="e.g. BONDS" className={input} />
+          </div>
+          <button onClick={run} disabled={busy}
+            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
+            {busy ? 'Loading…' : '⚡ Load from MERCURY'}
+          </button>
+        </div>
+        <p className="text-[11px] text-brand-text-secondary mt-2">
+          The API calls the TVF configured in Production:Sources (e.g. dbo.fn_regreport_prod_counterparties(@loadid, @producttype))
+          on the MERCURY connection — the TVF owns the joins (core_positions × list_counterparty…) and returns the fixed
+          column contract described in docs/MERCURY_INTEGRATION.md.
+        </p>
+      </Card>
+    );
+  };
+
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities } = useData();
   const [tab, setTab] = useState<'prereq' | 'controls'>('prereq');
@@ -191,6 +282,7 @@ const ProductionPage: React.FC = () => {
 
       {tab === 'prereq' && (
         <>
+          <MercuryCard entity={entity} onLoaded={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
           <Card>
             <SectionHeader title="1 — Counterparty datasets" suffix="liquidity assets · due from/to banks · due from/to customers · mortgages" />
             <p className="text-[12px] text-brand-text-secondary mb-3">
