@@ -8,7 +8,7 @@ import {
 } from '../services/csvImport';
 import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
-  runSecurityDrift, runSecurityVsRef,
+  runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
 
 /**
@@ -239,6 +239,7 @@ const ProductionPage: React.FC = () => {
     }
     out.push(...runCrossDataset(cps, entity, date));
     out.push(...runSecurityVsRef(secs, refs, entity, date));
+    out.push(...runOrphans(cps, entity, date));
     const order = { error: 0, warning: 1, info: 2 };
     return out.sort((a, b) => order[a.severity] - order[b.severity] || a.control.localeCompare(b.control));
   }, [cps, secs, refs, entity, date, compare]);
@@ -422,6 +423,7 @@ const ProductionPage: React.FC = () => {
             C2 — same grouplexid must carry one single treatment across all datasets of the period.
             C3 — security attribute drift per ISIN (HQLA level change = error).
             C4 — guarantor & HQLA level vs the Grouplexid reference (physical data must match the HQLA report treatment).
+            C5 — orphan positions: the counterparty resolved by the MERCURY feed (issuer for securities) was not found in list_counterparties at the load PIT.
           </p>
         </Card>
       )}

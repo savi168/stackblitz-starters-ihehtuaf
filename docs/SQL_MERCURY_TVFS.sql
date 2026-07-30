@@ -23,58 +23,92 @@
 -- =============================================================================
 
 -- 1) Counterparty datasets ----------------------------------------------------
--- Scope: balance sheet only, LEFT(LegalAccountNumber,1) IN ('1','2') = assets
--- & liabilities. Single counterparty resolution: the ISSUER of the security
--- (via list_securities) when TypeOf = 'Security', the position counterparty
--- otherwise — both matched on Id + PointInTime. One row per resolved
--- counterparty × dataset; the app's C1/C2 controls verify the treatment stays
--- identical period over period and across datasets.
+-- Scope: banking-book accounts only, LEFT(LegalAccountNumber,3) IN
+-- (101…111, 201…209). Counterparty resolution: the ISSUER of the security
+-- (via list_securities, matched on the security's PointInTime) when
+-- TypeOf = 'Security', the position counterparty otherwise.
+--
+-- Main block is driven FROM list_counterparties (clean world, one row per
+-- counterparty × dataset). Positions whose resolved counterparty is NOT found
+-- at the PIT are returned too, with empty ClientType/GroupLexId — the app
+-- flags them as control C5 "orphan positions".
 CREATE OR ALTER FUNCTION dbo.fn_regreport_prod_counterparties
     (@loadId int, @productType varchar(20) = NULL)
 RETURNS TABLE
 AS RETURN
+WITH pos AS (
+    SELECT cp.Id, cp.LegalAccountNumber, cp.TypeOf, cp.SubType,
+           cp.BookAmount, cp.Currency,
+           CASE WHEN cp.TypeOf = 'Security' THEN ls.IssuerId    ELSE cp.CounterpartyId  END AS ResolvedId,
+           -- security's own PointInTime (IssuerPIT is not reliably fed)
+           CASE WHEN cp.TypeOf = 'Security' THEN ls.PointInTime ELSE cp.CounterpartyPIT END AS ResolvedPIT
+    FROM core_positions cp
+    LEFT JOIN list_securities ls
+      ON  ls.Id          = cp.SecurityId
+      AND ls.PointInTime = cp.SecurityPIT
+    WHERE cp.LoadId = @loadId
+      AND LEFT(cp.LegalAccountNumber, 3) IN
+          ('101','102','103','104','105','106','110','111',
+           '201','202','203','204','206','207','208','209')
+      AND (@productType IS NULL OR cp.TypeOf = @productType)
+)
+-- Clean world: driven from list_counterparties.
 SELECT
     ds.Dataset,
-    cpty.ResolvedId                          AS ClientNumber,   -- issuer for securities, counterparty otherwise
-    -- "Type de client du datamodel": regulatory classification enum. If your
-    -- internal client type lives in list_clients, join it here instead.
-    lc.TypeOf                                AS ClientType,
-    lc.GroupLEXId                            AS GroupLexId,
-    -- Economic sector (NOGA/NACE). Swap with lc.TypeOf if you prefer the
-    -- regulatory enum as "counterparty type".
-    lc.EconomicActivityType                  AS CounterpartyType,
+    lc.Id                                    AS ClientNumber,
+    lc.TypeOf                                AS ClientType,        -- regulatory enum (data model)
+    lc.GroupLEXId                            AS GroupLexId,        -- ultimate parent
+    lc.EconomicActivityType                  AS CounterpartyType,  -- NOGA/NACE sector
     CAST(lc.RatingClass AS varchar(10))      AS IssuerRating,
-    SUM(cp.BookAmount) / 1000000.0           AS Amount,         -- reporting ccy → mn
-    CASE WHEN COUNT(DISTINCT cp.Currency) = 1 THEN MIN(cp.Currency) END AS Currency
-FROM core_positions cp
-LEFT JOIN list_securities ls
-  ON  ls.Id          = cp.SecurityId
-  AND ls.PointInTime = cp.SecurityPIT
-CROSS APPLY (SELECT
-    CASE WHEN cp.TypeOf = 'Security' THEN ls.IssuerId  ELSE cp.CounterpartyId  END AS ResolvedId,
-    -- Convention: the security's own PointInTime is used for the issuer
-    -- lookup (ls.IssuerPIT is not reliably fed in our loads).
-    CASE WHEN cp.TypeOf = 'Security' THEN ls.PointInTime ELSE cp.CounterpartyPIT END AS ResolvedPIT) cpty
-LEFT JOIN list_counterparties lc
-  ON  lc.Id          = cpty.ResolvedId
-  AND lc.PointInTime = cpty.ResolvedPIT
+    SUM(p.BookAmount) / 1000000.0            AS Amount,            -- reporting ccy → mn
+    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency
+FROM list_counterparties lc
+JOIN pos p
+  ON  p.ResolvedId  = lc.Id
+  AND p.ResolvedPIT = lc.PointInTime
 CROSS APPLY (SELECT CASE
-    -- Dataset mapping — ADJUST the subtypes/prefixes to your chart
-    -- (LegalAccountNumber drives the CH reporting: 1xx assets, 2xx liabilities).
-    WHEN cp.TypeOf IN ('Security', 'Cash')                       THEN 'liquidityAssets'
+    WHEN p.TypeOf IN ('Security', 'Cash')                        THEN 'liquidityAssets'
     WHEN lc.TypeOf IN ('Bank', 'CBank', 'SNB', 'CHSIB', 'GSIB', 'CGCB')
-         AND LEFT(cp.LegalAccountNumber, 1) = '1'                THEN 'dueFromBanks'
+         AND LEFT(p.LegalAccountNumber, 1) = '1'                 THEN 'dueFromBanks'
     WHEN lc.TypeOf IN ('Bank', 'CBank', 'SNB', 'CHSIB', 'GSIB', 'CGCB')
-         AND LEFT(cp.LegalAccountNumber, 1) = '2'                THEN 'dueToBanks'
-    WHEN cp.SubType LIKE '%Mortgage%'                            THEN 'mortgages'
-    WHEN LEFT(cp.LegalAccountNumber, 1) = '2'                    THEN 'dueToCustomers'
+         AND LEFT(p.LegalAccountNumber, 1) = '2'                 THEN 'dueToBanks'
+    WHEN p.SubType LIKE '%Mortgage%'                             THEN 'mortgages'
+    WHEN LEFT(p.LegalAccountNumber, 1) = '2'                     THEN 'dueToCustomers'
     ELSE 'dueFromCustomers' END AS Dataset) ds
-WHERE cp.LoadId = @loadId
-  AND LEFT(cp.LegalAccountNumber, 1) IN ('1', '2')   -- assets & liabilities only
-  AND cpty.ResolvedId IS NOT NULL
-  AND (@productType IS NULL OR cp.TypeOf = @productType)
-GROUP BY ds.Dataset, cpty.ResolvedId, lc.TypeOf, lc.GroupLEXId,
-         lc.EconomicActivityType, lc.RatingClass;
+GROUP BY ds.Dataset, lc.Id, lc.TypeOf, lc.GroupLEXId,
+         lc.EconomicActivityType, lc.RatingClass
+
+UNION ALL
+
+-- Orphan positions: no counterparty found at the PIT (or no id at all).
+-- Empty ClientType/GroupLexId → flagged by the app as C5 errors.
+SELECT
+    CASE
+        WHEN p.TypeOf IN ('Security', 'Cash')    THEN 'liquidityAssets'
+        WHEN p.SubType LIKE '%Mortgage%'         THEN 'mortgages'
+        WHEN LEFT(p.LegalAccountNumber, 1) = '2' THEN 'dueToCustomers'
+        ELSE 'dueFromCustomers'
+    END                                      AS Dataset,
+    COALESCE(p.ResolvedId, CONCAT('POS:', p.Id)) AS ClientNumber,
+    ''                                       AS ClientType,
+    ''                                       AS GroupLexId,
+    ''                                       AS CounterpartyType,
+    CAST(NULL AS varchar(10))                AS IssuerRating,
+    SUM(p.BookAmount) / 1000000.0            AS Amount,
+    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency
+FROM pos p
+LEFT JOIN list_counterparties lc
+  ON  lc.Id          = p.ResolvedId
+  AND lc.PointInTime = p.ResolvedPIT
+WHERE lc.Id IS NULL
+GROUP BY
+    CASE
+        WHEN p.TypeOf IN ('Security', 'Cash')    THEN 'liquidityAssets'
+        WHEN p.SubType LIKE '%Mortgage%'         THEN 'mortgages'
+        WHEN LEFT(p.LegalAccountNumber, 1) = '2' THEN 'dueToCustomers'
+        ELSE 'dueFromCustomers'
+    END,
+    COALESCE(p.ResolvedId, CONCAT('POS:', p.Id));
 GO
 
 -- 2) Securities vs security master -------------------------------------------
@@ -108,7 +142,9 @@ LEFT JOIN list_counterparties g
   AND g.PointInTime = cp.GuarantorPIT
 WHERE cp.LoadId = @loadId
   AND cp.TypeOf = 'Security'
-  AND LEFT(cp.LegalAccountNumber, 1) IN ('1', '2')   -- assets & liabilities only
+  AND LEFT(cp.LegalAccountNumber, 3) IN
+      ('101','102','103','104','105','106','110','111',
+       '201','202','203','204','206','207','208','209')  -- banking-book scope
   AND ls.ISIN IS NOT NULL
   AND (@productType IS NULL OR ls.TypeOf = @productType)
 GROUP BY ls.ISIN, ls.Id, ls.TypeOf, ls.RatingClass, ls.RevaluationFrequency,

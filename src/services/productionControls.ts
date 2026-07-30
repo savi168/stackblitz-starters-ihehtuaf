@@ -114,6 +114,23 @@ export const runSecurityDrift = (
   return findings;
 };
 
+/** C5 — Orphan positions: the MERCURY feed emits records with empty
+ * ClientType/GroupLexId when the resolved counterparty (issuer for securities)
+ * was not found in list_counterparties at the load's point in time. */
+export const runOrphans = (
+  records: ProdCounterpartyRecord[], entity: string, date: string
+): ControlFinding[] =>
+  records
+    .filter(r => r.entity === entity && r.date === date && !r.groupLexId && !r.clientType)
+    .map(r => ({
+      severity: 'error' as const,
+      control: 'C5 orphans',
+      dataset: PROD_DATASETS.find(d => d.key === r.dataset)?.label || r.dataset,
+      key: r.clientNumber,
+      message: `No counterparty found in list_counterparties at the load PIT` +
+        (r.amount !== undefined ? ` — amount ${r.amount.toFixed(1)} mn${r.currency ? ` ${r.currency}` : ''}` : ''),
+    }));
+
 /** C4 — Securities vs the Grouplexid guarantee/HQLA reference (expected treatment). */
 export const runSecurityVsRef = (
   secs: ProdSecurityRecord[], refs: ProdGuaranteeRef[], entity: string, date: string
