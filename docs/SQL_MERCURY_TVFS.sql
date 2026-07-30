@@ -52,9 +52,9 @@ LEFT JOIN list_securities ls
   AND ls.PointInTime = cp.SecurityPIT
 CROSS APPLY (SELECT
     CASE WHEN cp.TypeOf = 'Security' THEN ls.IssuerId  ELSE cp.CounterpartyId  END AS ResolvedId,
-    -- NB: the doc links list_counterparties.PointInTime to ls.IssuerPIT for
-    -- issuers (not ls.PointInTime) — adjust here if your loads differ.
-    CASE WHEN cp.TypeOf = 'Security' THEN ls.IssuerPIT ELSE cp.CounterpartyPIT END AS ResolvedPIT) cpty
+    -- Convention: the security's own PointInTime is used for the issuer
+    -- lookup (ls.IssuerPIT is not reliably fed in our loads).
+    CASE WHEN cp.TypeOf = 'Security' THEN ls.PointInTime ELSE cp.CounterpartyPIT END AS ResolvedPIT) cpty
 LEFT JOIN list_counterparties lc
   ON  lc.Id          = cpty.ResolvedId
   AND lc.PointInTime = cpty.ResolvedPIT
@@ -102,7 +102,7 @@ JOIN list_securities ls
   AND ls.PointInTime = cp.SecurityPIT
 LEFT JOIN list_counterparties iss
   ON  iss.Id          = ls.IssuerId
-  AND iss.PointInTime = ls.IssuerPIT
+  AND iss.PointInTime = ls.PointInTime  -- same convention: security PIT, IssuerPIT not reliably fed
 LEFT JOIN list_counterparties g
   ON  g.Id          = cp.GuarantorId
   AND g.PointInTime = cp.GuarantorPIT
