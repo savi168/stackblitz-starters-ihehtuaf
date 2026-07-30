@@ -51,7 +51,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
     }
 
     const run = async () => {
-      if (!date || !loadId) { onError('MERCURY feed: reporting date and loadid are required.'); return; }
+      if (!loadId) { onError('MERCURY feed: loadid is required.'); return; }
       setBusy(true);
       try {
         const res = await fetch(`${apiBaseUrl}/production/mercury/load`, {
@@ -64,9 +64,9 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
           const body = await res.text();
           throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`);
         }
-        const out = await res.json() as { inserted: number; skipped: number; tvf: string };
+        const out = await res.json() as { inserted: number; skipped: number; tvf: string; date: string };
         await reload();
-        onLoaded(`MERCURY feed OK: ${out.inserted} row(s) loaded into ${target} for ${entity} — ${date} (loadid ${loadId}${productType ? `, ${productType}` : ''}) via ${out.tvf}${out.skipped ? ` · ${out.skipped} row(s) without key skipped` : ''}.`);
+        onLoaded(`MERCURY feed OK: ${out.inserted} row(s) loaded into ${target} for ${entity} — ${out.date} (loadid ${loadId}${productType ? `, ${productType}` : ''}) via ${out.tvf}${out.skipped ? ` · ${out.skipped} row(s) without key skipped` : ''}.`);
       } catch (err) {
         onError(`MERCURY feed failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally { setBusy(false); }
@@ -93,7 +93,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
             </div>
           )}
           <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting date</label>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting date (blank = from core_loads)</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} className={input} />
           </div>
           <div>
@@ -224,6 +224,7 @@ const ProductionPage: React.FC = () => {
   };
 
   // --- Controls tab state ---
+  const [openFinding, setOpenFinding] = useState<number | null>(null);
   const [dateSel, setDateSel] = useState('');
   const date = dates.includes(dateSel) ? dateSel : dates[0] || '';
   const prevDates = dates.filter(d => d < date);
@@ -405,22 +406,72 @@ const ProductionPage: React.FC = () => {
                   {['Severity', 'Control', 'Dataset', 'Key', 'Finding'].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {findings.map((f, i) => (
-                    <tr key={i} className="border-t border-efg-line align-top">
-                      <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${SEV_STYLE[f.severity]}`}>{f.severity}</span></td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{f.control}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap text-brand-text-secondary">{f.dataset || '—'}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap font-semibold">{f.key}</td>
-                      <td className="px-3 py-1.5">{f.message}</td>
-                    </tr>
-                  ))}
+                  {findings.map((f, i) => {
+                    const isSec = f.control.startsWith('C3') || f.control.startsWith('C4');
+                    const detail = isSec
+                      ? secs.filter(r => r.entity === entity && (r.date === date || r.date === compare) && r.isin === f.key)
+                      : cps.filter(r => r.entity === entity && (r.date === date || r.date === compare) && (r.clientNumber === f.key || r.groupLexId === f.key));
+                    return (
+                      <React.Fragment key={i}>
+                        <tr onClick={() => setOpenFinding(openFinding === i ? null : i)}
+                          className="border-t border-efg-line align-top cursor-pointer hover:bg-brand-bg-body/50"
+                          title="Click to show the underlying records">
+                          <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${SEV_STYLE[f.severity]}`}>{f.severity}</span></td>
+                          <td className="px-3 py-1.5 whitespace-nowrap">{f.control}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap text-brand-text-secondary">{f.dataset || '—'}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap font-semibold">{openFinding === i ? '▾ ' : '▸ '}{f.key}</td>
+                          <td className="px-3 py-1.5">{f.message}</td>
+                        </tr>
+                        {openFinding === i && (
+                          <tr className="border-t border-efg-line bg-brand-bg-body/40">
+                            <td colSpan={5} className="px-4 py-2">
+                              {detail.length === 0 ? (
+                                <p className="text-[11px] text-brand-text-secondary">No underlying records on the two selected periods.</p>
+                              ) : (
+                                <table className="text-[11px] w-full">
+                                  <thead><tr>
+                                    {(isSec
+                                      ? ['Date', 'ISIN', 'Security master', 'Type', 'Rating', 'Daily reval', 'Issuer lexid', 'Guarantor', 'HQLA', 'Amount']
+                                      : ['Date', 'Dataset', 'Client', 'Client type', 'Grouplexid', 'Cpty type', 'Rating', 'Amount', 'Ccy']
+                                    ).map(h => <th key={h} className="px-2 py-1 text-left text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                                  </tr></thead>
+                                  <tbody>
+                                    {isSec
+                                      ? (detail as typeof secs).sort((a, b) => a.date.localeCompare(b.date)).map(r => (
+                                        <tr key={r.id} className="border-t border-efg-line/60">
+                                          <td className="px-2 py-1 font-semibold">{r.date}</td><td className="px-2 py-1">{r.isin}</td>
+                                          <td className="px-2 py-1">{r.securityMaster || '—'}</td><td className="px-2 py-1">{r.securityType || '—'}</td>
+                                          <td className="px-2 py-1">{r.rating || '—'}</td><td className="px-2 py-1">{r.dailyReval === undefined ? '—' : String(r.dailyReval)}</td>
+                                          <td className="px-2 py-1">{r.issuerLexId || '—'}</td><td className="px-2 py-1">{r.guarantorName || r.guarantorLexId || '—'}</td>
+                                          <td className="px-2 py-1 font-semibold">{r.hqlaLevel || '—'}</td>
+                                          <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
+                                        </tr>))
+                                      : (detail as typeof cps).sort((a, b) => a.date.localeCompare(b.date) || a.dataset.localeCompare(b.dataset)).map(r => (
+                                        <tr key={r.id} className="border-t border-efg-line/60">
+                                          <td className="px-2 py-1 font-semibold">{r.date}</td>
+                                          <td className="px-2 py-1">{PROD_DATASETS.find(d => d.key === r.dataset)?.label || r.dataset}</td>
+                                          <td className="px-2 py-1">{r.clientNumber}</td><td className="px-2 py-1">{r.clientType || '—'}</td>
+                                          <td className="px-2 py-1">{r.groupLexId || '—'}</td><td className="px-2 py-1">{r.counterpartyType || '—'}</td>
+                                          <td className="px-2 py-1">{r.issuerRating || '—'}</td>
+                                          <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
+                                          <td className="px-2 py-1">{r.currency || '—'}</td>
+                                        </tr>))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
           <p className="text-[11px] text-brand-text-secondary mt-3">
             C1 — attribute drift per client between the two periods (client type, grouplexid, counterparty type, rating).
-            C2 — same grouplexid must carry one single treatment across all datasets of the period.
+            C2 — the same client number must carry one single treatment across all datasets of the period (grouplexid = ultimate parent, legitimately shared within a group). Click a finding to see the underlying records of both periods.
             C3 — security attribute drift per ISIN (HQLA level change = error).
             C4 — guarantor & HQLA level vs the Grouplexid reference (physical data must match the HQLA report treatment).
             C5 — orphan positions: the counterparty resolved by the MERCURY feed (issuer for securities) was not found in list_counterparties at the load PIT.

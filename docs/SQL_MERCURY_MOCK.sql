@@ -7,7 +7,9 @@
 -- Two loads: LoadId 1001 (period 2025-12-31, PIT 1) and 1002 (2026-01-31, PIT 2).
 -- Deliberate anomalies — expected findings after feeding BOTH loads:
 --   C1: CLI-NESTLE issuer rating 3→4 · CLI-PRIV1 grouplexid changes (warnings)
---   C2: LEX-EFG carries two different sector types in the same period (error)
+--   C2: in the Jan load, POS-LOAN4 still references CLI-NESTLE at PIT 1 while
+--       the rest of the load is at PIT 2 → the same client carries two issuer
+--       ratings in the same period (the classic mis-used PointInTime case)
 --   C3: DE000KFW0001 HQLA level L1→L2a between the two periods (error)
 --   C4: with the app reference LEX-KFW → German government → L1, the Jan
 --       period shows HQLA "L2a" ≠ expected "L1" (error)
@@ -99,8 +101,16 @@ INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, Boo
 ('POS-LOAN3', 1002, '104003', 'Contract', NULL,        8100000, 'CHF', 'CLI-EFGFIN', 2,    NULL, NULL, NULL, NULL),
 ('POS-MORT1', 1002, '105001', 'Contract', 'Mortgage', 14900000, 'CHF', 'CLI-PRIV1',  2,    NULL, NULL, NULL, NULL),
 ('POS-DEP1',  1002, '202001', 'Account',  NULL,       21500000, 'CHF', 'CLI-PRIV1',  2,    NULL, NULL, NULL, NULL),
-('POS-ORPH',  1002, '104009', 'Contract', NULL,        5100000, 'USD', 'CLI-GHOST',  2,    NULL, NULL, NULL, NULL); -- C5
+('POS-ORPH',  1002, '104009', 'Contract', NULL,        5100000, 'USD', 'CLI-GHOST',  2,    NULL, NULL, NULL, NULL), -- C5
+('POS-LOAN4', 1002, '104004', 'Contract', NULL,        2000000, 'CHF', 'CLI-NESTLE', 1,    NULL, NULL, NULL, NULL); -- C2: stale PIT 1 in a PIT 2 load
 GO
 
 -- Now create the two TVFs in THIS database: open docs/SQL_MERCURY_TVFS.sql,
 -- make sure the connection is on MERCURY_MOCK, and execute it.
+
+-- core_loads: links each loadid to its reporting date (the app resolves the
+-- period automatically when the date field is left blank).
+IF OBJECT_ID('core_loads') IS NOT NULL DROP TABLE core_loads;
+CREATE TABLE core_loads (LoadId int PRIMARY KEY, ReportingDate date NOT NULL);
+INSERT INTO core_loads (LoadId, ReportingDate) VALUES (1001, '2025-12-31'), (1002, '2026-01-31');
+GO

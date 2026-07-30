@@ -65,8 +65,8 @@ public class ProductionController : ControllerBase
         var cs = _config.GetConnectionString("Mercury");
         if (string.IsNullOrWhiteSpace(cs))
             return Problem("ConnectionStrings:Mercury is not configured (appsettings.Development.local.json).", statusCode: 400);
-        if (string.IsNullOrWhiteSpace(req.Entity) || string.IsNullOrWhiteSpace(req.Date) || string.IsNullOrWhiteSpace(req.LoadId))
-            return Problem("entity, date and loadId are required.", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(req.Entity) || string.IsNullOrWhiteSpace(req.LoadId))
+            return Problem("entity and loadId are required.", statusCode: 400);
 
         var key = string.Equals(req.Target, "securities", StringComparison.OrdinalIgnoreCase) ? "securities" : "counterparties";
         var tvf = _config[$"Production:Sources:{key}"]
@@ -75,10 +75,29 @@ public class ProductionController : ControllerBase
             return Problem($"Invalid TVF name '{tvf}' in Production:Sources.", statusCode: 400);
 
         // Read the TVF result set (column names matched case-insensitively).
+        var date = req.Date;
         var rows = new List<Dictionary<string, object?>>();
         await using (var conn = new SqlConnection(cs))
         {
             await conn.OpenAsync();
+
+            // No reporting date supplied: resolve it from core_loads
+            // (configurable via Production:LoadDateQuery).
+            if (string.IsNullOrWhiteSpace(date))
+            {
+                var dq = _config["Production:LoadDateQuery"]
+                    ?? "SELECT TOP 1 ReportingDate FROM core_loads WHERE LoadId = @loadId";
+                await using var dc = conn.CreateCommand();
+                dc.CommandText = dq;
+                dc.Parameters.AddWithValue("@loadId", req.LoadId);
+                var v = await dc.ExecuteScalarAsync();
+                if (v is null || v is DBNull)
+                    return Problem($"Load {req.LoadId} not found in core_loads and no reporting date provided.", statusCode: 400);
+                date = v is DateTime dt ? dt.ToString("yyyy-MM-dd") : Convert.ToString(v)?.Trim();
+                if (string.IsNullOrWhiteSpace(date))
+                    return Problem($"core_loads returned an empty reporting date for load {req.LoadId}.", statusCode: 400);
+            }
+
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = $"SELECT * FROM {tvf}(@loadId, @productType)";
             cmd.CommandTimeout = 120;
@@ -112,7 +131,7 @@ public class ProductionController : ControllerBase
             var records = rows.Select(r => new ProdCounterpartyRecord
             {
                 Entity = req.Entity,
-                Date = req.Date,
+                Date = date,
                 Dataset = S(r, "Dataset") ?? req.Dataset ?? "liquidityAssets",
                 ClientNumber = S(r, "ClientNumber") ?? S(r, "CounterpartyId") ?? "",
                 ClientType = S(r, "ClientType") ?? "",
@@ -125,7 +144,7 @@ public class ProductionController : ControllerBase
 
             var datasets = records.Select(x => x.Dataset).Distinct().ToList();
             _db.ProdCounterparties.RemoveRange(
-                _db.ProdCounterparties.Where(x => x.Entity == req.Entity && x.Date == req.Date && datasets.Contains(x.Dataset)));
+                _db.ProdCounterparties.Where(x => x.Entity == req.Entity && x.Date == date && datasets.Contains(x.Dataset)));
             _db.ProdCounterparties.AddRange(records);
             inserted = records.Count;
         }
@@ -134,7 +153,7 @@ public class ProductionController : ControllerBase
             var records = rows.Select(r => new ProdSecurityRecord
             {
                 Entity = req.Entity,
-                Date = req.Date,
+                Date = date,
                 Isin = S(r, "Isin") ?? "",
                 SecurityMaster = S(r, "SecurityMaster"),
                 SecurityType = S(r, "SecurityType") ?? S(r, "Type"),
@@ -148,7 +167,7 @@ public class ProductionController : ControllerBase
             }).Where(x => x.Isin != "").ToList();
 
             _db.ProdSecurities.RemoveRange(
-                _db.ProdSecurities.Where(x => x.Entity == req.Entity && x.Date == req.Date));
+                _db.ProdSecurities.Where(x => x.Entity == req.Entity && x.Date == date));
             _db.ProdSecurities.AddRange(records);
             inserted = records.Count;
         }
@@ -161,7 +180,7 @@ public class ProductionController : ControllerBase
             target = key,
             tvf,
             entity = req.Entity,
-            date = req.Date,
+            date,
             loadId = req.LoadId,
             productType = req.ProductType,
         };

@@ -58,29 +58,32 @@ export const runCounterpartyDrift = (
   return findings;
 };
 
-/** C2 — Cross-dataset consistency in ONE period: a grouplexid / client must not carry different types across datasets. */
+/** C2 — Cross-dataset consistency in ONE period: the SAME client number must
+ * carry one single treatment across all datasets. (A grouplexid legitimately
+ * covers several entities of a group — it is the ultimate parent — so no
+ * check is done at grouplexid level.) */
 export const runCrossDataset = (
   records: ProdCounterpartyRecord[], entity: string, date: string
 ): ControlFinding[] => {
   const findings: ControlFinding[] = [];
   const period = records.filter(r => r.entity === entity && r.date === date);
-  const byLex = new Map<string, ProdCounterpartyRecord[]>();
-  period.forEach(r => { if (r.groupLexId) byLex.set(r.groupLexId, [...(byLex.get(r.groupLexId) || []), r]); });
-  for (const [lex, rows] of byLex) {
-    const types = new Set(rows.map(r => r.counterpartyType).filter(Boolean));
-    if (types.size > 1) {
-      findings.push({
-        severity: 'error', control: 'C2 cross-dataset', key: lex,
-        message: `Grouplexid classified with ${types.size} different counterparty types in ${dsList(rows)}: ${Array.from(types).join(' / ')}`,
-      });
-    }
-    const ratings = new Set(rows.map(r => r.issuerRating).filter(Boolean));
-    if (ratings.size > 1) {
-      findings.push({
-        severity: 'warning', control: 'C2 cross-dataset', key: lex,
-        message: `Different issuer ratings for the same grouplexid in ${dsList(rows)}: ${Array.from(ratings).join(' / ')}`,
-      });
-    }
+  const byClient = new Map<string, ProdCounterpartyRecord[]>();
+  period.forEach(r => { if (r.clientNumber) byClient.set(r.clientNumber, [...(byClient.get(r.clientNumber) || []), r]); });
+  for (const [client, rows] of byClient) {
+    if (rows.length < 2) continue;
+    const check = (get: (r: ProdCounterpartyRecord) => string | undefined, label: string, severity: 'error' | 'warning') => {
+      const vals = new Set(rows.map(get).filter(Boolean));
+      if (vals.size > 1) {
+        findings.push({
+          severity, control: 'C2 cross-dataset', key: client,
+          message: `Different ${label} for the same client across ${dsList(rows)}: ${Array.from(vals).join(' / ')}`,
+        });
+      }
+    };
+    check(r => r.clientType, 'client types', 'error');
+    check(r => r.groupLexId, 'grouplexids', 'error');
+    check(r => r.counterpartyType, 'counterparty types', 'error');
+    check(r => r.issuerRating, 'issuer ratings', 'warning');
   }
   return findings;
 };
