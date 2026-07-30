@@ -64,10 +64,16 @@ importée vide/NULL. Les lignes sans clé (ClientNumber / Isin) sont ignorées.
 | `IssuerLexId`, `GuarantorLexId`, `GuarantorName`, `HqlaLevel` | nvarchar |
 | `Amount` | float |
 
-## 3. Squelette de TVF (à adapter au modèle réel)
+## 3. TVF sur le modèle Quadrum Data Lake
 
-> ⚠ Les noms de tables/colonnes MERCURY ci-dessous sont des **hypothèses** —
-> à remplacer d'après la documentation du modèle.
+Les TVF **écrites sur le modèle réel** (doc `docs/mercury-model/`) sont dans
+**`docs/SQL_MERCURY_TVFS.sql`** — jointures `core_positions ×
+list_counterparties` (Id + PointInTime) et `core_positions × list_securities ×
+list_counterparties` (issuer + guarantor), GroupLEXId comme ultimate parent,
+HQLACategory comme niveau HQLA calculé par les règles QDL. Points à ajuster
+dans le CASE des datasets : préfixes `LegalAccountNumber` et SubType hypothèque.
+
+L'exemple générique ci-dessous illustre seulement le principe :
 
 ```sql
 CREATE FUNCTION dbo.fn_regreport_prod_counterparties
