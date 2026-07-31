@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
     public DbSet<ProdCounterpartyRecord> ProdCounterparties => Set<ProdCounterpartyRecord>();
     public DbSet<ProdSecurityRecord> ProdSecurities => Set<ProdSecurityRecord>();
     public DbSet<ProdGuaranteeRef> ProdGuaranteeRefs => Set<ProdGuaranteeRef>();
+    public DbSet<ProdFindingLog> ProdFindingLogs => Set<ProdFindingLog>();
     public DbSet<Bilan> Bilans => Set<Bilan>();
     public DbSet<RiskAppetiteEntry> RiskAppetite => Set<RiskAppetiteEntry>();
     public DbSet<DiagnosisEntry> DiagnosisResults => Set<DiagnosisEntry>();
@@ -192,6 +193,12 @@ public class AppDbContext : DbContext
             e.ToTable("ProdGuaranteeRefs");
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.GroupLexId);
+        });
+        b.Entity<ProdFindingLog>(e =>
+        {
+            e.ToTable("ProdFindingLogs");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Signature });
         });
 
         // Balance-sheet currency totals: single-row table (shadow identity key).

@@ -526,6 +526,22 @@ public class ProdSecurityRecord
     public double? Amount { get; set; }
 }
 
+/// <summary>Decision taken on a production control finding (audit trail of validations/corrections).</summary>
+public class ProdFindingLog
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string Date { get; set; } = "";
+    public string? CompareDate { get; set; }
+    public string Control { get; set; } = "";
+    public string FindingKey { get; set; } = "";
+    public string Signature { get; set; } = "";
+    public string Decision { get; set; } = "validated"; // validated | corrected
+    public string? Note { get; set; }
+    public string DecidedBy { get; set; } = "";
+    public string DecidedAt { get; set; } = "";
+}
+
 /// <summary>Expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1).</summary>
 public class ProdGuaranteeRef
 {
@@ -569,6 +585,7 @@ public class CentralData
     public List<ProdCounterpartyRecord> ProdCounterparties { get; set; } = new();
     public List<ProdSecurityRecord> ProdSecurities { get; set; } = new();
     public List<ProdGuaranteeRef> ProdGuaranteeRefs { get; set; } = new();
+    public List<ProdFindingLog> ProdFindingLogs { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

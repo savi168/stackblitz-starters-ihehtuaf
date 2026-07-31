@@ -52,3 +52,25 @@ CREATE TABLE [ProdGuaranteeRefs] (
 );
 CREATE INDEX [IX_ProdGuaranteeRefs_GroupLexId] ON [ProdGuaranteeRefs] ([GroupLexId]);
 GO
+
+-- Decision log of the production controls (validated / corrected findings).
+-- Run once on RegReport if the table does not exist yet.
+IF OBJECT_ID('ProdFindingLogs') IS NULL
+CREATE TABLE [ProdFindingLogs] (
+    [Id] bigint NOT NULL IDENTITY,
+    [Entity] nvarchar(450) NOT NULL,
+    [Date] nvarchar(450) NOT NULL,
+    [CompareDate] nvarchar(max) NULL,
+    [Control] nvarchar(max) NOT NULL,
+    [FindingKey] nvarchar(max) NOT NULL,
+    [Signature] nvarchar(450) NOT NULL,
+    [Decision] nvarchar(max) NOT NULL,
+    [Note] nvarchar(max) NULL,
+    [DecidedBy] nvarchar(max) NOT NULL,
+    [DecidedAt] nvarchar(max) NOT NULL,
+    CONSTRAINT [PK_ProdFindingLogs] PRIMARY KEY ([Id])
+);
+IF OBJECT_ID('ProdFindingLogs') IS NOT NULL AND NOT EXISTS
+   (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProdFindingLogs_Entity_Signature')
+CREATE INDEX [IX_ProdFindingLogs_Entity_Signature] ON [ProdFindingLogs] ([Entity], [Signature]);
+GO

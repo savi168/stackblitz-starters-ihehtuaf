@@ -285,6 +285,23 @@ export interface ProdSecurityRecord {
   amount?: number; // mCHF
 }
 
+/** Decision taken on a production control finding (validated as correct, or corrected). */
+export interface ProdFindingLog {
+  id: number;
+  entity: string;
+  date: string;          // period of the finding
+  compareDate?: string;  // compare period when relevant
+  control: string;       // C1…C5
+  findingKey: string;    // client number / ISIN / grouplexid
+  /** Fingerprint of the finding (entity|dates|control|key|message) — used to
+   * hide decided findings until the underlying values change again. */
+  signature: string;
+  decision: 'validated' | 'corrected';
+  note?: string;
+  decidedBy: string;
+  decidedAt: string; // ISO timestamp
+}
+
 /** Reference: expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1). */
 export interface ProdGuaranteeRef {
   id: number;
@@ -444,6 +461,7 @@ export interface CentralData {
   prodCounterparties?: ProdCounterpartyRecord[];
   prodSecurities?: ProdSecurityRecord[];
   prodGuaranteeRefs?: ProdGuaranteeRef[];
+  prodFindingLogs?: ProdFindingLog[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }

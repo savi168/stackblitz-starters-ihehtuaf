@@ -206,7 +206,7 @@ const CorrectionHelper: React.FC<{ kind: 'cpty' | 'sec'; rows: Array<Record<stri
   };
 
 const ProductionPage: React.FC = () => {
-  const { data, setData, allEntities } = useData();
+  const { data, setData, allEntities, currentUser } = useData();
   const [tab, setTab] = useState<'prereq' | 'controls'>('prereq');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -245,6 +245,7 @@ const ProductionPage: React.FC = () => {
 
   // --- Controls tab state ---
   const [openFinding, setOpenFinding] = useState<number | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
   const [dateSel, setDateSel] = useState('');
   const date = dates.includes(dateSel) ? dateSel : dates[0] || '';
   const prevDates = dates.filter(d => d < date);
@@ -265,11 +266,43 @@ const ProductionPage: React.FC = () => {
     return out.sort((a, b) => order[a.severity] - order[b.severity] || a.control.localeCompare(b.control));
   }, [cps, secs, refs, entity, date, compare]);
 
+  // Decision log: findings already validated/corrected are hidden until the
+  // underlying values change again (the signature embeds the message).
+  const logs = data.prodFindingLogs || [];
+  const sig = (f: ControlFinding) => `${entity}|${date}|${compare}|${f.control}|${f.key}|${f.message}`;
+  const logOf = (f: ControlFinding) => logs.find(l => l.signature === sig(f));
+  const activeFindings = useMemo(() => findings.filter(f => !logOf(f)), [findings, logs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownFindings = showResolved ? findings : activeFindings;
+
+  const decide = (f: ControlFinding, decision: 'validated' | 'corrected') => {
+    const note = window.prompt(
+      decision === 'corrected'
+        ? `Correction done for ${f.key} — describe the decision (e.g. "kept GroupLEXId = LEX-EFG, UPDATE run on load 1002"):`
+        : `Validate ${f.key} as correct — optional note (e.g. "rating genuinely changed after review"):`,
+      '');
+    if (note === null) return;
+    setData(prev => ({
+      ...prev,
+      prodFindingLogs: [...(prev.prodFindingLogs || []), {
+        id: Date.now(), entity, date, compareDate: compare || undefined,
+        control: f.control, findingKey: f.key, signature: sig(f),
+        decision, note: note || undefined,
+        decidedBy: currentUser.name, decidedAt: new Date().toISOString(),
+      }],
+    }));
+  };
+  const reopen = (logId: number) => {
+    if (!window.confirm('Reopen this finding (delete the decision from the log)?')) return;
+    setData(prev => ({ ...prev, prodFindingLogs: (prev.prodFindingLogs || []).filter(l => l.id !== logId) }));
+  };
+  const entityLogs = useMemo(() =>
+    logs.filter(l => l.entity === entity).sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)), [logs, entity]);
+
   const counts = useMemo(() => ({
-    error: findings.filter(f => f.severity === 'error').length,
-    warning: findings.filter(f => f.severity === 'warning').length,
-    info: findings.filter(f => f.severity === 'info').length,
-  }), [findings]);
+    error: activeFindings.filter(f => f.severity === 'error').length,
+    warning: activeFindings.filter(f => f.severity === 'warning').length,
+    info: activeFindings.filter(f => f.severity === 'info').length,
+  }), [activeFindings]);
 
   const periodRows = useMemo(() => dates.map(d => ({
     date: d,
@@ -359,12 +392,16 @@ const ProductionPage: React.FC = () => {
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.error}`}>{counts.error} errors</span>
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.warning}`}>{counts.warning} warnings</span>
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.info}`}>{counts.info} info (new / disappeared)</span>
+            <button onClick={() => setShowResolved(v => !v)}
+              className={`px-3 py-1 rounded-full border transition-colors ${showResolved ? 'bg-brand-secondary text-white border-brand-secondary' : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary'}`}>
+              {findings.length - activeFindings.length} resolved {showResolved ? '(shown)' : '(hidden)'}
+            </button>
           </div>
           {dates.length === 0 ? (
             <p className="text-sm text-brand-text-secondary">No production data for {entity} — load the Prerequisites first.</p>
-          ) : findings.length === 0 ? (
+          ) : shownFindings.length === 0 ? (
             <p className="text-sm text-brand-text-primary bg-status-green/10 border border-status-green/30 rounded-md px-4 py-3">
-              ✓ No inconsistency found for {date}{compare ? ` vs ${compare}` : ''} — same treatment across periods, datasets and the reference.
+              ✓ No open finding for {date}{compare ? ` vs ${compare}` : ''}{findings.length > 0 ? ` — ${findings.length} decided (see resolved / history below)` : ' — same treatment across periods, datasets and the reference'}.
             </p>
           ) : (
             <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -373,7 +410,7 @@ const ProductionPage: React.FC = () => {
                   {['Control', 'Severity', 'Dataset', 'Key', 'Finding'].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {findings.map((f, i) => {
+                  {shownFindings.map((f, i) => {
                     const isSec = f.control.startsWith('C3') || f.control.startsWith('C4');
                     const detail = isSec
                       ? secs.filter(r => r.entity === entity && (r.date === date || r.date === compare) && r.isin === f.key)
@@ -381,7 +418,7 @@ const ProductionPage: React.FC = () => {
                     return (
                       <React.Fragment key={i}>
                         <tr onClick={() => setOpenFinding(openFinding === i ? null : i)}
-                          className="border-t border-efg-line align-top cursor-pointer hover:bg-brand-bg-body/50"
+                          className={`border-t border-efg-line align-top cursor-pointer hover:bg-brand-bg-body/50 ${logOf(f) ? 'opacity-50' : ''}`}
                           title="Click to show the underlying records">
                           <td className="px-3 py-1.5 whitespace-nowrap font-semibold">{f.control}</td>
                           <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${SEV_STYLE[f.severity]}`}>{f.severity}</span></td>
@@ -426,7 +463,24 @@ const ProductionPage: React.FC = () => {
                                   </tbody>
                                 </table>
                               )}
-                              {detail.length > 0 && (
+                              {(() => { const l = logOf(f); return l ? (
+                                <p className="text-[11px] text-brand-text-secondary mt-2 border-t border-efg-line pt-2">
+                                  {l.decision === 'validated' ? '✓ Validated' : '🔧 Corrected'} by <strong>{l.decidedBy}</strong> on {l.decidedAt.slice(0, 16).replace('T', ' ')}{l.note ? ` — ${l.note}` : ''}
+                                  <button onClick={() => reopen(l.id)} className="ml-3 underline text-status-red/70 hover:text-status-red">reopen</button>
+                                </p>
+                              ) : (
+                                <div className="flex gap-2 mt-2 border-t border-efg-line pt-2">
+                                  <button onClick={() => decide(f, 'validated')}
+                                    className="text-[11px] font-semibold border border-status-green text-status-green hover:bg-status-green hover:text-white py-1 px-2.5 rounded-md transition-colors">
+                                    ✓ Validate as correct
+                                  </button>
+                                  <button onClick={() => decide(f, 'corrected')}
+                                    className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-2.5 rounded-md transition-colors">
+                                    🔧 Mark corrected (with decision)
+                                  </button>
+                                </div>
+                              ); })()}
+                              {detail.length > 0 && !logOf(f) && (
                                 <CorrectionHelper kind={isSec ? 'sec' : 'cpty'}
                                   rows={detail as unknown as Array<Record<string, unknown>>} keyValue={f.key} />
                               )}
@@ -447,6 +501,32 @@ const ProductionPage: React.FC = () => {
             C4 — guarantor & HQLA level vs the Grouplexid reference (physical data must match the HQLA report treatment).
             C5 — orphan positions: the counterparty resolved by the MERCURY feed (issuer for securities) was not found in list_counterparties at the load PIT.
           </p>
+          {entityLogs.length > 0 && (
+            <div className="mt-5">
+              <SectionHeader title="Decision history" suffix={`${entityLogs.length} logged decision(s) — ${entity}`} />
+              <div className="overflow-x-auto border border-efg-line rounded-lg">
+                <table className="w-full text-xs whitespace-nowrap">
+                  <thead className="bg-brand-bg-body"><tr>
+                    {['Decided at', 'By', 'Control', 'Key', 'Period', 'Decision', 'Note', ''].map((h, hi) => <th key={hi} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {entityLogs.map(l => (
+                      <tr key={l.id} className="border-t border-efg-line">
+                        <td className="px-3 py-1.5 tabular-nums">{l.decidedAt.slice(0, 16).replace('T', ' ')}</td>
+                        <td className="px-3 py-1.5">{l.decidedBy}</td>
+                        <td className="px-3 py-1.5 font-semibold">{l.control}</td>
+                        <td className="px-3 py-1.5">{l.findingKey}</td>
+                        <td className="px-3 py-1.5">{l.date}{l.compareDate ? ` vs ${l.compareDate}` : ''}</td>
+                        <td className="px-3 py-1.5">{l.decision === 'validated' ? '✓ validated' : '🔧 corrected'}</td>
+                        <td className="px-3 py-1.5 whitespace-normal max-w-md text-brand-text-secondary">{l.note || '—'}</td>
+                        <td className="px-3 py-1.5"><button onClick={() => reopen(l.id)} className="underline text-status-red/70 hover:text-status-red">reopen</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </Card>
       )}
     </div>
