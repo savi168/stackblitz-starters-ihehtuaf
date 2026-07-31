@@ -1,11 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, PageHeader, SectionHeader, TabButton } from '../components';
-import { ProdCounterpartyRecord, ProdDataset, ProdGuaranteeRef, ProdSecurityRecord } from '../types';
-import {
-  buildProdCounterpartyTemplate, buildProdRefTemplate, buildProdSecuritiesTemplate,
-  convertProdCounterpartyCsv, convertProdRefCsv, convertProdSecuritiesCsv, downloadCsv, parseCsv,
-} from '../services/csvImport';
 import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
   runOrphans, runSecurityDrift, runSecurityVsRef,
@@ -18,9 +13,6 @@ import {
  * reference); Controls = the check results between two periods.
  */
 
-let nextId = Date.now();
-const newId = () => ++nextId;
-
 const SEV_STYLE: Record<ControlFinding['severity'], string> = {
   error: 'bg-status-red/10 text-status-red border-status-red/30',
   warning: 'bg-status-amber/10 text-status-amber border-status-amber/30',
@@ -32,11 +24,18 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
   ({ entity, onLoaded, onError }) => {
     const { mode, apiBaseUrl, reload } = useData();
     const [target, setTarget] = useState<'counterparties' | 'securities'>('counterparties');
-    const [dataset, setDataset] = useState('liquidityAssets');
-    const [date, setDate] = useState('');
     const [loadId, setLoadId] = useState('');
+    const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string }>>([]);
     const [productType, setProductType] = useState('');
     const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+      if (mode !== 'api') return;
+      fetch(`${apiBaseUrl}/production/mercury/loads`, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(l => setLoads(Array.isArray(l) ? l : []))
+        .catch(() => setLoads([]));
+    }, [mode, apiBaseUrl]);
 
     if (mode !== 'api') {
       return (
@@ -58,7 +57,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ target, entity, date, loadId, productType: productType || null, dataset }),
+          body: JSON.stringify({ target, entity, date: '', loadId, productType: productType || null }),
         });
         if (!res.ok) {
           const body = await res.text();
@@ -76,6 +75,25 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
     return (
       <Card>
         <SectionHeader title="0 — Feed from MERCURY" suffix="trigger the TVF by loadid + product type — replaces the scope, then run the controls" />
+        {loads.length > 0 && (
+          <div className="overflow-x-auto border border-efg-line rounded-lg mb-3 max-h-48 overflow-y-auto">
+            <table className="w-full text-xs whitespace-nowrap">
+              <thead className="bg-brand-bg-body sticky top-0"><tr>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Loadid (core_loads)</th>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Reporting date</th>
+              </tr></thead>
+              <tbody>
+                {loads.map(l => (
+                  <tr key={String(l.loadId)} onClick={() => setLoadId(String(l.loadId))}
+                    className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(l.loadId) === loadId ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
+                    <td className="px-3 py-1">{String(l.loadId) === loadId ? '● ' : ''}{String(l.loadId)}</td>
+                    <td className="px-3 py-1">{String(l.reportingDate).slice(0, 10)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Target</label>
@@ -83,18 +101,6 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
               <option value="counterparties">Counterparty datasets</option>
               <option value="securities">Securities</option>
             </select>
-          </div>
-          {target === 'counterparties' && (
-            <div>
-              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Dataset (if TVF has none)</label>
-              <select value={dataset} onChange={e => setDataset(e.target.value)} className={input}>
-                {PROD_DATASETS.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
-              </select>
-            </div>
-          )}
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting date (blank = from core_loads)</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className={input} />
           </div>
           <div>
             <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
@@ -149,7 +155,14 @@ const CorrectionHelper: React.FC<{ kind: 'cpty' | 'sec'; rows: Array<Record<stri
       const wrongVals = Array.from(new Set(wrongRows.map(r => String(r[field]))));
       const dates = Array.from(new Set(wrongRows.map(r => String(r.date))));
       const sql = [
-        `-- Correction prepared by RegReport Production on ${new Date().toISOString().slice(0, 10)}`,
+        `-- 1) PREVIEW — run this SELECT first to see exactly what will be modified:`,
+        `SELECT * FROM ${table} t`,
+        `WHERE t.${keyCol} = '${keyValue.replace(/'/g, "''")}'`,
+        `  AND t.${col} IN (${wrongVals.map(sqlLit).join(', ')})`,
+        `  AND t.PointInTime IN (SELECT LoadId FROM core_loads`,
+        `                        WHERE ReportingDate IN (${dates.map(d => `'${d}'`).join(', ')}));`,
+        ``,
+        `-- 2) CORRECTION — prepared by RegReport Production on ${new Date().toISOString().slice(0, 10)}`,
         `-- Decision: keep ${col} = ${keep} for ${keyValue}; fix the load(s) of ${dates.join(', ')}`,
         `-- Review before executing on MERCURY, then re-run the feed (loadid = PointInTime convention).`,
         `UPDATE t SET t.${col} = ${sqlLit(keep)}`,
@@ -218,75 +231,8 @@ const ProductionPage: React.FC = () => {
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [cps, secs, entity]);
 
-  const cpInput = useRef<HTMLInputElement>(null);
-  const secInput = useRef<HTMLInputElement>(null);
-  const refInput = useRef<HTMLInputElement>(null);
 
-  const importCounterparties = async (file: File) => {
-    setError(null);
-    try {
-      const { rows, warnings } = convertProdCounterpartyCsv(parseCsv(await file.text()));
-      if (rows.length === 0) throw new Error('No valid rows found.' + (warnings.length ? ` ${warnings[0]}` : ''));
-      const scopes = Array.from(new Set(rows.map(r => `${r.date}|${r.dataset}`)));
-      if (!window.confirm(
-        `Import ${rows.length} counterparty record(s) for ${entity} across ${scopes.length} period×dataset scope(s)?\n` +
-        `Existing records for the same entity+date+dataset are replaced.` +
-        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
-      )) return;
-      const scopeSet = new Set(scopes);
-      setData(prev => ({
-        ...prev,
-        prodCounterparties: [
-          ...(prev.prodCounterparties || []).filter(r => !(r.entity === entity && scopeSet.has(`${r.date}|${r.dataset}`))),
-          ...rows.map(r => ({ ...r, id: newId(), entity, dataset: r.dataset as ProdDataset } as ProdCounterpartyRecord)),
-        ],
-      }));
-      setNotice(`${rows.length} counterparty record(s) imported for ${entity} (${scopes.length} scope(s) replaced).`);
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { if (cpInput.current) cpInput.current.value = ''; }
-  };
 
-  const importSecurities = async (file: File) => {
-    setError(null);
-    try {
-      const { rows, warnings } = convertProdSecuritiesCsv(parseCsv(await file.text()));
-      if (rows.length === 0) throw new Error('No valid rows found.' + (warnings.length ? ` ${warnings[0]}` : ''));
-      const ds = Array.from(new Set(rows.map(r => r.date)));
-      if (!window.confirm(
-        `Import ${rows.length} security record(s) for ${entity} across ${ds.length} period(s)?\n` +
-        `Existing securities for the same entity+date are replaced.` +
-        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
-      )) return;
-      const dateSet = new Set(ds);
-      setData(prev => ({
-        ...prev,
-        prodSecurities: [
-          ...(prev.prodSecurities || []).filter(r => !(r.entity === entity && dateSet.has(r.date))),
-          ...rows.map(r => ({ ...r, id: newId(), entity } as ProdSecurityRecord)),
-        ],
-      }));
-      setNotice(`${rows.length} security record(s) imported for ${entity} (${ds.length} period(s) replaced).`);
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { if (secInput.current) secInput.current.value = ''; }
-  };
-
-  const importRefs = async (file: File) => {
-    setError(null);
-    try {
-      const { rows, warnings } = convertProdRefCsv(parseCsv(await file.text()));
-      if (rows.length === 0) throw new Error('No valid rows found.' + (warnings.length ? ` ${warnings[0]}` : ''));
-      if (!window.confirm(
-        `Replace the Grouplexid guarantee/HQLA reference with ${rows.length} entry(ies)?` +
-        (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
-      )) return;
-      setData(prev => ({
-        ...prev,
-        prodGuaranteeRefs: rows.map(r => ({ ...r, id: newId() } as ProdGuaranteeRef)),
-      }));
-      setNotice(`Reference replaced: ${rows.length} grouplexid entry(ies).`);
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { if (refInput.current) refInput.current.value = ''; }
-  };
 
   const deletePeriod = (d: string) => {
     if (!window.confirm(`Delete ALL production data (counterparties + securities) for ${entity} — ${d}?`)) return;
@@ -360,59 +306,6 @@ const ProductionPage: React.FC = () => {
         <>
           <MercuryCard entity={entity} onLoaded={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
           <Card>
-            <SectionHeader title="1 — Counterparty datasets" suffix="liquidity assets · due from/to banks · due from/to customers · mortgages" />
-            <p className="text-[12px] text-brand-text-secondary mb-3">
-              One CSV for all periods and datasets: date · dataset · client_number · client_type (data model) ·
-              group_lexid (ultimate parent) · counterparty_type · issuer_rating · amount · currency.
-              Import replaces each entity+date+dataset scope present in the file.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <input ref={cpInput} type="file" accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && importCounterparties(e.target.files[0])} />
-              <button onClick={() => cpInput.current?.click()} className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors">⬆ Import CSV</button>
-              <button onClick={() => downloadCsv('ProdCounterparties_template.csv', buildProdCounterpartyTemplate())} className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors">⬇ template</button>
-            </div>
-          </Card>
-          <Card>
-            <SectionHeader title="2 — Securities vs security master" suffix="ISIN · rating · daily reval · guarantor · HQLA level" />
-            <p className="text-[12px] text-brand-text-secondary mb-3">
-              date · isin · security_master · security_type · rating · daily_reval · issuer_lexid · guarantor_lexid ·
-              guarantor_name · hqla_level (L1/L2a/L2b/nonHqla) · amount. Import replaces each entity+date present in the file.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <input ref={secInput} type="file" accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && importSecurities(e.target.files[0])} />
-              <button onClick={() => secInput.current?.click()} className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors">⬆ Import CSV</button>
-              <button onClick={() => downloadCsv('ProdSecurities_template.csv', buildProdSecuritiesTemplate())} className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors">⬇ template</button>
-            </div>
-          </Card>
-          <Card>
-            <SectionHeader title="3 — Grouplexid guarantee / HQLA reference" suffix={`${refs.length} entries — e.g. KFW → German government → L1`} />
-            <div className="flex flex-wrap gap-3 mb-3">
-              <input ref={refInput} type="file" accept=".csv,text/csv" className="hidden" onChange={e => e.target.files?.[0] && importRefs(e.target.files[0])} />
-              <button onClick={() => refInput.current?.click()} className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors">⬆ Import CSV (replace)</button>
-              <button onClick={() => downloadCsv('ProdGuaranteeRefs_template.csv', buildProdRefTemplate())} className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors">⬇ template</button>
-            </div>
-            {refs.length > 0 && (
-              <div className="overflow-x-auto border border-efg-line rounded-lg">
-                <table className="w-full text-xs whitespace-nowrap">
-                  <thead className="bg-brand-bg-body"><tr>
-                    {['Grouplexid', 'Name', 'Guarantor', 'Expected HQLA', 'Notes'].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {refs.map(r => (
-                      <tr key={r.id} className="border-t border-efg-line">
-                        <td className="px-3 py-1.5 font-semibold">{r.groupLexId}</td>
-                        <td className="px-3 py-1.5">{r.name || '—'}</td>
-                        <td className="px-3 py-1.5">{r.guarantorName || r.guarantorLexId || '—'}</td>
-                        <td className="px-3 py-1.5">{r.expectedHqlaLevel || '—'}</td>
-                        <td className="px-3 py-1.5 text-brand-text-secondary">{r.notes || ''}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-          <Card>
             <SectionHeader title="Loaded periods" suffix={entity} />
             {periodRows.length === 0 ? (
               <p className="text-sm text-brand-text-secondary">No production data yet for {entity} — import the CSVs above.</p>
@@ -477,7 +370,7 @@ const ProductionPage: React.FC = () => {
             <div className="overflow-x-auto border border-efg-line rounded-lg">
               <table className="w-full text-xs">
                 <thead className="bg-brand-bg-body"><tr>
-                  {['Severity', 'Control', 'Dataset', 'Key', 'Finding'].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                  {['Control', 'Severity', 'Dataset', 'Key', 'Finding'].map(h => <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {findings.map((f, i) => {
@@ -490,8 +383,8 @@ const ProductionPage: React.FC = () => {
                         <tr onClick={() => setOpenFinding(openFinding === i ? null : i)}
                           className="border-t border-efg-line align-top cursor-pointer hover:bg-brand-bg-body/50"
                           title="Click to show the underlying records">
+                          <td className="px-3 py-1.5 whitespace-nowrap font-semibold">{f.control}</td>
                           <td className="px-3 py-1.5"><span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${SEV_STYLE[f.severity]}`}>{f.severity}</span></td>
-                          <td className="px-3 py-1.5 whitespace-nowrap">{f.control}</td>
                           <td className="px-3 py-1.5 whitespace-nowrap text-brand-text-secondary">{f.dataset || '—'}</td>
                           <td className="px-3 py-1.5 whitespace-nowrap font-semibold">{openFinding === i ? '▾ ' : '▸ '}{f.key}</td>
                           <td className="px-3 py-1.5">{f.message}</td>

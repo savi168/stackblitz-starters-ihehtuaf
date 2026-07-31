@@ -47,6 +47,41 @@ public class ProductionController : ControllerBase
         }
     }
 
+    /// <summary>List the available loads (core_loads) so the user can pick
+    /// which data to control. Query configurable via Production:LoadsQuery.</summary>
+    [HttpGet("mercury/loads")]
+    public async Task<ActionResult<object>> Loads()
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs)) return new List<object>();
+        var q = _config["Production:LoadsQuery"]
+            ?? "SELECT TOP 100 LoadId, ReportingDate FROM core_loads ORDER BY LoadId DESC";
+        try
+        {
+            var list = new List<object>();
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = q;
+            await using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                var loadId = rd.GetValue(0);
+                var dateV = rd.GetValue(1);
+                list.Add(new
+                {
+                    loadId = Convert.ToString(loadId),
+                    reportingDate = dateV is DateTime dt ? dt.ToString("yyyy-MM-dd") : Convert.ToString(dateV),
+                });
+            }
+            return list;
+        }
+        catch
+        {
+            return new List<object>(); // core_loads absent: the manual loadid input still works
+        }
+    }
+
     public class MercuryLoadRequest
     {
         /// <summary>counterparties | securities</summary>
