@@ -33,6 +33,12 @@ CREATE TABLE list_counterparties (
     Id varchar(150) NOT NULL, PointInTime int NOT NULL,
     Name varchar(100), TypeOf varchar(20), EconomicActivityType varchar(20),
     RatingClass int, GroupLEXId varchar(150),
+    -- optional fields so the app's INSERT generator works against the mock:
+    LEI varchar(20) NULL, DomicileCountry char(2) NULL, HQDomicile char(2) NULL,
+    ExternalRatingId varchar(20) NULL, ExternalRatingPIT int NULL,
+    GroupARISId varchar(150) NULL, SMEFlag bit NULL,
+    EstablishedRelationshipFlag bit NULL, CreditQuality char(2) NULL,
+    Nationality char(2) NULL,
     PRIMARY KEY (Id, PointInTime)
 );
 CREATE TABLE list_securities (
@@ -40,6 +46,11 @@ CREATE TABLE list_securities (
     Name varchar(100), ISIN varchar(20), TypeOf varchar(10),
     RatingClass int, RevaluationFrequency char(1),
     IssuerId varchar(100), IssuerPIT int, HQLACategory varchar(20),
+    -- optional fields so the app's INSERT generator works against the mock:
+    ListedType varchar(20) NULL, Currency char(3) NULL, IndexFlag bit NULL,
+    MainIndexFlag bit NULL, SNBEligibleFlag bit NULL, CMAApproachType varchar(20) NULL,
+    ExternalRatingId varchar(20) NULL, ExternalRatingPIT int NULL,
+    MaturityDate date NULL, SubType varchar(10) NULL, LEXGuaranteedFlag bit NULL,
     PRIMARY KEY (Id, PointInTime)
 );
 CREATE TABLE core_positions (
