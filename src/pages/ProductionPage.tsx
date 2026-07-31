@@ -205,6 +205,125 @@ const CorrectionHelper: React.FC<{ kind: 'cpty' | 'sec'; rows: Array<Record<stri
     );
   };
 
+
+/** Orphan (C5) insert aid: form with the MERCURY mandatory/useful fields —
+ * generates the INSERT INTO list_counterparties / list_securities to review
+ * and run in SSMS (with an existence-check SELECT first). */
+type InsField = { name: string; type: 'text' | 'int' | 'flag' | 'date'; required?: boolean; hint?: string };
+const CPTY_INS_FIELDS: InsField[] = [
+  { name: 'Id', type: 'text', required: true },
+  { name: 'PointInTime', type: 'int', required: true, hint: '= loadid of the period' },
+  { name: 'Name', type: 'text' },
+  { name: 'LEI', type: 'text' },
+  { name: 'DomicileCountry', type: 'text', hint: 'ISO2' },
+  { name: 'HQDomicile', type: 'text', hint: 'ISO2' },
+  { name: 'TypeOf', type: 'text', hint: 'Bank | Corp | IP | CGov…' },
+  { name: 'EconomicActivityType', type: 'text', hint: 'NOGA/NACE' },
+  { name: 'ExternalRatingId', type: 'text' },
+  { name: 'ExternalRatingPIT', type: 'int' },
+  { name: 'GroupLEXId', type: 'text' },
+  { name: 'GroupARISId', type: 'text' },
+  { name: 'SMEFlag', type: 'flag' },
+  { name: 'EstablishedRelationshipFlag', type: 'flag' },
+  { name: 'CreditQuality', type: 'text' },
+  { name: 'Nationality', type: 'text', hint: 'ISO2' },
+];
+const SEC_INS_FIELDS: InsField[] = [
+  { name: 'Id', type: 'text', required: true },
+  { name: 'PointInTime', type: 'int', required: true, hint: '= loadid of the period' },
+  { name: 'Name', type: 'text' },
+  { name: 'ISIN', type: 'text' },
+  { name: 'ListedType', type: 'text', hint: 'RecoExc | RepMark' },
+  { name: 'Currency', type: 'text', hint: 'ISO3' },
+  { name: 'IndexFlag', type: 'flag' },
+  { name: 'MainIndexFlag', type: 'flag' },
+  { name: 'RevaluationFrequency', type: 'text', hint: 'D = daily' },
+  { name: 'SNBEligibleFlag', type: 'flag' },
+  { name: 'CMAApproachType', type: 'text' },
+  { name: 'RatingClass', type: 'int' },
+  { name: 'ExternalRatingId', type: 'text' },
+  { name: 'ExternalRatingPIT', type: 'int' },
+  { name: 'MaturityDate', type: 'date' },
+  { name: 'TypeOf', type: 'text', hint: 'Bond | Equity…' },
+  { name: 'SubType', type: 'text' },
+  { name: 'HQLACategory', type: 'text', hint: 'L1 | L2a | L2b' },
+  { name: 'LEXGuaranteedFlag', type: 'flag' },
+];
+
+const OrphanInsertHelper: React.FC<{ keyValue: string }> = ({ keyValue }) => {
+  const [kind, setKind] = useState<'cpty' | 'sec'>('cpty');
+  const [vals, setVals] = useState<Record<string, string>>(
+    { Id: keyValue.startsWith('POS:') ? '' : keyValue });
+  const [script, setScript] = useState('');
+  const fields = kind === 'cpty' ? CPTY_INS_FIELDS : SEC_INS_FIELDS;
+  const table = kind === 'cpty' ? 'list_counterparties' : 'list_securities';
+
+  const fmt = (f: InsField, raw: string): string | null => {
+    const v = raw.trim();
+    if (!v) return null;
+    if (f.type === 'int') return /^-?\d+$/.test(v) ? v : null;
+    if (f.type === 'flag') return ['1', 'true', 'yes', 'y', 'x'].includes(v.toLowerCase()) ? '1' : '0';
+    return `'${v.replace(/'/g, "''")}'`;
+  };
+  const generate = () => {
+    const missing = fields.filter(f => f.required && !vals[f.name]?.trim());
+    if (missing.length > 0) { setScript(`-- Missing required field(s): ${missing.map(f => f.name).join(', ')}`); return; }
+    const filled = fields.map(f => [f, fmt(f, vals[f.name] || '')] as const).filter(([, v]) => v !== null);
+    const sql = [
+      `-- Orphan fix prepared by RegReport Production on ${new Date().toISOString().slice(0, 10)}`,
+      `-- 1) CHECK — the row must not already exist:`,
+      `SELECT * FROM ${table} WHERE Id = ${fmt({ name: 'Id', type: 'text' }, vals.Id || '')} AND PointInTime = ${vals.PointInTime?.trim() || '?'};`,
+      ``,
+      `-- 2) INSERT — review, run in SSMS, then re-run the feed:`,
+      `INSERT INTO ${table} (${filled.map(([f]) => f.name).join(', ')})`,
+      `VALUES (${filled.map(([, v]) => v).join(', ')});`,
+    ].join('\n');
+    setScript(sql);
+  };
+
+  const input = 'p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-40';
+  return (
+    <div className="mt-2 border-t border-efg-line pt-2">
+      <div className="flex items-center gap-3 mb-2">
+        <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">
+          Create the missing record (INSERT INTO {table})
+        </p>
+        <select value={kind} onChange={e => { setKind(e.target.value as 'cpty' | 'sec'); setScript(''); }}
+          className="p-1 border border-gray-200 rounded-md text-[11px] bg-white">
+          <option value="cpty">list_counterparties</option>
+          <option value="sec">list_securities</option>
+        </select>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {fields.map(f => (
+          <div key={f.name}>
+            <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">
+              {f.name}{f.required ? ' *' : ''}{f.hint ? ` (${f.hint})` : ''}
+            </label>
+            <input type={f.type === 'date' ? 'date' : 'text'} value={vals[f.name] || ''}
+              onChange={e => setVals(prev => ({ ...prev, [f.name]: e.target.value }))}
+              placeholder={f.type === 'flag' ? '1 / 0' : ''} className={input} />
+          </div>
+        ))}
+      </div>
+      <button onClick={generate}
+        className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-3 rounded-md transition-colors">
+        Generate INSERT
+      </button>
+      {script && (
+        <div className="mt-2">
+          <textarea readOnly value={script} rows={script.split('\n').length}
+            className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
+          <button onClick={() => navigator.clipboard.writeText(script)}
+            className="mt-1 text-[11px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1 px-3 rounded-md transition-colors">
+            📋 Copy (run in SSMS after review)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities, currentUser } = useData();
   const [tab, setTab] = useState<'prereq' | 'controls'>('prereq');
@@ -480,9 +599,12 @@ const ProductionPage: React.FC = () => {
                                   </button>
                                 </div>
                               ); })()}
-                              {detail.length > 0 && !logOf(f) && (
+                              {detail.length > 0 && !logOf(f) && !f.control.startsWith('C5') && (
                                 <CorrectionHelper kind={isSec ? 'sec' : 'cpty'}
                                   rows={detail as unknown as Array<Record<string, unknown>>} keyValue={f.key} />
+                              )}
+                              {!logOf(f) && f.control.startsWith('C5') && (
+                                <OrphanInsertHelper keyValue={f.key} />
                               )}
                             </td>
                           </tr>
