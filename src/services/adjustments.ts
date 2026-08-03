@@ -219,6 +219,9 @@ export interface MatchCandidate {
   locationCountry?: string;
   dataSource?: string;
   accountMatch?: boolean;
+  /** Full core_positions row as returned by the API (all columns) — used to
+   * build the one-shot Excel export with the copied attributes. */
+  raw?: Record<string, unknown>;
 }
 
 /** The API returns SQL column names as-is (PascalCase dictionary keys) —
@@ -255,6 +258,107 @@ export const normalizeCandidate = (raw: Record<string, unknown>): MatchCandidate
     locationCountry: s('LocationCountry'),
     dataSource: s('DataSource'),
     accountMatch: get('accountMatch') === true,
+    raw,
+  };
+};
+
+/** All core_positions columns in INSERT order, with the neutral default used
+ * when building a brand-new position: text → '', num → 0, date → 1900-01-01,
+ * pit → NULL (only *PIT columns are nullable in the real DDL). The SQL
+ * builders, the one-shot Excel export and the manual generator all derive
+ * from this single list. */
+type PosColKind = 'text' | 'num' | 'date' | 'pit';
+export const CORE_POSITION_COLS: Array<[string, PosColKind]> = [
+  ['Id', 'text'], ['LoadId', 'num'], ['BookingCenterId', 'text'], ['LegalAccountNumber', 'num'],
+  ['Currency', 'text'], ['LocationCountry', 'text'],
+  ['InternalReference1', 'text'], ['InternalReference2', 'text'], ['InternalReference3', 'text'],
+  ['InternalReference4', 'text'], ['InternalReference5', 'text'],
+  ['DataSource', 'text'], ['PositionCurrencyBookAmount', 'num'], ['BookAmount', 'num'],
+  ['EncumberedFlag', 'num'], ['EncumberedAmount', 'num'], ['EncumbranceEndDate', 'date'],
+  ['Notional', 'num'], ['InternalLendingValue', 'num'], ['PV', 'num'], ['Provision', 'num'],
+  ['Capacity', 'text'], ['MaturityDate', 'date'], ['MaturityType', 'text'], ['ImpairedFlag', 'num'],
+  ['NonPerformingFlag', 'num'], ['RatingClass', 'num'], ['IRBFlag', 'num'], ['RelatedPartyType', 'text'],
+  ['Subordination', 'num'], ['PriorityClaimLevel', 'num'],
+  ['ParticipationLevel', 'num'], ['GoodsXBorderFlag', 'num'], ['PledgeLink', 'text'],
+  ['StartDate', 'date'], ['GeneralLedger', 'text'], ['TradingBookFlag', 'num'],
+  ['NumberOfComponents', 'num'], ['LongContractFlag', 'num'], ['NettingSetId', 'text'],
+  ['NettingAgreementType', 'text'], ['CounterpartyId', 'text'], ['CounterpartyPIT', 'num'],
+  ['CounterpartyBookingCenterId', 'text'], ['MarginAgreementId', 'text'], ['MarginAgreementPIT', 'pit'],
+  ['ClearingFacilityTypeOf', 'text'], ['ClearingFacilityId', 'text'],
+  ['ClearingFacilityPIT', 'pit'], ['PledgedFlag', 'num'], ['PledgeEndDate', 'date'],
+  ['CollateralHolderId', 'text'], ['CollateralHolderPIT', 'pit'], ['ContractId', 'text'],
+  ['PropertyId', 'text'], ['PropertyPIT', 'pit'], ['Account', 'text'], ['DerivativeId', 'text'],
+  ['DerivativeSwapId', 'text'], ['SecurityId', 'text'], ['SecurityPIT', 'pit'], ['CommodityId', 'text'],
+  ['CommodityPIT', 'pit'], ['IRReference', 'text'], ['IRSpread', 'num'], ['InterestRate', 'num'],
+  ['IRTypeOf', 'text'], ['IRNextFixingDate', 'date'], ['IRReFixingFrequency', 'text'],
+  ['IRNextPaymentDate', 'date'], ['IRPaymentFrequency', 'text'], ['IRCompoundingType', 'text'],
+  ['TypeOf', 'text'], ['SubType', 'text'], ['IRDayCount', 'text'], ['IRSpreadFlag', 'num'],
+  ['GuarantorId', 'text'], ['GuarantorPIT', 'pit'], ['IsEdited', 'num'],
+  ['CryptoAssetId', 'text'], ['CryptoAssetPIT', 'pit'], ['ReportingDate', 'date'],
+  ['CreditFacilityId', 'text'],
+  ['PortfolioAdjustmentProvisionId', 'text'], ['PortfolioAdjustmentProvisionPIT', 'pit'],
+];
+
+const numOrSelf = (v: string): number | string => (/^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v);
+const chfOf = (line: AdjustmentLine, mappings: AdjustmentMappings): { rate: number; chf: number } => {
+  const rate = mappings.fx.get(line.ccy) ?? 1;
+  return { rate, chf: Math.round(line.montant * rate * 100) / 100 };
+};
+const sqlVal = (v: unknown): string =>
+  v === null || v === undefined ? 'NULL' : typeof v === 'number' ? String(v) : q(String(v));
+const chunk6 = (items: string[]): string[] => {
+  const out: string[] = [];
+  for (let i = 0; i < items.length; i += 6)
+    out.push('    ' + items.slice(i, i + 6).join(', ') + (i + 6 < items.length ? ',' : ''));
+  return out;
+};
+
+/** JS values of a brand-new position built from the mappings (no match). */
+const newPositionValues = (
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): Record<string, unknown> => {
+  const glEntry = mappings.gl.get(line.ligne);
+  const { chf } = chfOf(line, mappings);
+  const row: Record<string, unknown> = {};
+  for (const [name, kind] of CORE_POSITION_COLS)
+    row[name] = kind === 'pit' ? null : kind === 'date' ? '1900-01-01' : kind === 'num' ? 0 : '';
+  Object.assign(row, {
+    Id: `ADJ-${line.ligne}-${line.row}`,
+    LoadId: numOrSelf(loadId),
+    LegalAccountNumber: numOrSelf(glEntry?.legalAccountNumber ?? '0'),
+    Currency: line.ccy,
+    InternalReference1: String(line.reference),
+    DataSource: 'ADJUSTMENT',
+    PositionCurrencyBookAmount: line.montant,
+    BookAmount: chf,
+    Notional: line.nominal ?? 0,
+    CounterpartyId: line.client ?? '',
+    CounterpartyPIT: numOrSelf(loadId),
+    TypeOf: glEntry?.typeOf ?? '',
+    SubType: glEntry?.subType ?? '',
+    IsEdited: 1,
+    ReportingDate: reportingDate,
+  });
+  return row;
+};
+
+/** Columns overridden on the matched position when creating the adjustment
+ * (everything else is copied as-is). */
+const adjustmentOverrides = (
+  line: AdjustmentLine, cand: MatchCandidate, mappings: AdjustmentMappings
+): Record<string, unknown> => {
+  const { chf } = chfOf(line, mappings);
+  return {
+    Id: `${cand.id}-ADJ-${line.row}`,
+    Currency: line.ccy,
+    InternalReference1: String(line.reference),
+    DataSource: 'ADJUSTMENT',
+    PositionCurrencyBookAmount: line.montant,
+    BookAmount: chf,
+    EncumberedAmount: 0,
+    Notional: line.nominal ?? 0,
+    InternalLendingValue: 0, PV: 0, Provision: 0,
+    IsEdited: 1,
   };
 };
 
@@ -262,43 +366,20 @@ export const normalizeCandidate = (raw: Record<string, unknown>): MatchCandidate
 export const buildAdjustmentInsert = (
   line: AdjustmentLine, cand: MatchCandidate, loadId: string, mappings: AdjustmentMappings
 ): string => {
-  const rate = mappings.fx.get(line.ccy) ?? 1;
-  const chf = Math.round(line.montant * rate * 100) / 100;
-  const adjId = `${cand.id}-ADJ-${line.row}`;
+  const { rate, chf } = chfOf(line, mappings);
+  const over = adjustmentOverrides(line, cand, mappings);
+  const adjId = String(over.Id);
   return [
     `-- Adjustment for accounting line ${line.ligne} (row ${line.row})${line.libelle ? ` — ${line.libelle}` : ''}`,
     `-- Matched position ${cand.id} (account ${cand.legalAccountNumber}); MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
     `-- 1) CHECK:`,
     `SELECT * FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(adjId)};`,
     `-- 2) INSERT (all other NOT NULL columns are copied from the matched position):`,
-    `INSERT INTO core_positions (Id, LoadId, BookingCenterId, LegalAccountNumber, Currency, LocationCountry,`,
-    `    InternalReference1, InternalReference2, InternalReference3, InternalReference4, InternalReference5,`,
-    `    DataSource, PositionCurrencyBookAmount, BookAmount, EncumberedFlag, EncumberedAmount, EncumbranceEndDate,`,
-    `    Notional, InternalLendingValue, PV, Provision, Capacity, MaturityDate, MaturityType, ImpairedFlag,`,
-    `    NonPerformingFlag, RatingClass, IRBFlag, RelatedPartyType, Subordination, PriorityClaimLevel,`,
-    `    ParticipationLevel, GoodsXBorderFlag, PledgeLink, StartDate, GeneralLedger, TradingBookFlag,`,
-    `    NumberOfComponents, LongContractFlag, NettingSetId, NettingAgreementType, CounterpartyId, CounterpartyPIT,`,
-    `    CounterpartyBookingCenterId, MarginAgreementId, MarginAgreementPIT, ClearingFacilityTypeOf, ClearingFacilityId,`,
-    `    ClearingFacilityPIT, PledgedFlag, PledgeEndDate, CollateralHolderId, CollateralHolderPIT, ContractId,`,
-    `    PropertyId, PropertyPIT, Account, DerivativeId, DerivativeSwapId, SecurityId, SecurityPIT, CommodityId,`,
-    `    CommodityPIT, IRReference, IRSpread, InterestRate, IRTypeOf, IRNextFixingDate, IRReFixingFrequency,`,
-    `    IRNextPaymentDate, IRPaymentFrequency, IRCompoundingType, TypeOf, SubType, IRDayCount, IRSpreadFlag,`,
-    `    GuarantorId, GuarantorPIT, IsEdited, CryptoAssetId, CryptoAssetPIT, ReportingDate, CreditFacilityId,`,
-    `    PortfolioAdjustmentProvisionId, PortfolioAdjustmentProvisionPIT)`,
-    `SELECT ${q(adjId)}, LoadId, BookingCenterId, LegalAccountNumber, ${q(line.ccy)}, LocationCountry,`,
-    `    ${q(String(line.reference))}, InternalReference2, InternalReference3, InternalReference4, InternalReference5,`,
-    `    'ADJUSTMENT', ${line.montant}, ${chf}, EncumberedFlag, 0, EncumbranceEndDate,`,
-    `    ${line.nominal ?? 0}, 0, 0, 0, Capacity, MaturityDate, MaturityType, ImpairedFlag,`,
-    `    NonPerformingFlag, RatingClass, IRBFlag, RelatedPartyType, Subordination, PriorityClaimLevel,`,
-    `    ParticipationLevel, GoodsXBorderFlag, PledgeLink, StartDate, GeneralLedger, TradingBookFlag,`,
-    `    NumberOfComponents, LongContractFlag, NettingSetId, NettingAgreementType, CounterpartyId, CounterpartyPIT,`,
-    `    CounterpartyBookingCenterId, MarginAgreementId, MarginAgreementPIT, ClearingFacilityTypeOf, ClearingFacilityId,`,
-    `    ClearingFacilityPIT, PledgedFlag, PledgeEndDate, CollateralHolderId, CollateralHolderPIT, ContractId,`,
-    `    PropertyId, PropertyPIT, Account, DerivativeId, DerivativeSwapId, SecurityId, SecurityPIT, CommodityId,`,
-    `    CommodityPIT, IRReference, IRSpread, InterestRate, IRTypeOf, IRNextFixingDate, IRReFixingFrequency,`,
-    `    IRNextPaymentDate, IRPaymentFrequency, IRCompoundingType, TypeOf, SubType, IRDayCount, IRSpreadFlag,`,
-    `    GuarantorId, GuarantorPIT, 1, CryptoAssetId, CryptoAssetPIT, ReportingDate, CreditFacilityId,`,
-    `    PortfolioAdjustmentProvisionId, PortfolioAdjustmentProvisionPIT`,
+    `INSERT INTO core_positions (`,
+    ...chunk6(CORE_POSITION_COLS.map(([n]) => n)),
+    `)`,
+    `SELECT`,
+    ...chunk6(CORE_POSITION_COLS.map(([n]) => (n in over ? sqlVal(over[n]) : n))),
     `FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(cand.id)};`,
   ].join('\n');
 };
@@ -308,11 +389,10 @@ export const buildNewPositionInsert = (
   line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
 ): string => {
   const glEntry = mappings.gl.get(line.ligne);
-  const rate = mappings.fx.get(line.ccy) ?? 1;
-  const chf = Math.round(line.montant * rate * 100) / 100;
   const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
   const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
-  const newId = `ADJ-${line.ligne}-${line.row}`;
+  const row = newPositionValues(line, loadId, reportingDate, mappings);
+  const newId = String(row.Id);
   const lan = glEntry?.legalAccountNumber ?? '0';
   return [
     `-- New position for accounting line ${line.ligne} (row ${line.row}) — no match found in load ${loadId}`,
@@ -322,33 +402,83 @@ export const buildNewPositionInsert = (
     `-- 1) CHECK:`,
     `SELECT * FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(newId)};`,
     `-- 2) INSERT:`,
-    `INSERT INTO core_positions (Id, LoadId, BookingCenterId, LegalAccountNumber, Currency, LocationCountry,`,
-    `    InternalReference1, InternalReference2, InternalReference3, InternalReference4, InternalReference5,`,
-    `    DataSource, PositionCurrencyBookAmount, BookAmount, EncumberedFlag, EncumberedAmount, EncumbranceEndDate,`,
-    `    Notional, InternalLendingValue, PV, Provision, Capacity, MaturityDate, MaturityType, ImpairedFlag,`,
-    `    NonPerformingFlag, RatingClass, IRBFlag, RelatedPartyType, Subordination, PriorityClaimLevel,`,
-    `    ParticipationLevel, GoodsXBorderFlag, PledgeLink, StartDate, GeneralLedger, TradingBookFlag,`,
-    `    NumberOfComponents, LongContractFlag, NettingSetId, NettingAgreementType, CounterpartyId, CounterpartyPIT,`,
-    `    CounterpartyBookingCenterId, MarginAgreementId, MarginAgreementPIT, ClearingFacilityTypeOf, ClearingFacilityId,`,
-    `    ClearingFacilityPIT, PledgedFlag, PledgeEndDate, CollateralHolderId, CollateralHolderPIT, ContractId,`,
-    `    PropertyId, PropertyPIT, Account, DerivativeId, DerivativeSwapId, SecurityId, SecurityPIT, CommodityId,`,
-    `    CommodityPIT, IRReference, IRSpread, InterestRate, IRTypeOf, IRNextFixingDate, IRReFixingFrequency,`,
-    `    IRNextPaymentDate, IRPaymentFrequency, IRCompoundingType, TypeOf, SubType, IRDayCount, IRSpreadFlag,`,
-    `    GuarantorId, GuarantorPIT, IsEdited, CryptoAssetId, CryptoAssetPIT, ReportingDate, CreditFacilityId,`,
-    `    PortfolioAdjustmentProvisionId, PortfolioAdjustmentProvisionPIT)`,
-    `VALUES (${q(newId)}, ${loadId}, '', ${lan}, ${q(line.ccy)}, '',`,
-    `    ${q(String(line.reference))}, '', '', '', '',`,
-    `    'ADJUSTMENT', ${line.montant}, ${chf}, 0, 0, '1900-01-01',`,
-    `    ${line.nominal ?? 0}, 0, 0, 0, '', '1900-01-01', '', 0,`,
-    `    0, 0, 0, '', 0, 0,`,
-    `    0, 0, '', '1900-01-01', '', 0,`,
-    `    0, 0, '', '', ${q(line.client ?? '')}, ${loadId},`,
-    `    '', '', NULL, '', '',`,
-    `    NULL, 0, '1900-01-01', '', NULL, '',`,
-    `    '', NULL, '', '', '', '', NULL, '',`,
-    `    NULL, '', 0, 0, '', '1900-01-01', '',`,
-    `    '1900-01-01', '', '', ${q(glEntry?.typeOf ?? '')}, ${q(glEntry?.subType ?? '')}, '', 0,`,
-    `    '', NULL, 1, '', NULL, ${q(reportingDate)}, '',`,
-    `    '', NULL);`,
+    `INSERT INTO core_positions (`,
+    ...chunk6(CORE_POSITION_COLS.map(([n]) => n)),
+    `)`,
+    `VALUES (`,
+    ...chunk6(CORE_POSITION_COLS.map(([n]) => sqlVal(row[n]))),
+    `);`,
   ].join('\n');
+};
+
+// ---------------------------------------------------------------------------
+// One-shot generation: combined SQL script + Excel of the rows to insert
+// ---------------------------------------------------------------------------
+
+export interface AdjustmentItem { line: AdjustmentLine; cand: MatchCandidate | null }
+
+/** JS values (all core_positions columns) of the row a line will generate —
+ * copied attributes + overrides when matched, mapping defaults otherwise. */
+export const buildPositionRow = (
+  item: AdjustmentItem, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): Record<string, unknown> => {
+  const { line, cand } = item;
+  if (!cand?.raw) return newPositionValues(line, loadId, reportingDate, mappings);
+  const rawKeys = Object.keys(cand.raw);
+  const row: Record<string, unknown> = {};
+  for (const [name] of CORE_POSITION_COLS) {
+    const k = rawKeys.find(x => x.toLowerCase() === name.toLowerCase());
+    let v: unknown = k === undefined ? null : cand.raw[k];
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) v = v.slice(0, 10);
+    if (typeof v === 'boolean') v = v ? 1 : 0;
+    row[name] = v;
+  }
+  Object.assign(row, adjustmentOverrides(line, cand, mappings));
+  return row;
+};
+
+/** Single combined script for all resolved lines — one execution in SSMS. */
+export const buildAllSql = (
+  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): string => {
+  const adj = items.filter(i => i.cand).length;
+  const header = [
+    `-- ============================================================================`,
+    `-- Adjustments one-shot script — load ${loadId} (${reportingDate || 'date ?'})`,
+    `-- ${items.length} line(s): ${adj} adjustment(s) from matched positions, ${items.length - adj} new position(s).`,
+    `-- Generated by RegReport Production on ${new Date().toISOString().slice(0, 10)}.`,
+    `-- Review, then run in SSMS — consider wrapping in BEGIN TRAN / COMMIT.`,
+    `-- ============================================================================`,
+  ].join('\n');
+  return [header, ...items.map(i => (i.cand
+    ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings)
+    : buildNewPositionInsert(i.line, loadId, reportingDate, mappings)))].join('\n\n');
+};
+
+/** Excel workbook: Summary sheet + the core_positions rows to insert (all
+ * columns, ready for a bulk import / mass review). Triggers the download. */
+export const exportAdjustmentsWorkbook = (
+  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): string => {
+  const rows = items.map(i => buildPositionRow(i, loadId, reportingDate, mappings));
+  const summary = items.map((i, idx) => ({
+    Row: i.line.row,
+    LIGNE: i.line.ligne,
+    Reference: i.line.reference,
+    Client: i.line.client ?? '',
+    Montant: i.line.montant,
+    CCY: i.line.ccy,
+    'BookAmount CHF': rows[idx].BookAmount,
+    Mode: i.cand ? `adjustment from ${i.cand.id}` : 'new position (from mappings)',
+    'Target Id': rows[idx].Id,
+    'GL account': rows[idx].LegalAccountNumber,
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Summary');
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.json_to_sheet(rows, { header: CORE_POSITION_COLS.map(([n]) => n) }),
+    'core_positions');
+  const name = `adjustments-load${loadId}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, name);
+  return name;
 };

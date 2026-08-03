@@ -395,6 +395,8 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     const [results, setResults] = useState<Record<number, MatchCandidate[]> | null>(null);
     const [chosen, setChosen] = useState<Record<number, string>>({});
     const [scripts, setScripts] = useState<Record<number, string>>({});
+    const [manual, setManual] = useState({ ligne: '', montant: '', ccy: 'CHF', nominal: '', reference: '', client: '', libelle: '' });
+    const [manualScript, setManualScript] = useState('');
 
     useEffect(() => {
       if (mode !== 'api') return;
@@ -500,6 +502,92 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         }],
       }));
       onNotice(`Script for LIGNE ${line.ligne} (row ${line.row}) copied and logged — review it, then run in SSMS.`);
+    };
+
+    // One-shot generation: every line resolved to a single candidate (or to
+    // "no match" → new position) — lines still ambiguous are excluded.
+    const oneShotItems = useMemo(() => {
+      if (!results) return null;
+      const ready: Array<{ line: AdjustmentLine; cand: MatchCandidate | null }> = [];
+      let pending = 0;
+      for (const l of lines) {
+        const cands = results[l.row] || [];
+        const cand = cands.find(c => c.id === chosen[l.row]) || null;
+        if (cands.length > 0 && !cand) pending += 1;
+        else ready.push({ line: l, cand });
+      }
+      return { ready, pending };
+    }, [results, lines, chosen]);
+
+    const logBatch = (what: string, n: number) => {
+      setData(prev => ({
+        ...prev,
+        prodFindingLogs: [...(prev.prodFindingLogs || []), {
+          id: Date.now(), entity, date: reportingDate || loadId,
+          control: 'ADJ', findingKey: `one-shot ${n} line(s)`,
+          signature: `${entity}|ADJ|${loadId}|batch|${Date.now()}`,
+          decision: 'corrected' as const, note: what,
+          decidedBy: currentUser.name, decidedAt: new Date().toISOString(),
+        }],
+      }));
+    };
+
+    const downloadAllSql = async () => {
+      if (!mappings || !oneShotItems || oneShotItems.ready.length === 0) return;
+      const svc = await import('../services/adjustments');
+      const sql = svc.buildAllSql(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([sql], { type: 'text/plain' }));
+      a.download = `adjustments-load${loadId}.sql`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      const adj = oneShotItems.ready.filter(i => i.cand).length;
+      logBatch(`One-shot .sql generated for load ${loadId}: ${adj} adjustment(s) + ${oneShotItems.ready.length - adj} new position(s)`, oneShotItems.ready.length);
+      onNotice(`adjustments-load${loadId}.sql downloaded (${oneShotItems.ready.length} INSERT) — review, then run once in SSMS.`);
+    };
+
+    const downloadExcel = async () => {
+      if (!mappings || !oneShotItems || oneShotItems.ready.length === 0) return;
+      const svc = await import('../services/adjustments');
+      const name = svc.exportAdjustmentsWorkbook(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+      const adj = oneShotItems.ready.filter(i => i.cand).length;
+      logBatch(`One-shot Excel generated for load ${loadId}: ${adj} adjustment(s) + ${oneShotItems.ready.length - adj} new position(s)`, oneShotItems.ready.length);
+      onNotice(`${name} downloaded — Summary + core_positions rows (all columns) for mass review / bulk import.`);
+    };
+
+    // Manual line: build a position for a GL mapping LIGNE directly (e.g. a
+    // pure accounting gap with no reference to match).
+    const mkManualLine = async (): Promise<AdjustmentLine | null> => {
+      if (!mappings) { onError('Load the mapping workbook first.'); return null; }
+      const ligne = manual.ligne.trim();
+      if (!mappings.gl.has(ligne)) { onError(`LIGNE "${ligne}" not found in Mapping_GL_BALANCESHEET.`); return null; }
+      const montant = Number(manual.montant.replace(/['\s]/g, '').replace(',', '.'));
+      if (!isFinite(montant) || manual.montant.trim() === '') { onError('Manual line: a signed MONTANT is required.'); return null; }
+      const nominal = Number(manual.nominal.replace(/['\s]/g, '').replace(',', '.'));
+      const row = (lines.length ? Math.max(...lines.map(l => l.row)) : 0) + 1;
+      return {
+        row, ligne, montant,
+        nominal: isFinite(nominal) && manual.nominal.trim() !== '' ? nominal : undefined,
+        ccy: manual.ccy.trim().toUpperCase() || 'CHF',
+        reference: manual.reference.trim() || `MANUAL-${ligne}-${row}`,
+        client: manual.client.trim() || undefined,
+        libelle: manual.libelle.trim() || undefined,
+        description: mappings.gl.get(ligne)?.description,
+      };
+    };
+    const manualGenerate = async () => {
+      const ml = await mkManualLine();
+      if (!ml || !mappings) return;
+      if (!loadId) { onError('Pick a loadid first.'); return; }
+      const svc = await import('../services/adjustments');
+      setManualScript(svc.buildNewPositionInsert(ml, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings));
+    };
+    const manualAdd = async () => {
+      const ml = await mkManualLine();
+      if (!ml) return;
+      setLines(prev => [...prev, ml]);
+      setLinesInfo(prev => `${prev || 'manual lines'} + row ${ml.row} (LIGNE ${ml.ligne})`);
+      onNotice(`Line added as row ${ml.row} — re-run the matching to look for candidates (its reference is "${ml.reference}"), or export directly (treated as a new position).`);
     };
 
     if (mode !== 'api') {
@@ -652,12 +740,98 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
             </table>
           </div>
         )}
+        {oneShotItems && oneShotItems.ready.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mt-3 border border-efg-line rounded-lg bg-brand-bg-body/40 px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-text-secondary">
+              One-shot generation — {oneShotItems.ready.length} line(s) ready
+              ({oneShotItems.ready.filter(i => i.cand).length} adjustment(s), {oneShotItems.ready.filter(i => !i.cand).length} new)
+            </span>
+            <button onClick={downloadAllSql}
+              className="text-[11px] font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-1.5 px-3 rounded-md transition-colors">
+              ⬇ Single .sql script (all INSERTs)
+            </button>
+            <button onClick={downloadExcel}
+              className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors">
+              ⬇ Excel — core_positions rows (all columns)
+            </button>
+            {oneShotItems.pending > 0 && (
+              <span className="text-[11px] text-status-amber font-semibold">
+                ⚠ {oneShotItems.pending} line(s) excluded — pick their candidate first
+              </span>
+            )}
+          </div>
+        )}
+
+        {mappings && (
+          <div className="mt-4 border-t border-efg-line pt-3">
+            <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-2">
+              Manual line — build a position for any GL LIGNE (e.g. accounting gap, no reference to match)
+            </p>
+            <div className="flex flex-wrap items-end gap-2 mb-2">
+              <div>
+                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">LIGNE (GL mapping) *</label>
+                <input list="adj-gl-lines" value={manual.ligne}
+                  onChange={e => { setManual(prev => ({ ...prev, ligne: e.target.value })); setManualScript(''); }}
+                  placeholder="e.g. 155" className="p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-32" />
+                <datalist id="adj-gl-lines">
+                  {Array.from(mappings.gl.values()).map(g => (
+                    <option key={g.line} value={g.line}>{`${g.legalAccountNumber}${g.description ? ` — ${g.description}` : ''}`}</option>
+                  ))}
+                </datalist>
+              </div>
+              {(() => { const g = mappings.gl.get(manual.ligne.trim()); return g ? (
+                <p className="text-[11px] text-brand-text-secondary pb-1.5">
+                  → account <strong>{g.legalAccountNumber}</strong>{g.typeOf ? ` · ${g.typeOf}${g.subType ? `/${g.subType}` : ''}` : ''}{g.description ? ` · ${g.description}` : ''}
+                </p>
+              ) : null; })()}
+            </div>
+            <div className="flex flex-wrap items-end gap-2 mb-2">
+              {([
+                ['montant', 'Montant (signed) *', 'e.g. -125000.50', 'w-32'],
+                ['ccy', 'CCY', 'CHF', 'w-16'],
+                ['nominal', 'Nominal', '', 'w-28'],
+                ['reference', 'Reference', 'auto if empty', 'w-40'],
+                ['client', 'Client (CounterpartyId)', '', 'w-32'],
+                ['libelle', 'Libellé', '', 'w-48'],
+              ] as const).map(([key, label, ph, w]) => (
+                <div key={key}>
+                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">{label}</label>
+                  <input value={manual[key]} onChange={e => { setManual(prev => ({ ...prev, [key]: e.target.value })); setManualScript(''); }}
+                    placeholder={ph} className={`p-1.5 border border-gray-200 rounded-md text-[11px] bg-white ${w}`} />
+                </div>
+              ))}
+              <button onClick={manualGenerate}
+                className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors">
+                Generate INSERT
+              </button>
+              <button onClick={manualAdd}
+                className="text-[11px] font-semibold border border-gray-300 text-brand-text-secondary hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-3 rounded-md transition-colors">
+                ➕ Add to the lines (for matching / one-shot)
+              </button>
+            </div>
+            {manualScript && (
+              <div>
+                <textarea readOnly value={manualScript} rows={Math.min(manualScript.split('\n').length, 24)}
+                  className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
+                <button onClick={async () => {
+                  const ml = await mkManualLine();
+                  if (ml) copyAndLog(ml, manualScript);
+                }}
+                  className="mt-1 text-[11px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1 px-3 rounded-md transition-colors">
+                  📋 Copy + log decision (run in SSMS after review)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="text-[11px] text-brand-text-secondary mt-3">
           Matching key (agreed rules): (InternalReference1 LIKE '%REFERENCE%' OR ContractId LIKE '%REFERENCE%') AND CounterpartyId LIKE '%CLIENT%',
           on the chosen load. Candidates carrying the Mapping_GL_BALANCESHEET account of the LIGNE are flagged ✓GL and preselected when unambiguous.
           One candidate → adjustment INSERT copying the position's attributes (signed MONTANT, CHF via the CCY sheet, Id suffixed -ADJ, DataSource = 'ADJUSTMENT').
           No candidate → full new position built from the mappings (LIGNE→GL account/TypeOf, IND→INDUSTRY, CATEG→RT01, counterparty = CLIENT).
-          Every copied script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
+          One-shot generation: a single .sql with every INSERT (one execution in SSMS) or an Excel with the core_positions rows (all columns) for mass review / bulk import.
+          Every copied or downloaded script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
         </p>
       </Card>
     );

@@ -125,11 +125,10 @@ public class ProductionController : ControllerBase
             if (!string.IsNullOrWhiteSpace(line.Reference))
             {
                 await using var cmd = conn.CreateCommand();
+                // SELECT * — the full row is needed client-side to build the
+                // one-shot Excel export of the adjusted positions.
                 cmd.CommandText = @"
-SELECT TOP 25 Id, LegalAccountNumber, TypeOf, SubType, Currency, BookAmount,
-       PositionCurrencyBookAmount, CounterpartyId, CounterpartyPIT,
-       InternalReference1, ContractId, SecurityId, SecurityPIT,
-       GuarantorId, GuarantorPIT, BookingCenterId, LocationCountry, DataSource
+SELECT TOP 25 *
 FROM core_positions
 WHERE LoadId = @loadId
   AND (InternalReference1 LIKE @ref OR ContractId LIKE @ref)

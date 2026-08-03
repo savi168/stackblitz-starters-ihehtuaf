@@ -151,3 +151,15 @@ la décision (contrôle `ADJ`) dans l'historique de l'onglet Controls.
 Le mock (`SQL_MERCURY_MOCK.sql`) contient trois positions de test
 (POS-ADJ-A/B/C, load 1002) alignées sur le fichier d'exemple
 `adjustments-sample.xlsx` (références 5950216318 / 5900175308).
+
+**Génération one-shot** : dès que le matching est résolu, deux exports —
+un **.sql unique** (tous les INSERT, une seule exécution SSMS) et un
+**Excel** (feuille Summary + feuille core_positions avec les lignes à insérer,
+toutes colonnes, pour revue de masse / bulk import). Les lignes encore
+ambiguës (candidat non choisi) sont exclues et signalées.
+
+**Ligne manuelle** : panneau « Manual line » — choisir une LIGNE du mapping GL
+(liste déroulante avec compte + description), montant signé, CCY, nominal,
+référence/client/libellé optionnels → INSERT complet avec les défauts du
+mapping, ou « Add to the lines » pour l'inclure dans le matching et le
+one-shot.
