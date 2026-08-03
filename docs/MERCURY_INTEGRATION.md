@@ -113,3 +113,29 @@ reval, garant, HQLA level).
    C2 (un traitement par grouplexid), C3 (dérive par ISIN), C4 (physique vs
    référentiel garantie/HQLA) — automatiques dès que les données sont là.
 3. Le CSV manuel reste disponible en secours (mêmes tables, mêmes contrôles).
+
+## 5. Module Adjustments — règles convenues (à implémenter)
+
+Sources : `docs/mercury-model/adjustments-sample.xlsx` (lignes compta : LIGNE,
+REFERENCE, MONTANT, NOMINAL, CCY, CATEG, IND, CLIENT, DEBIT/CREDIT…) et
+`docs/mercury-model/Mapping.xlsb` (Mapping_GL_BALANCESHEET, CCY, Maping
+RT01→QDL, INDUSTRY).
+
+**Rapprochement d'une ligne d'ajustement avec core_positions (du load choisi)** :
+
+1. Candidats par clé composite LIKE :
+   `(InternalReference1 LIKE '%<REFERENCE>%' OR ContractId LIKE '%<REFERENCE>%')`
+   `AND CounterpartyId LIKE '%<CLIENT>%'`
+2. Plusieurs candidats sont fréquents → désambiguïsation par
+   `LegalAccountNumber = Mapping_GL_BALANCESHEET[LIGNE].LegalAccountNumber`
+   (c'est le mapping qui dit quelle ligne on veut construire/ajuster depuis
+   l'instruction de base).
+3. Un candidat → INSERT core_positions d'ajustement (attributs copiés,
+   BookAmount = MONTANT signé DEBIT/CREDIT, conversion via la feuille CCY,
+   Id suffixé -ADJ, DataSource = 'ADJUSTMENT').
+   Plusieurs après désambiguïsation → choix utilisateur dans l'UI.
+   Aucun → construction complète : LIGNE→Mapping_GL_BALANCESHEET (compte,
+   cp_TypeOf, cp_SubType…), IND→INDUSTRY (TypeOf + EconomicActivityType),
+   CATEG→Maping (RT01→QDL), contrepartie = CLIENT.
+4. Tout passe par des scripts SQL préparés (SELECT de contrôle + INSERT) et le
+   journal de décisions, comme les contrôles C1–C5.
