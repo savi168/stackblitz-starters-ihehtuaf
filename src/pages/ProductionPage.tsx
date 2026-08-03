@@ -471,6 +471,17 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       collections.find(c => String(c.loadCollectionId) === collectionSel) || null, [collections, collectionSel]);
     const collLoadIds = useMemo(() => (collection?.loadIds || []).map(String), [collection]);
 
+    // The page-level reporting entity drives the view: collections filtered
+    // on it, and the conso scope defaults to it.
+    const [showAllCollections, setShowAllCollections] = useState(false);
+    const visibleCollections = useMemo(() => {
+      const mine = collections.filter(c => String(c.reportingEntityId ?? '') === entity);
+      return showAllCollections || mine.length === 0 ? collections : mine;
+    }, [collections, entity, showAllCollections]);
+    useEffect(() => {
+      if (conso?.sets[entity]) setScopeSel(entity);
+    }, [entity, conso]);
+
     const pickCollection = (c: typeof collections[number]) => {
       setCollectionSel(String(c.loadCollectionId));
       setBaseRows(null);
@@ -770,8 +781,20 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
 
         {/* 3 — Load collection (consolidation level) */}
         <div className="border border-efg-line rounded-lg p-3 mb-3">
-          <p className={stepTitle}>3 — Load collection · the reporting entity of the collection sets the consolidation scope</p>
-          {collections.length > 0 ? (
+          <p className={stepTitle}>
+            3 — Load collection · filtered on reporting entity {entity}
+            {collections.length > visibleCollections.length && (
+              <button onClick={() => setShowAllCollections(true)} className="ml-2 underline text-brand-text-secondary font-normal normal-case tracking-normal">
+                show all {collections.length}
+              </button>
+            )}
+            {showAllCollections && (
+              <button onClick={() => setShowAllCollections(false)} className="ml-2 underline text-brand-text-secondary font-normal normal-case tracking-normal">
+                filter on {entity}
+              </button>
+            )}
+          </p>
+          {visibleCollections.length > 0 ? (
             <div className="overflow-x-auto border border-efg-line rounded-lg mb-2 max-h-44 overflow-y-auto">
               <table className="w-full text-xs whitespace-nowrap">
                 <thead className="bg-brand-bg-body sticky top-0"><tr>
@@ -779,7 +802,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                     <th key={h} className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {collections.map(c => (
+                  {visibleCollections.map(c => (
                     <tr key={String(c.loadCollectionId)} onClick={() => pickCollection(c)}
                       className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(c.loadCollectionId) === collectionSel ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
                       <td className="px-3 py-1">{String(c.loadCollectionId) === collectionSel ? '● ' : ''}{String(c.loadCollectionId)}</td>
@@ -1201,7 +1224,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
   };
 
 const ProductionPage: React.FC = () => {
-  const { data, setData, allEntities, currentUser } = useData();
+  const { data, setData, allEntities, currentUser, mode, apiBaseUrl } = useData();
   const [tab, setTab] = useState<'prereq' | 'controls' | 'adjust'>('prereq');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1210,12 +1233,36 @@ const ProductionPage: React.FC = () => {
   const secs = data.prodSecurities || [];
   const refs = data.prodGuaranteeRefs || [];
 
+  // The Production scope is a MERCURY reporting entity: the selector is fed
+  // from list_reporting_entities (+ whatever entities already carry data);
+  // combined with the period it drives the feed, the controls and the
+  // adjustments (collections filtered on it, conso scope resolved from it).
+  const [reportingEntities, setReportingEntities] = useState<Array<{ id: string; name?: string }>>([]);
+  useEffect(() => {
+    if (mode !== 'api') return;
+    fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(out => {
+        if (!out || !Array.isArray(out.entities)) return;
+        setReportingEntities(out.entities.map((e: { id: unknown; name?: unknown }) => ({
+          id: String(e.id), name: e.name ? String(e.name) : undefined,
+        })));
+      })
+      .catch(() => { /* MERCURY unreachable — fall back to app entities */ });
+  }, [mode, apiBaseUrl]);
+
   const entities = useMemo(() => {
-    const set = new Set<string>(allEntities);
+    const set = new Set<string>();
+    reportingEntities.forEach(e => set.add(e.id));
     cps.forEach(r => set.add(r.entity));
     secs.forEach(r => set.add(r.entity));
+    if (set.size === 0) allEntities.forEach(e => set.add(e));
     return Array.from(set).sort();
-  }, [allEntities, cps, secs]);
+  }, [reportingEntities, allEntities, cps, secs]);
+  const entityLabel = (id: string) => {
+    const re = reportingEntities.find(e => e.id === id);
+    return re?.name ? `${id} — ${re.name}` : id;
+  };
   const [entitySel, setEntitySel] = useState('');
   const entity = entities.includes(entitySel) ? entitySel : entities[0] || '';
 
@@ -1317,9 +1364,9 @@ const ProductionPage: React.FC = () => {
         <TabButton label={`Controls${counts.error > 0 ? ` (${counts.error} ⚠)` : ''}`} isActive={tab === 'controls'} onClick={() => setTab('controls')} />
         <TabButton label="Adjustments" isActive={tab === 'adjust'} onClick={() => setTab('adjust')} />
         <div className="ml-auto">
-          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Entity</label>
+          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
           <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
-            {entities.map(e => <option key={e} value={e}>{e}</option>)}
+            {entities.map(e => <option key={e} value={e}>{entityLabel(e)}</option>)}
           </select>
         </div>
       </div>
