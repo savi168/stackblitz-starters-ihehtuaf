@@ -664,25 +664,55 @@ export const buildAllSql = (
     : buildNewPositionPackage(i.line, loadId, reportingDate, mappings, opts)))].join('\n\n');
 };
 
+export interface ImpactEntry {
+  /** Gross adjustment delta of the in-scope lines. */
+  gross: number;
+  /** Intra-scope intercompany part (CounterpartyBookingCenterId inside the
+   * consolidation scope) — eliminated at that consolidation level. */
+  eliminated: number;
+  net: number;
+  lines: number;
+}
+
+const rawStr = (raw: Record<string, unknown> | undefined, name: string): string => {
+  if (!raw) return '';
+  const k = Object.keys(raw).find(x => x.toLowerCase() === name.toLowerCase());
+  const v = k === undefined ? undefined : raw[k];
+  return v === null || v === undefined ? '' : String(v).trim();
+};
+
 /** Balance-sheet impact of the adjustments, aggregated by
  * LEFT(LegalAccountNumber,3): matched lines hit the account of the chosen
- * position, new lines the GL-mapping account; amounts in CHF (CCY sheet). */
+ * position, new lines the GL-mapping account; amounts in CHF (CCY sheet).
+ * With a consolidation `scope` (booking-center ids of a reporting set):
+ * lines booked outside the scope are excluded (counted in `outOfScope`),
+ * and intra-scope intercompany deltas are flagged as eliminated. */
 export const computeImpactByPrefix = (
-  items: AdjustmentItem[], mappings: AdjustmentMappings
-): Map<string, { delta: number; lines: number }> => {
-  const per = new Map<string, { delta: number; lines: number }>();
+  items: AdjustmentItem[], mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions, scope?: Set<string> | null
+): { perPrefix: Map<string, ImpactEntry>; outOfScope: number } => {
+  const per = new Map<string, ImpactEntry>();
+  let outOfScope = 0;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   for (const { line, cand } of items) {
     const lan = cand
       ? String(cand.legalAccountNumber ?? '')
       : (mappings.gl.get(line.ligne)?.legalAccountNumber ?? '');
     const prefix = lan.slice(0, 3) || '???';
     const { chf } = chfOf(line, mappings);
-    const e = per.get(prefix) ?? { delta: 0, lines: 0 };
-    e.delta = Math.round((e.delta + chf) * 100) / 100;
+    // Where the position is booked / who the (interco) counterparty is —
+    // same values the generated INSERT will carry.
+    const bc = cand ? rawStr(cand.raw, 'BookingCenterId') : (opts?.bookingCenterId?.trim() ?? '');
+    const cbc = intercoOf(line, mappings)?.interco ?? (cand ? rawStr(cand.raw, 'CounterpartyBookingCenterId') : '');
+    if (scope && bc && !scope.has(bc)) { outOfScope += 1; continue; }
+    const e = per.get(prefix) ?? { gross: 0, eliminated: 0, net: 0, lines: 0 };
+    e.gross = r2(e.gross + chf);
+    if (scope && cbc && scope.has(cbc)) e.eliminated = r2(e.eliminated + chf);
+    e.net = r2(e.gross - e.eliminated);
     e.lines += 1;
     per.set(prefix, e);
   }
-  return per;
+  return { perPrefix: per, outOfScope };
 };
 
 /** Excel workbook: Summary sheet + the core_positions rows to insert (all

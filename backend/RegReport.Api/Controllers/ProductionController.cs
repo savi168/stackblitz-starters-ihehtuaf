@@ -171,13 +171,20 @@ WHERE LoadId = @loadId
         await using var conn = new SqlConnection(cs);
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
+        // Grouped by booking center + counterparty booking center so the UI
+        // can restrict the base to a consolidation scope (list_reporting_sets)
+        // and eliminate intra-scope intercompany amounts.
         cmd.CommandText = @"
 SELECT LEFT(CAST(LegalAccountNumber AS varchar(20)), 3) AS Prefix,
+       LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))) AS Bc,
+       LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
        SUM(CAST(BookAmount AS float)) AS Amount,
        COUNT(*) AS Positions
 FROM core_positions
 WHERE LoadId = @loadId
-GROUP BY LEFT(CAST(LegalAccountNumber AS varchar(20)), 3)
+GROUP BY LEFT(CAST(LegalAccountNumber AS varchar(20)), 3),
+         LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))),
+         LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), '')))
 ORDER BY Prefix";
         cmd.CommandTimeout = 120;
         cmd.Parameters.AddWithValue("@loadId", loadId);
@@ -187,11 +194,69 @@ ORDER BY Prefix";
             rows.Add(new
             {
                 prefix = rd.IsDBNull(0) ? "" : rd.GetString(0),
-                amount = rd.IsDBNull(1) ? 0d : rd.GetDouble(1),
-                positions = rd.IsDBNull(2) ? 0 : rd.GetInt32(2),
+                bookingCenterId = rd.IsDBNull(1) ? "" : rd.GetString(1),
+                counterpartyBookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
+                amount = rd.IsDBNull(3) ? 0d : rd.GetDouble(3),
+                positions = rd.IsDBNull(4) ? 0 : rd.GetInt32(4),
             });
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Consolidation referential: reporting entities, their scopes
+    /// (list_reporting_sets) and the booking centers (with OwnerId) — feeds
+    /// the scope-aware impact preview of the Adjustments module.
+    /// </summary>
+    [HttpGet("mercury/conso")]
+    public async Task<ActionResult<object>> Conso()
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+
+        async Task<List<Dictionary<string, object?>>> QueryAsync(string sql)
+        {
+            var list = new List<Dictionary<string, object?>>();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.CommandTimeout = 60;
+            await using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                var row = new Dictionary<string, object?>();
+                for (var i = 0; i < rd.FieldCount; i++)
+                    row[rd.GetName(i)] = rd.IsDBNull(i) ? null : rd.GetValue(i);
+                list.Add(row);
+            }
+            return list;
+        }
+
+        try
+        {
+            var entities = await QueryAsync(@"
+SELECT Id AS id, Name AS name,
+       ConsoLevelBankOffice AS bankOffice,
+       ConsoLevelParentCompany AS parentCompany,
+       ConsoLevelGroup AS consoGroup
+FROM list_reporting_entities ORDER BY Id");
+            var sets = await QueryAsync(@"
+SELECT LTRIM(RTRIM(CAST(ReportingEntityId AS varchar(100)))) AS reportingEntityId,
+       LTRIM(RTRIM(CAST(ConsolidatedBookingCenterId AS varchar(100)))) AS bookingCenterId
+FROM list_reporting_sets");
+            var centers = await QueryAsync(@"
+SELECT LTRIM(RTRIM(CAST(Id AS varchar(100)))) AS id, Name AS name,
+       LTRIM(RTRIM(ISNULL(CAST(OwnerId AS varchar(100)), ''))) AS ownerId
+FROM list_booking_centers");
+            return new { entities, sets, bookingCenters = centers };
+        }
+        catch (Exception ex)
+        {
+            return Problem($"Consolidation tables not available: {ex.Message}", statusCode: 500);
+        }
     }
 
     public class MercuryLoadRequest

@@ -180,6 +180,20 @@ du mapping GL, montants convertis en CHF) et le bilan résultant, avec les
 intitulés dérivés du mapping GL (description HFM la plus fréquente par
 préfixe).
 
+**Éliminations selon le scope de consolidation** : l'aperçu 📊 propose un
+sélecteur *Consolidation scope* alimenté par `GET
+/api/production/mercury/conso` (`list_reporting_entities` + niveaux BO/PC/GR,
+`list_reporting_sets` = booking centers du périmètre, `list_booking_centers`
+avec OwnerId). Avec un scope choisi : le bilan de base est restreint aux
+positions bookées dans le périmètre (le endpoint balance ventile par
+BookingCenterId × CounterpartyBookingCenterId), les montants — base comme
+ajustements — dont le `CounterpartyBookingCenterId` est **dans** le périmètre
+sont **éliminés** (colonnes Adj gross / IC eliminated / Adj net), et les
+lignes d'ajustement bookées hors périmètre sont exclues (compteur ⊘). Une
+position sans booking center est conservée. Le mock contient MOCK-SOLO
+(BC-GVA) et MOCK-GROUP (BC-GVA + BC-ZH) avec POS-ADJ-C interco BC-GVA↔BC-ZH :
+éliminée au niveau groupe, conservée en solo.
+
 **Génération one-shot** : dès que le matching est résolu, deux exports —
 un **.sql unique** (tous les INSERT, une seule exécution SSMS) et un
 **Excel** (feuille Summary + feuille core_positions avec les lignes à insérer,

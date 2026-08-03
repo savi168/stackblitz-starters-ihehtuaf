@@ -27,6 +27,9 @@ GO
 IF OBJECT_ID('core_positions') IS NOT NULL DROP TABLE core_positions;
 IF OBJECT_ID('list_counterparties') IS NOT NULL DROP TABLE list_counterparties;
 IF OBJECT_ID('list_securities') IS NOT NULL DROP TABLE list_securities;
+IF OBJECT_ID('list_reporting_entities') IS NOT NULL DROP TABLE list_reporting_entities;
+IF OBJECT_ID('list_reporting_sets') IS NOT NULL DROP TABLE list_reporting_sets;
+IF OBJECT_ID('list_booking_centers') IS NOT NULL DROP TABLE list_booking_centers;
 GO
 
 CREATE TABLE list_counterparties (
@@ -63,9 +66,27 @@ CREATE TABLE core_positions (
     -- Columns used by the Adjustments matching (LIKE on the accounting REFERENCE/CLIENT)
     PositionCurrencyBookAmount decimal(18,2) NULL,
     InternalReference1 varchar(100) NULL, ContractId varchar(100) NULL,
-    BookingCenterId varchar(20) NULL, LocationCountry varchar(5) NULL,
+    BookingCenterId varchar(100) NULL, LocationCountry varchar(5) NULL,
     DataSource varchar(50) NULL,
+    CounterpartyBookingCenterId varchar(100) NULL,   -- interco company (conso eliminations)
     PRIMARY KEY (Id, LoadId)
+);
+
+-- Consolidation referential (scope-aware impact preview) ----------------------
+CREATE TABLE list_reporting_entities (
+    Id varchar(100) NOT NULL PRIMARY KEY, CreationDate date NULL,
+    Name varchar(100) NULL, SNBCode varchar(20) NULL, FinmaCategory int NULL,
+    ConsoLevelBankOffice bit NULL, ConsoLevelParentCompany bit NULL, ConsoLevelGroup bit NULL
+);
+CREATE TABLE list_reporting_sets (
+    ReportingEntityId varchar(100) NOT NULL,
+    ConsolidatedBookingCenterId varchar(100) NOT NULL,
+    CreationDate date NULL, OfficeType varchar(20) NULL, OfficeCountry char(2) NULL
+);
+CREATE TABLE list_booking_centers (
+    Id varchar(100) NOT NULL PRIMARY KEY, CreationDate date NULL,
+    Name varchar(100) NULL, OfficeType varchar(20) NULL,
+    OfficeCountry char(2) NULL, OfficeCanton char(2) NULL, OwnerId varchar(100) NULL
 );
 GO
 
@@ -130,10 +151,26 @@ INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, Boo
 -- Sample file: LIGNE 155 (REFERENCE 5950216318, CLIENT 595021) matches TWO
 -- positions — only POS-ADJ-A carries the GL-mapping account 102001 (✓GL);
 -- LIGNE 2060 (REFERENCE 5900175308, CLIENT 590017) matches via ContractId.
-INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, BookAmount, Currency, CounterpartyId, CounterpartyPIT, InternalReference1, ContractId, PositionCurrencyBookAmount, DataSource) VALUES
-('POS-ADJ-A', 1002, '102001', 'Account',  NULL,   750000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         800000, 'CORE'),
-('POS-ADJ-B', 1002, '104001', 'Contract', NULL,   500000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         535000, 'CORE'),
-('POS-ADJ-C', 1002, '201001', 'Account',  NULL,  -750000, 'EUR', 'CLI-590017', 1002, NULL,         '5900175308', -800000, 'CORE');
+-- POS-ADJ-C faces BC-ZH (interco): eliminated at MOCK-GROUP level, kept solo.
+INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, BookAmount, Currency, CounterpartyId, CounterpartyPIT, InternalReference1, ContractId, PositionCurrencyBookAmount, DataSource, BookingCenterId, CounterpartyBookingCenterId) VALUES
+('POS-ADJ-A', 1002, '102001', 'Account',  NULL,   750000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         800000, 'CORE', 'BC-GVA', NULL),
+('POS-ADJ-B', 1002, '104001', 'Contract', NULL,   500000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         535000, 'CORE', 'BC-ZH',  NULL),
+('POS-ADJ-C', 1002, '201001', 'Account',  NULL,  -750000, 'EUR', 'CLI-590017', 1002, NULL,         '5900175308', -800000, 'CORE', 'BC-GVA', 'BC-ZH');
+GO
+
+-- Consolidation referential ---------------------------------------------------
+-- MOCK-SOLO = BC-GVA alone (bank office level); MOCK-GROUP = BC-GVA + BC-ZH
+-- (group level) — at group level the BC-GVA↔BC-ZH interco is eliminated.
+INSERT INTO list_booking_centers (Id, Name, OfficeType, OfficeCountry, OfficeCanton, OwnerId) VALUES
+('BC-GVA', 'Mock Bank Geneva',        'HeadOffice', 'CH', 'GE', NULL),
+('BC-ZH',  'Mock Bank Zurich Branch', 'Branch',     'CH', 'ZH', 'BC-GVA');
+INSERT INTO list_reporting_entities (Id, Name, ConsoLevelBankOffice, ConsoLevelParentCompany, ConsoLevelGroup) VALUES
+('MOCK-SOLO',  'Mock Bank solo',  1, 1, 0),
+('MOCK-GROUP', 'Mock Bank group', 0, 0, 1);
+INSERT INTO list_reporting_sets (ReportingEntityId, ConsolidatedBookingCenterId, OfficeType, OfficeCountry) VALUES
+('MOCK-SOLO',  'BC-GVA', 'HeadOffice', 'CH'),
+('MOCK-GROUP', 'BC-GVA', 'HeadOffice', 'CH'),
+('MOCK-GROUP', 'BC-ZH',  'Branch',     'CH');
 GO
 
 -- Now create the two TVFs in THIS database: open docs/SQL_MERCURY_TVFS.sql,

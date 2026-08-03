@@ -398,7 +398,13 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     const [manual, setManual] = useState({ ligne: '', montant: '', ccy: 'CHF', nominal: '', reference: '', client: '', ind: '', libelle: '' });
     const [manualScript, setManualScript] = useState('');
     const [bookingCenter, setBookingCenter] = useState('');
-    const [baseBalance, setBaseBalance] = useState<Record<string, { amount: number; positions: number }> | null>(null);
+    const [baseRows, setBaseRows] = useState<Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [conso, setConso] = useState<{
+      entities: Array<{ id: string; name?: string; bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }>;
+      sets: Record<string, string[]>;
+      bcNames: Record<string, string>;
+    } | null>(null);
+    const [scopeSel, setScopeSel] = useState('');
     const [showImpact, setShowImpact] = useState(false);
     // The adjustments service is dynamically imported (keeps xlsx out of the
     // main chunk); the module is kept here so memos can use it once loaded.
@@ -600,23 +606,51 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       onNotice(`Line added as row ${ml.row} — re-run the matching to look for candidates (its reference is "${ml.reference}"), or export directly (treated as a new position).`);
     };
 
-    // Balance-sheet impact preview: base balance of the load (LEFT3 aggregate
-    // from MERCURY) + adjustment deltas per account prefix.
+    // Balance-sheet impact preview: base balance of the load (LEFT3 ×
+    // booking center aggregate from MERCURY) + adjustment deltas per prefix,
+    // optionally restricted to a consolidation scope (list_reporting_sets)
+    // with intra-scope intercompany eliminations.
     const toggleImpact = async () => {
       if (showImpact) { setShowImpact(false); return; }
       setShowImpact(true);
-      if (!baseBalance && loadId) {
+      if (!baseRows && loadId) {
         try {
           const r = await fetch(`${apiBaseUrl}/production/mercury/balance?loadId=${encodeURIComponent(loadId)}`, { credentials: 'include' });
           if (r.ok) {
-            const arr = await r.json() as Array<{ prefix: string; amount: number; positions: number }>;
-            const map: Record<string, { amount: number; positions: number }> = {};
-            for (const b of arr) if (b.prefix) map[b.prefix] = { amount: b.amount, positions: b.positions };
-            setBaseBalance(map);
+            const arr = await r.json() as Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>;
+            setBaseRows(arr.filter(b => b.prefix));
           }
         } catch { /* base unavailable — deltas shown alone */ }
       }
+      if (!conso) {
+        try {
+          const r = await fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' });
+          if (r.ok) {
+            const out = await r.json() as {
+              entities: Array<{ id: unknown; name?: unknown; bankOffice?: unknown; parentCompany?: unknown; consoGroup?: unknown }>;
+              sets: Array<{ reportingEntityId: string; bookingCenterId: string }>;
+              bookingCenters: Array<{ id: string; name?: string }>;
+            };
+            const sets: Record<string, string[]> = {};
+            for (const s of out.sets || []) (sets[String(s.reportingEntityId)] ??= []).push(String(s.bookingCenterId));
+            const bcNames: Record<string, string> = {};
+            for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
+            setConso({
+              entities: (out.entities || []).map(e => ({
+                id: String(e.id), name: e.name ? String(e.name) : undefined,
+                bankOffice: e.bankOffice === true, parentCompany: e.parentCompany === true, consoGroup: e.consoGroup === true,
+              })),
+              sets, bcNames,
+            });
+          }
+        } catch { /* conso referential unavailable — scope selector hidden */ }
+      }
     };
+
+    const scopeSet = useMemo(() => {
+      if (!scopeSel || !conso) return null;
+      return new Set((conso.sets[scopeSel] || []).map(s => s.trim()));
+    }, [scopeSel, conso]);
 
     const impact = useMemo(() => {
       if (!svcMod || !mappings || lines.length === 0) return null;
@@ -624,8 +658,22 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         const cands = results?.[l.row] || [];
         return { line: l, cand: cands.find(c => c.id === chosen[l.row]) || null };
       });
-      return svcMod.computeImpactByPrefix(items, mappings);
-    }, [svcMod, mappings, lines, results, chosen]);
+      return svcMod.computeImpactByPrefix(items, mappings, { bookingCenterId: bookingCenter.trim() || undefined }, scopeSet);
+    }, [svcMod, mappings, lines, results, chosen, bookingCenter, scopeSet]);
+
+    // Base per prefix, scope-filtered: amounts booked outside the scope drop
+    // out; intra-scope interco amounts are the base eliminations.
+    const baseAgg = useMemo(() => {
+      if (!baseRows) return null;
+      const per: Record<string, { amount: number; eliminated: number }> = {};
+      for (const b of baseRows) {
+        if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
+        const e = (per[b.prefix] ??= { amount: 0, eliminated: 0 });
+        e.amount += b.amount;
+        if (scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId)) e.eliminated += b.amount;
+      }
+      return per;
+    }, [baseRows, scopeSet]);
 
     if (mode !== 'api') {
       return (
@@ -681,7 +729,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         <div className="flex flex-wrap items-end gap-3 mb-3">
           <div>
             <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
-            <input value={loadId} onChange={e => { setLoadId(e.target.value); setBaseBalance(null); }} placeholder="e.g. 1002" className={input} />
+            <input value={loadId} onChange={e => { setLoadId(e.target.value); setBaseRows(null); }} placeholder="e.g. 1002" className={input} />
           </div>
           {reportingDate && <p className="text-sm text-brand-text-secondary pb-2">→ reporting date <strong>{reportingDate}</strong></p>}
           <div>
@@ -700,61 +748,101 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
 
         {showImpact && impact && mappings && (() => {
           const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 2 });
-          const prefixes = Array.from(new Set([...Object.keys(baseBalance || {}), ...impact.keys()])).sort();
+          const per = impact.perPrefix;
+          const scoped = !!scopeSet;
+          const nCols = scoped ? 8 : 6;
+          const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
           const sections: Array<{ title: string; match: (p: string) => boolean }> = [
             { title: 'Assets (1xx)', match: p => p.startsWith('1') },
             { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
             { title: 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
           ];
+          const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
+            [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
           return (
             <div className="border border-efg-line rounded-lg mb-3 overflow-x-auto">
+              <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40">
+                <label className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Consolidation scope</label>
+                <select value={scopeSel} onChange={e => setScopeSel(e.target.value)}
+                  className="p-1.5 border border-gray-200 rounded-md text-[12px] bg-white">
+                  <option value="">— entire load (no scope) —</option>
+                  {(conso?.entities || []).map(e => (
+                    <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
+                  ))}
+                </select>
+                {scoped && (
+                  <span className="text-[11px] text-brand-text-secondary">
+                    {scopeSet!.size} booking center(s) in the reporting set — intra-scope interco is eliminated
+                  </span>
+                )}
+                {impact.outOfScope > 0 && (
+                  <span className="text-[11px] text-status-amber font-semibold">
+                    ⊘ {impact.outOfScope} adjustment line(s) booked outside the scope (excluded)
+                  </span>
+                )}
+                {!conso && <span className="text-[11px] text-brand-text-secondary">conso referential unavailable</span>}
+              </div>
               <table className="w-full text-xs whitespace-nowrap">
                 <thead className="bg-brand-bg-body"><tr>
-                  {['Account (LEFT 3)', 'Label', 'Base (load)', 'Adjustments', 'After', 'Adj lines'].map((h, hi) =>
-                    <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 && hi <= 4 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                  {(scoped
+                    ? ['Account (LEFT 3)', 'Label', 'Base (scope, net IC)', 'Adj gross', 'IC eliminated', 'Adj net', 'After', 'Adj lines']
+                    : ['Account (LEFT 3)', 'Label', 'Base (load)', 'Adjustments', 'After', 'Adj lines']
+                  ).map((h, hi) =>
+                    <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {sections.map(sec => {
                     const ps = prefixes.filter(sec.match);
                     if (ps.length === 0) return null;
-                    let tBase = 0, tDelta = 0, tLines = 0;
+                    let tBase = 0, tGross = 0, tElim = 0, tLines = 0;
                     return (
                       <React.Fragment key={sec.title}>
                         <tr className="border-t border-efg-line bg-brand-bg-body/60">
-                          <td colSpan={6} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
+                          <td colSpan={nCols} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
                         </tr>
                         {ps.map(p => {
-                          const base = baseBalance?.[p]?.amount ?? 0;
-                          const d = impact.get(p);
-                          const delta = d?.delta ?? 0;
-                          tBase += base; tDelta += delta; tLines += d?.lines ?? 0;
+                          const b = baseAgg?.[p];
+                          const baseNet = (b?.amount ?? 0) - (b?.eliminated ?? 0);
+                          const d = per.get(p);
+                          const gross = d?.gross ?? 0;
+                          const elim = d?.eliminated ?? 0;
+                          const net = scoped ? (d?.net ?? 0) : gross;
+                          tBase += baseNet; tGross += gross; tElim += elim; tLines += d?.lines ?? 0;
+                          const deltaCls = (n: number) => n > 0 ? 'text-status-green' : n < 0 ? 'text-status-red' : 'text-brand-text-secondary';
                           return (
-                            <tr key={p} className={`border-t border-efg-line/60 ${delta !== 0 ? 'font-semibold' : ''}`}>
+                            <tr key={p} className={`border-t border-efg-line/60 ${gross !== 0 ? 'font-semibold' : ''}`}>
                               <td className="px-3 py-1">{p}</td>
                               <td className="px-3 py-1 text-brand-text-secondary font-normal max-w-xs truncate">{mappings.accountLabels.get(p) || '—'}</td>
-                              <td className="px-3 py-1 text-right tabular-nums">{baseBalance ? fmt(base) : '—'}</td>
-                              <td className={`px-3 py-1 text-right tabular-nums ${delta > 0 ? 'text-status-green' : delta < 0 ? 'text-status-red' : 'text-brand-text-secondary'}`}>{delta === 0 ? '—' : fmt(delta)}</td>
-                              <td className="px-3 py-1 text-right tabular-nums">{baseBalance ? fmt(base + delta) : '—'}</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{baseAgg ? fmt(baseNet) : '—'}</td>
+                              <td className={`px-3 py-1 text-right tabular-nums ${deltaCls(gross)}`}>{gross === 0 ? '—' : fmt(gross)}</td>
+                              {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{elim === 0 ? '—' : fmt(-elim)}</td>}
+                              {scoped && <td className={`px-3 py-1 text-right tabular-nums ${deltaCls(net)}`}>{net === 0 ? '—' : fmt(net)}</td>}
+                              <td className="px-3 py-1 text-right tabular-nums">{baseAgg ? fmt(baseNet + net) : '—'}</td>
                               <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary font-normal">{d?.lines || ''}</td>
                             </tr>
                           );
                         })}
-                        <tr className="border-t border-efg-line font-semibold">
-                          <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums">{baseBalance ? fmt(tBase) : '—'}</td>
-                          <td className={`px-3 py-1.5 text-right tabular-nums ${tDelta > 0 ? 'text-status-green' : tDelta < 0 ? 'text-status-red' : ''}`}>{tDelta === 0 ? '—' : fmt(tDelta)}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums">{baseBalance ? fmt(tBase + tDelta) : '—'}</td>
-                          <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tLines || ''}</td>
-                        </tr>
+                        {(() => { const tNet = scoped ? tGross - tElim : tGross; return (
+                          <tr className="border-t border-efg-line font-semibold">
+                            <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{baseAgg ? fmt(tBase) : '—'}</td>
+                            <td className={`px-3 py-1.5 text-right tabular-nums ${tGross > 0 ? 'text-status-green' : tGross < 0 ? 'text-status-red' : ''}`}>{tGross === 0 ? '—' : fmt(tGross)}</td>
+                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tElim === 0 ? '—' : fmt(-tElim)}</td>}
+                            {scoped && <td className={`px-3 py-1.5 text-right tabular-nums ${tNet > 0 ? 'text-status-green' : tNet < 0 ? 'text-status-red' : ''}`}>{tNet === 0 ? '—' : fmt(tNet)}</td>}
+                            <td className="px-3 py-1.5 text-right tabular-nums">{baseAgg ? fmt(tBase + tNet) : '—'}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tLines || ''}</td>
+                          </tr>
+                        ); })()}
                       </React.Fragment>
                     );
                   })}
                 </tbody>
               </table>
               <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
-                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} grouped by LEFT(LegalAccountNumber, 3);
+                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} by LEFT(LegalAccountNumber, 3);
                 matched lines hit the account of the chosen position, unmatched lines the Mapping_GL_BALANCESHEET account of their LIGNE.
-                {!baseBalance && ' Base balance unavailable (MERCURY not reachable or loadid empty) — showing adjustment deltas only.'}
+                {scoped && ' Scope: base restricted to positions booked in the reporting set (list_reporting_sets); amounts facing an intra-scope CounterpartyBookingCenterId are eliminated (base and adjustments); positions with no booking center are kept.'}
+                {!baseAgg && ' Base balance unavailable (MERCURY not reachable or loadid empty) — showing adjustment deltas only.'}
               </p>
             </div>
           );
@@ -950,6 +1038,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
           Intercompany: an IND code carrying HYPERIOD_INTERCO in the INDUSTRY sheet (badge IC) forces the group company into CounterpartyBookingCenterId — on both matched adjustments and new positions. The Booking center field stamps BookingCenterId on new positions.
           One-shot generation: a single .sql with every INSERT (one execution in SSMS) or an Excel with the core_positions rows (all columns) for mass review / bulk import.
           The 📊 impact preview shows base (load aggregate from MERCURY), adjustments and resulting balance per LEFT(LegalAccountNumber,3), split assets / liabilities / off-balance, labels derived from the GL mapping.
+          A consolidation scope (list_reporting_entities / list_reporting_sets / list_booking_centers) restricts the view to the reporting set's booking centers and eliminates intra-scope intercompany amounts — base and adjustments alike.
           Every copied or downloaded script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
         </p>
       </Card>
