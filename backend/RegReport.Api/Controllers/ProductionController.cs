@@ -55,7 +55,7 @@ public class ProductionController : ControllerBase
         var cs = _config.GetConnectionString("Mercury");
         if (string.IsNullOrWhiteSpace(cs)) return new List<object>();
         var q = _config["Production:LoadsQuery"]
-            ?? "SELECT TOP 100 LoadId, ReportingDate FROM core_loads ORDER BY LoadId DESC";
+            ?? "SELECT TOP 100 LoadId, ReportingDate, Name FROM core_loads WHERE IsVisible = 1 ORDER BY LoadId DESC";
         try
         {
             var list = new List<object>();
@@ -68,10 +68,12 @@ public class ProductionController : ControllerBase
             {
                 var loadId = rd.GetValue(0);
                 var dateV = rd.GetValue(1);
+                var name = rd.FieldCount > 2 && !rd.IsDBNull(2) ? Convert.ToString(rd.GetValue(2)) : null;
                 list.Add(new
                 {
                     loadId = Convert.ToString(loadId),
                     reportingDate = dateV is DateTime dt ? dt.ToString("yyyy-MM-dd") : Convert.ToString(dateV),
+                    name,
                 });
             }
             return list;

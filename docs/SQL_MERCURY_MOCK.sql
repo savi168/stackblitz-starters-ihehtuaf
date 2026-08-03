@@ -124,6 +124,10 @@ GO
 -- core_loads: links each loadid to its reporting date (the app resolves the
 -- period automatically when the date field is left blank).
 IF OBJECT_ID('core_loads') IS NOT NULL DROP TABLE core_loads;
-CREATE TABLE core_loads (LoadId int PRIMARY KEY, ReportingDate date NOT NULL);
-INSERT INTO core_loads (LoadId, ReportingDate) VALUES (1001, '2025-12-31'), (1002, '2026-01-31');
+CREATE TABLE core_loads (
+    LoadId int PRIMARY KEY, ReportingDate date NOT NULL,
+    CreationDate date NOT NULL DEFAULT GETDATE(), Name varchar(50) NOT NULL DEFAULT '',
+    LastUpdate datetime2 NOT NULL DEFAULT SYSDATETIME(), IsVisible bit NOT NULL DEFAULT 1);
+INSERT INTO core_loads (LoadId, ReportingDate, Name) VALUES
+    (1001, '2025-12-31', 'DEC-25 monthly'), (1002, '2026-01-31', 'JAN-26 monthly');
 GO

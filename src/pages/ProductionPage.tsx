@@ -25,7 +25,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
     const { mode, apiBaseUrl, reload } = useData();
     const [target, setTarget] = useState<'counterparties' | 'securities'>('counterparties');
     const [loadId, setLoadId] = useState('');
-    const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string }>>([]);
+    const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string; name?: string | null }>>([]);
     const [productType, setProductType] = useState('');
     const [busy, setBusy] = useState(false);
 
@@ -81,6 +81,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
               <thead className="bg-brand-bg-body sticky top-0"><tr>
                 <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Loadid (core_loads)</th>
                 <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Reporting date</th>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Name</th>
               </tr></thead>
               <tbody>
                 {loads.map(l => (
@@ -88,6 +89,7 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
                     className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(l.loadId) === loadId ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
                     <td className="px-3 py-1">{String(l.loadId) === loadId ? '● ' : ''}{String(l.loadId)}</td>
                     <td className="px-3 py-1">{String(l.reportingDate).slice(0, 10)}</td>
+                    <td className="px-3 py-1 text-brand-text-secondary">{l.name || ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -250,7 +252,37 @@ const SEC_INS_FIELDS: InsField[] = [
   { name: 'LEXGuaranteedFlag', type: 'flag' },
 ];
 
-const OrphanInsertHelper: React.FC<{ keyValue: string }> = ({ keyValue }) => {
+/** Full column lists per the exact MERCURY DDL (docs/mercury-model/ddl.txt):
+ * almost every column is NOT NULL, so the generated INSERT covers ALL columns
+ * — user-provided values where filled, neutral typed defaults elsewhere
+ * ('' / 0 / 1900-01-01), NULL only for the nullable *PIT columns. */
+type ColKind = 'text' | 'int' | 'num' | 'flag' | 'date' | 'pit';
+const CPTY_ALL: Array<[string, ColKind]> = [
+  ['Id', 'text'], ['PointInTime', 'int'], ['CreationDate', 'date'], ['Name', 'text'],
+  ['LegalName', 'text'], ['LEI', 'text'], ['DomicileCountry', 'text'], ['DomicileCanton', 'text'],
+  ['HQDomicile', 'text'], ['RelatedPartyType', 'text'], ['TypeOf', 'text'],
+  ['EconomicActivityType', 'text'], ['RatingClass', 'int'], ['ExternalRatingId', 'text'],
+  ['ExternalRatingPIT', 'pit'], ['BookingCenterId', 'text'], ['GroupLEXId', 'text'],
+  ['GroupARISId', 'text'], ['Headcount', 'int'], ['Turnover', 'int'], ['BalanceSheet', 'num'],
+  ['Income1', 'int'], ['Income2', 'int'], ['SMEFlag', 'flag'], ['AdequateSupervisionFlag', 'flag'],
+  ['RelationshipManagerId', 'text'], ['EstablishedRelationshipFlag', 'flag'], ['LEXLimitFlag', 'flag'],
+  ['CreditQuality', 'text'], ['IncomeCurrency', 'text'], ['IsEdited', 'flag'], ['Nationality', 'text'],
+  ['ReportingDate', 'date'], ['PD', 'num'], ['RiskEvaluationDate', 'date'], ['SIScode', 'text'],
+];
+const SEC_ALL: Array<[string, ColKind]> = [
+  ['Id', 'text'], ['PointInTime', 'int'], ['CreationDate', 'date'], ['Name', 'text'],
+  ['ISIN', 'text'], ['BBGTicker', 'text'], ['FIGI', 'text'], ['SEDOL', 'text'], ['Currency', 'text'],
+  ['IndexFlag', 'flag'], ['MainIndexFlag', 'flag'], ['RevaluationFrequency', 'text'],
+  ['SNBEligibleFlag', 'flag'], ['CMAApproachType', 'text'], ['CMARiskIndicator', 'int'],
+  ['CMASARwFlag', 'flag'], ['RatingClass', 'int'], ['ExternalRatingId', 'text'],
+  ['ExternalRatingPIT', 'pit'], ['MaturityDate', 'date'], ['TypeOf', 'text'], ['SubType', 'text'],
+  ['InterestRateId', 'text'], ['IssuerId', 'text'], ['IssuerPIT', 'pit'],
+  ['InvestmentGradeFlag', 'flag'], ['TimeSeriesId', 'int'], ['HQLACategory', 'text'],
+  ['LEXGuaranteedFlag', 'flag'], ['ListedType', 'text'], ['IsEdited', 'flag'],
+  ['StartDate', 'date'], ['ReportingDate', 'date'],
+];
+
+const OrphanInsertHelper: React.FC<{ keyValue: string; periodDate?: string }> = ({ keyValue, periodDate }) => {
   const [kind, setKind] = useState<'cpty' | 'sec'>('cpty');
   const [vals, setVals] = useState<Record<string, string>>(
     { Id: keyValue.startsWith('POS:') ? '' : keyValue });
@@ -268,15 +300,35 @@ const OrphanInsertHelper: React.FC<{ keyValue: string }> = ({ keyValue }) => {
   const generate = () => {
     const missing = fields.filter(f => f.required && !vals[f.name]?.trim());
     if (missing.length > 0) { setScript(`-- Missing required field(s): ${missing.map(f => f.name).join(', ')}`); return; }
-    const filled = fields.map(f => [f, fmt(f, vals[f.name] || '')] as const).filter(([, v]) => v !== null);
+    // The real MERCURY tables are NOT NULL on almost every column: emit ALL
+    // columns — user values where provided, neutral typed defaults elsewhere.
+    const today = new Date().toISOString().slice(0, 10);
+    const all = kind === 'cpty' ? CPTY_ALL : SEC_ALL;
+    const colVals = all.map(([name, t]) => {
+      const raw = (vals[name] || '').trim();
+      if (raw) {
+        if (t === 'int' || t === 'num' || t === 'pit') return [name, /^-?\d+(\.\d+)?$/.test(raw) ? raw : '0'] as const;
+        if (t === 'flag') return [name, ['1', 'true', 'yes', 'y', 'x'].includes(raw.toLowerCase()) ? '1' : '0'] as const;
+        return [name, `'${raw.replace(/'/g, "''")}'`] as const;
+      }
+      if (name === 'CreationDate') return [name, `'${today}'`] as const;
+      if (name === 'ReportingDate') return [name, `'${periodDate || today}'`] as const;
+      if (name === 'IsEdited') return [name, '1'] as const;   // manually created record
+      if (t === 'pit') return [name, 'NULL'] as const;
+      if (t === 'date') return [name, `'1900-01-01'`] as const;
+      if (t === 'text') return [name, `''`] as const;
+      return [name, '0'] as const;
+    });
     const sql = [
-      `-- Orphan fix prepared by RegReport Production on ${new Date().toISOString().slice(0, 10)}`,
+      `-- Orphan fix prepared by RegReport Production on ${today}`,
+      `-- All NOT NULL columns are filled (neutral defaults per the real DDL);`,
+      `-- *PIT columns default to NULL. Adjust any default before executing.`,
       `-- 1) CHECK — the row must not already exist:`,
       `SELECT * FROM ${table} WHERE Id = ${fmt({ name: 'Id', type: 'text' }, vals.Id || '')} AND PointInTime = ${vals.PointInTime?.trim() || '?'};`,
       ``,
       `-- 2) INSERT — review, run in SSMS, then re-run the feed:`,
-      `INSERT INTO ${table} (${filled.map(([f]) => f.name).join(', ')})`,
-      `VALUES (${filled.map(([, v]) => v).join(', ')});`,
+      `INSERT INTO ${table} (${colVals.map(([n]) => n).join(', ')})`,
+      `VALUES (${colVals.map(([, v]) => v).join(', ')});`,
     ].join('\n');
     setScript(sql);
   };
@@ -604,7 +656,7 @@ const ProductionPage: React.FC = () => {
                                   rows={detail as unknown as Array<Record<string, unknown>>} keyValue={f.key} />
                               )}
                               {!logOf(f) && f.control.startsWith('C5') && (
-                                <OrphanInsertHelper keyValue={f.key} />
+                                <OrphanInsertHelper keyValue={f.key} periodDate={date} />
                               )}
                             </td>
                           </tr>

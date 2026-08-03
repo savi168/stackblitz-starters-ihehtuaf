@@ -47,7 +47,7 @@ WITH pos AS (
       ON  ls.Id          = cp.SecurityId
       AND ls.PointInTime = cp.SecurityPIT
     WHERE cp.LoadId = @loadId
-      AND LEFT(cp.LegalAccountNumber, 3) IN
+      AND LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 3) IN
           ('101','102','103','104','105','106','110','111',
            '201','202','203','204','206','207','208','209')
       AND (@productType IS NULL OR cp.TypeOf = @productType)
@@ -69,11 +69,11 @@ JOIN pos p
 CROSS APPLY (SELECT CASE
     WHEN p.TypeOf IN ('Security', 'Cash')                        THEN 'liquidityAssets'
     WHEN lc.TypeOf IN ('Bank', 'CBank', 'SNB', 'CHSIB', 'GSIB', 'CGCB')
-         AND LEFT(p.LegalAccountNumber, 1) = '1'                 THEN 'dueFromBanks'
+         AND LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '1'                 THEN 'dueFromBanks'
     WHEN lc.TypeOf IN ('Bank', 'CBank', 'SNB', 'CHSIB', 'GSIB', 'CGCB')
-         AND LEFT(p.LegalAccountNumber, 1) = '2'                 THEN 'dueToBanks'
+         AND LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '2'                 THEN 'dueToBanks'
     WHEN p.SubType LIKE '%Mortgage%'                             THEN 'mortgages'
-    WHEN LEFT(p.LegalAccountNumber, 1) = '2'                     THEN 'dueToCustomers'
+    WHEN LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '2'                     THEN 'dueToCustomers'
     ELSE 'dueFromCustomers' END AS Dataset) ds
 GROUP BY ds.Dataset, lc.Id, lc.TypeOf, lc.GroupLEXId,
          lc.EconomicActivityType, lc.RatingClass
@@ -86,7 +86,7 @@ SELECT
     CASE
         WHEN p.TypeOf IN ('Security', 'Cash')    THEN 'liquidityAssets'
         WHEN p.SubType LIKE '%Mortgage%'         THEN 'mortgages'
-        WHEN LEFT(p.LegalAccountNumber, 1) = '2' THEN 'dueToCustomers'
+        WHEN LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '2' THEN 'dueToCustomers'
         ELSE 'dueFromCustomers'
     END                                      AS Dataset,
     COALESCE(p.ResolvedId, CONCAT('POS:', p.Id)) AS ClientNumber,
@@ -105,7 +105,7 @@ GROUP BY
     CASE
         WHEN p.TypeOf IN ('Security', 'Cash')    THEN 'liquidityAssets'
         WHEN p.SubType LIKE '%Mortgage%'         THEN 'mortgages'
-        WHEN LEFT(p.LegalAccountNumber, 1) = '2' THEN 'dueToCustomers'
+        WHEN LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '2' THEN 'dueToCustomers'
         ELSE 'dueFromCustomers'
     END,
     COALESCE(p.ResolvedId, CONCAT('POS:', p.Id));
@@ -142,7 +142,7 @@ LEFT JOIN list_counterparties g
   AND g.PointInTime = cp.GuarantorPIT
 WHERE cp.LoadId = @loadId
   AND cp.TypeOf = 'Security'
-  AND LEFT(cp.LegalAccountNumber, 3) IN
+  AND LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 3) IN
       ('101','102','103','104','105','106','110','111',
        '201','202','203','204','206','207','208','209')  -- banking-book scope
   AND ls.ISIN IS NOT NULL
