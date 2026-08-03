@@ -40,6 +40,7 @@ export interface AdjustmentLine {
   libelle?: string;
   sense?: string;        // DEBIT | CREDIT (informational; montant is signed)
   vdDate?: string;
+  matDate?: string;      // ISO — used for the generated list_securities row
 }
 
 const norm = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -47,6 +48,16 @@ const numOf = (v: unknown): number | undefined => {
   if (typeof v === 'number' && isFinite(v)) return v;
   const n = Number(String(v ?? '').replace(/['\s]/g, '').replace(',', '.'));
   return isFinite(n) && String(v ?? '').trim() !== '' ? n : undefined;
+};
+
+const toIsoDate = (v: unknown): string | undefined => {
+  if (v instanceof Date && !isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  const s = norm(v);
+  if (!s) return undefined;
+  const dmy = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return undefined;
 };
 
 const sheetRows = (ws: XLSX.WorkSheet): unknown[][] =>
@@ -166,6 +177,7 @@ export const parseAdjustmentsFile = (buffer: ArrayBuffer): AdjustmentLine[] => {
     const iClient = headerIndex(h, 'CLIENT');
     const iLib = headerIndex(h, 'LIBELLE');
     const iVd = headerIndex(h, 'VD DATE');
+    const iMat = headerIndex(h, 'MAT DATE');
     const lines: AdjustmentLine[] = [];
     for (let r = hIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
@@ -190,6 +202,7 @@ export const parseAdjustmentsFile = (buffer: ArrayBuffer): AdjustmentLine[] => {
         libelle: iLib >= 0 ? norm(row[iLib]) || undefined : undefined,
         sense,
         vdDate: iVd >= 0 ? norm(row[iVd]) || undefined : undefined,
+        matDate: iMat >= 0 ? toIsoDate(row[iMat]) : undefined,
       });
     }
     if (lines.length > 0) return lines;
@@ -313,6 +326,14 @@ const chunk6 = (items: string[]): string[] => {
   return out;
 };
 
+/** A line builds a *security* position when the GL mapping says so — in that
+ * case the package also creates the list_securities row (+ its issuer in
+ * list_counterparties); otherwise only list_counterparties for the CLIENT. */
+export const isSecurityLine = (line: AdjustmentLine, mappings: AdjustmentMappings): boolean =>
+  (mappings.gl.get(line.ligne)?.typeOf ?? '').trim().toLowerCase() === 'security';
+const newSecurityId = (line: AdjustmentLine): string => `ADJ-SEC-${line.ligne}-${line.row}`;
+const isIsin = (v: string): boolean => /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(v);
+
 /** JS values of a brand-new position built from the mappings (no match). */
 const newPositionValues = (
   line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
@@ -322,6 +343,10 @@ const newPositionValues = (
   const row: Record<string, unknown> = {};
   for (const [name, kind] of CORE_POSITION_COLS)
     row[name] = kind === 'pit' ? null : kind === 'date' ? '1900-01-01' : kind === 'num' ? 0 : '';
+  if (isSecurityLine(line, mappings)) {
+    row.SecurityId = newSecurityId(line);
+    row.SecurityPIT = numOrSelf(loadId);
+  }
   Object.assign(row, {
     Id: `ADJ-${line.ligne}-${line.row}`,
     LoadId: numOrSelf(loadId),
@@ -412,6 +437,125 @@ export const buildNewPositionInsert = (
 };
 
 // ---------------------------------------------------------------------------
+// Referential companions: a brand-new position must not create C5 orphans —
+// the package also inserts the missing list_counterparties row (the CLIENT,
+// or the issuer of a created security) and, for security lines, the
+// list_securities row. All guarded by IF NOT EXISTS. Column lists per the
+// exact MERCURY DDL (docs/mercury-model/ddl.txt) — same neutral defaults.
+// ---------------------------------------------------------------------------
+
+export const LIST_CPTY_COLS: Array<[string, PosColKind]> = [
+  ['Id', 'text'], ['PointInTime', 'num'], ['CreationDate', 'date'], ['Name', 'text'],
+  ['LegalName', 'text'], ['LEI', 'text'], ['DomicileCountry', 'text'], ['DomicileCanton', 'text'],
+  ['HQDomicile', 'text'], ['RelatedPartyType', 'text'], ['TypeOf', 'text'],
+  ['EconomicActivityType', 'text'], ['RatingClass', 'num'], ['ExternalRatingId', 'text'],
+  ['ExternalRatingPIT', 'pit'], ['BookingCenterId', 'text'], ['GroupLEXId', 'text'],
+  ['GroupARISId', 'text'], ['Headcount', 'num'], ['Turnover', 'num'], ['BalanceSheet', 'num'],
+  ['Income1', 'num'], ['Income2', 'num'], ['SMEFlag', 'num'], ['AdequateSupervisionFlag', 'num'],
+  ['RelationshipManagerId', 'text'], ['EstablishedRelationshipFlag', 'num'], ['LEXLimitFlag', 'num'],
+  ['CreditQuality', 'text'], ['IncomeCurrency', 'text'], ['IsEdited', 'num'], ['Nationality', 'text'],
+  ['ReportingDate', 'date'], ['PD', 'num'], ['RiskEvaluationDate', 'date'], ['SIScode', 'text'],
+];
+export const LIST_SEC_COLS: Array<[string, PosColKind]> = [
+  ['Id', 'text'], ['PointInTime', 'num'], ['CreationDate', 'date'], ['Name', 'text'],
+  ['ISIN', 'text'], ['BBGTicker', 'text'], ['FIGI', 'text'], ['SEDOL', 'text'], ['Currency', 'text'],
+  ['IndexFlag', 'num'], ['MainIndexFlag', 'num'], ['RevaluationFrequency', 'text'],
+  ['SNBEligibleFlag', 'num'], ['CMAApproachType', 'text'], ['CMARiskIndicator', 'num'],
+  ['CMASARwFlag', 'num'], ['RatingClass', 'num'], ['ExternalRatingId', 'text'],
+  ['ExternalRatingPIT', 'pit'], ['MaturityDate', 'date'], ['TypeOf', 'text'], ['SubType', 'text'],
+  ['InterestRateId', 'text'], ['IssuerId', 'text'], ['IssuerPIT', 'pit'],
+  ['InvestmentGradeFlag', 'num'], ['TimeSeriesId', 'num'], ['HQLACategory', 'text'],
+  ['LEXGuaranteedFlag', 'num'], ['ListedType', 'text'], ['IsEdited', 'num'],
+  ['StartDate', 'date'], ['ReportingDate', 'date'],
+];
+
+const listDefaults = (cols: Array<[string, PosColKind]>): Record<string, unknown> => {
+  const row: Record<string, unknown> = {};
+  for (const [name, kind] of cols)
+    row[name] = kind === 'pit' ? null : kind === 'date' ? '1900-01-01' : kind === 'num' ? 0 : '';
+  return row;
+};
+
+/** list_counterparties row for the CLIENT of a new position — TypeOf and
+ * EconomicActivityType prefilled from the IND→INDUSTRY / CATEG→RT01 maps. */
+export const counterpartyValues = (
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): Record<string, unknown> => {
+  const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
+  const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
+  const row = listDefaults(LIST_CPTY_COLS);
+  Object.assign(row, {
+    Id: line.client ?? '',
+    PointInTime: numOrSelf(loadId),
+    CreationDate: new Date().toISOString().slice(0, 10),
+    Name: line.libelle ?? line.client ?? '',
+    TypeOf: ind?.typeOf ?? rt ?? '',
+    EconomicActivityType: ind?.economicActivityType ?? '',
+    IsEdited: 1,
+    ReportingDate: reportingDate,
+  });
+  return row;
+};
+
+/** list_securities row created for a security line (issuer = CLIENT). */
+export const securityValues = (
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): Record<string, unknown> => {
+  const glEntry = mappings.gl.get(line.ligne);
+  const row = listDefaults(LIST_SEC_COLS);
+  Object.assign(row, {
+    Id: newSecurityId(line),
+    PointInTime: numOrSelf(loadId),
+    CreationDate: new Date().toISOString().slice(0, 10),
+    Name: line.libelle ?? String(line.reference),
+    ISIN: isIsin(String(line.reference)) ? String(line.reference) : '',
+    Currency: line.ccy,
+    MaturityDate: line.matDate ?? '1900-01-01',
+    TypeOf: glEntry?.subType ?? '',
+    IssuerId: line.client ?? '',
+    IssuerPIT: line.client ? numOrSelf(loadId) : null,
+    IsEdited: 1,
+    ReportingDate: reportingDate,
+  });
+  return row;
+};
+
+const buildListInsert = (
+  table: string, cols: Array<[string, PosColKind]>, row: Record<string, unknown>, comment: string
+): string => [
+  `-- ${comment}`,
+  `IF NOT EXISTS (SELECT 1 FROM ${table} WHERE Id = ${sqlVal(row.Id)} AND PointInTime = ${sqlVal(row.PointInTime)})`,
+  `INSERT INTO ${table} (`,
+  ...chunk6(cols.map(([n]) => n)),
+  `)`,
+  `VALUES (`,
+  ...chunk6(cols.map(([n]) => sqlVal(row[n]))),
+  `);`,
+].join('\n');
+
+/** Full script for a no-match line: missing referential rows first (guarded
+ * by IF NOT EXISTS — no duplicate if they already exist at the PIT), then
+ * the core_positions INSERT. */
+export const buildNewPositionPackage = (
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+): string => {
+  const parts: string[] = [];
+  const sec = isSecurityLine(line, mappings);
+  if (line.client) {
+    parts.push(buildListInsert('list_counterparties', LIST_CPTY_COLS,
+      counterpartyValues(line, loadId, reportingDate, mappings),
+      `Referential: ${sec ? 'issuer' : 'counterparty'} ${line.client} at PIT ${loadId} (skipped if it already exists → no C5 orphan)`));
+  }
+  if (sec) {
+    parts.push(buildListInsert('list_securities', LIST_SEC_COLS,
+      securityValues(line, loadId, reportingDate, mappings),
+      `Referential: security ${newSecurityId(line)} at PIT ${loadId} (GL line is cp_TypeOf = Security)`));
+  }
+  parts.push(buildNewPositionInsert(line, loadId, reportingDate, mappings));
+  return parts.join('\n\n');
+};
+
+// ---------------------------------------------------------------------------
 // One-shot generation: combined SQL script + Excel of the rows to insert
 // ---------------------------------------------------------------------------
 
@@ -452,7 +596,7 @@ export const buildAllSql = (
   ].join('\n');
   return [header, ...items.map(i => (i.cand
     ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings)
-    : buildNewPositionInsert(i.line, loadId, reportingDate, mappings)))].join('\n\n');
+    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings)))].join('\n\n');
 };
 
 /** Excel workbook: Summary sheet + the core_positions rows to insert (all
@@ -478,6 +622,26 @@ export const exportAdjustmentsWorkbook = (
   XLSX.utils.book_append_sheet(wb,
     XLSX.utils.json_to_sheet(rows, { header: CORE_POSITION_COLS.map(([n]) => n) }),
     'core_positions');
+  // Referential companions of the new positions (deduplicated) — same rows the
+  // one-shot .sql creates with IF NOT EXISTS.
+  const newItems = items.filter(i => !i.cand);
+  const cptyRows = new Map<string, Record<string, unknown>>();
+  for (const i of newItems) {
+    if (!i.line.client || cptyRows.has(i.line.client)) continue;
+    cptyRows.set(i.line.client, counterpartyValues(i.line, loadId, reportingDate, mappings));
+  }
+  if (cptyRows.size > 0) {
+    XLSX.utils.book_append_sheet(wb,
+      XLSX.utils.json_to_sheet(Array.from(cptyRows.values()), { header: LIST_CPTY_COLS.map(([n]) => n) }),
+      'list_counterparties');
+  }
+  const secRows = newItems.filter(i => isSecurityLine(i.line, mappings))
+    .map(i => securityValues(i.line, loadId, reportingDate, mappings));
+  if (secRows.length > 0) {
+    XLSX.utils.book_append_sheet(wb,
+      XLSX.utils.json_to_sheet(secRows, { header: LIST_SEC_COLS.map(([n]) => n) }),
+      'list_securities');
+  }
   const name = `adjustments-load${loadId}-${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, name);
   return name;

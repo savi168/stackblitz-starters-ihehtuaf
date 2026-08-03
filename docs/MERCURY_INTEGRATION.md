@@ -152,6 +152,17 @@ Le mock (`SQL_MERCURY_MOCK.sql`) contient trois positions de test
 (POS-ADJ-A/B/C, load 1002) alignées sur le fichier d'exemple
 `adjustments-sample.xlsx` (références 5950216318 / 5900175308).
 
+**Référentiels (anti-orphelins C5)** : toute nouvelle position (sans match)
+génère un *package* — d'abord les lignes référentielles manquantes, gardées
+par `IF NOT EXISTS` (pas de doublon si elles existent déjà au PIT) :
+`list_counterparties` pour le CLIENT (TypeOf/EconomicActivityType préremplis
+via IND→INDUSTRY et CATEG→RT01), et quand la LIGNE GL est `cp_TypeOf =
+Security`, une ligne `list_securities` (Id `ADJ-SEC-<ligne>-<row>`, ISIN si la
+REFERENCE en a le format, MaturityDate depuis MAT DATE, issuer = CLIENT) liée
+à la position par SecurityId/SecurityPIT — puis l'INSERT `core_positions`.
+L'Excel one-shot ajoute les feuilles `list_counterparties` /
+`list_securities` correspondantes (dédupliquées).
+
 **Génération one-shot** : dès que le matching est résolu, deux exports —
 un **.sql unique** (tous les INSERT, une seule exécution SSMS) et un
 **Excel** (feuille Summary + feuille core_positions avec les lignes à insérer,

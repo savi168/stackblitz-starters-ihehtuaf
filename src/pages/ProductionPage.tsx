@@ -481,7 +481,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       const cand = cands.find(c => c.id === chosen[line.row]);
       const sql = cand
         ? svc.buildAdjustmentInsert(line, cand, loadId, mappings)
-        : svc.buildNewPositionInsert(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
       setScripts(prev => ({ ...prev, [line.row]: sql }));
     };
 
@@ -580,7 +580,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       if (!ml || !mappings) return;
       if (!loadId) { onError('Pick a loadid first.'); return; }
       const svc = await import('../services/adjustments');
-      setManualScript(svc.buildNewPositionInsert(ml, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings));
+      setManualScript(svc.buildNewPositionPackage(ml, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings));
     };
     const manualAdd = async () => {
       const ml = await mkManualLine();
@@ -829,7 +829,9 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
           Matching key (agreed rules): (InternalReference1 LIKE '%REFERENCE%' OR ContractId LIKE '%REFERENCE%') AND CounterpartyId LIKE '%CLIENT%',
           on the chosen load. Candidates carrying the Mapping_GL_BALANCESHEET account of the LIGNE are flagged ✓GL and preselected when unambiguous.
           One candidate → adjustment INSERT copying the position's attributes (signed MONTANT, CHF via the CCY sheet, Id suffixed -ADJ, DataSource = 'ADJUSTMENT').
-          No candidate → full new position built from the mappings (LIGNE→GL account/TypeOf, IND→INDUSTRY, CATEG→RT01, counterparty = CLIENT).
+          No candidate → full new-position package built from the mappings (LIGNE→GL account/TypeOf, IND→INDUSTRY, CATEG→RT01, counterparty = CLIENT),
+          including the missing referential rows so no C5 orphan is created: list_counterparties for the CLIENT (guarded by IF NOT EXISTS) and,
+          when the GL line is cp_TypeOf = Security, a list_securities row (issuer = CLIENT) linked via SecurityId.
           One-shot generation: a single .sql with every INSERT (one execution in SSMS) or an Excel with the core_positions rows (all columns) for mass review / bulk import.
           Every copied or downloaded script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
         </p>
