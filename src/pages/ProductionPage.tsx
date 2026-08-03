@@ -395,8 +395,14 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     const [results, setResults] = useState<Record<number, MatchCandidate[]> | null>(null);
     const [chosen, setChosen] = useState<Record<number, string>>({});
     const [scripts, setScripts] = useState<Record<number, string>>({});
-    const [manual, setManual] = useState({ ligne: '', montant: '', ccy: 'CHF', nominal: '', reference: '', client: '', libelle: '' });
+    const [manual, setManual] = useState({ ligne: '', montant: '', ccy: 'CHF', nominal: '', reference: '', client: '', ind: '', libelle: '' });
     const [manualScript, setManualScript] = useState('');
+    const [bookingCenter, setBookingCenter] = useState('');
+    const [baseBalance, setBaseBalance] = useState<Record<string, { amount: number; positions: number }> | null>(null);
+    const [showImpact, setShowImpact] = useState(false);
+    // The adjustments service is dynamically imported (keeps xlsx out of the
+    // main chunk); the module is kept here so memos can use it once loaded.
+    const [svcMod, setSvcMod] = useState<typeof import('../services/adjustments') | null>(null);
 
     useEffect(() => {
       if (mode !== 'api') return;
@@ -415,6 +421,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       if (!f) return;
       try {
         const svc = await import('../services/adjustments');
+        setSvcMod(svc);
         const m = svc.parseMappingWorkbook(await f.arrayBuffer());
         setMappings(m);
         setMappingInfo(`${f.name} — ${m.gl.size} GL lines, ${m.fx.size} FX rates, ${m.rt01.size} RT01→QDL, ${m.industry.size} industry codes`);
@@ -481,7 +488,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       const cand = cands.find(c => c.id === chosen[line.row]);
       const sql = cand
         ? svc.buildAdjustmentInsert(line, cand, loadId, mappings)
-        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, buildOpts());
       setScripts(prev => ({ ...prev, [line.row]: sql }));
     };
 
@@ -532,10 +539,12 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       }));
     };
 
+    const buildOpts = () => ({ bookingCenterId: bookingCenter.trim() || undefined });
+
     const downloadAllSql = async () => {
       if (!mappings || !oneShotItems || oneShotItems.ready.length === 0) return;
       const svc = await import('../services/adjustments');
-      const sql = svc.buildAllSql(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+      const sql = svc.buildAllSql(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, buildOpts());
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([sql], { type: 'text/plain' }));
       a.download = `adjustments-load${loadId}.sql`;
@@ -549,7 +558,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     const downloadExcel = async () => {
       if (!mappings || !oneShotItems || oneShotItems.ready.length === 0) return;
       const svc = await import('../services/adjustments');
-      const name = svc.exportAdjustmentsWorkbook(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+      const name = svc.exportAdjustmentsWorkbook(oneShotItems.ready, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, buildOpts());
       const adj = oneShotItems.ready.filter(i => i.cand).length;
       logBatch(`One-shot Excel generated for load ${loadId}: ${adj} adjustment(s) + ${oneShotItems.ready.length - adj} new position(s)`, oneShotItems.ready.length);
       onNotice(`${name} downloaded — Summary + core_positions rows (all columns) for mass review / bulk import.`);
@@ -571,6 +580,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         ccy: manual.ccy.trim().toUpperCase() || 'CHF',
         reference: manual.reference.trim() || `MANUAL-${ligne}-${row}`,
         client: manual.client.trim() || undefined,
+        ind: manual.ind.trim() || undefined,
         libelle: manual.libelle.trim() || undefined,
         description: mappings.gl.get(ligne)?.description,
       };
@@ -580,7 +590,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       if (!ml || !mappings) return;
       if (!loadId) { onError('Pick a loadid first.'); return; }
       const svc = await import('../services/adjustments');
-      setManualScript(svc.buildNewPositionPackage(ml, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings));
+      setManualScript(svc.buildNewPositionPackage(ml, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, buildOpts()));
     };
     const manualAdd = async () => {
       const ml = await mkManualLine();
@@ -589,6 +599,33 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       setLinesInfo(prev => `${prev || 'manual lines'} + row ${ml.row} (LIGNE ${ml.ligne})`);
       onNotice(`Line added as row ${ml.row} — re-run the matching to look for candidates (its reference is "${ml.reference}"), or export directly (treated as a new position).`);
     };
+
+    // Balance-sheet impact preview: base balance of the load (LEFT3 aggregate
+    // from MERCURY) + adjustment deltas per account prefix.
+    const toggleImpact = async () => {
+      if (showImpact) { setShowImpact(false); return; }
+      setShowImpact(true);
+      if (!baseBalance && loadId) {
+        try {
+          const r = await fetch(`${apiBaseUrl}/production/mercury/balance?loadId=${encodeURIComponent(loadId)}`, { credentials: 'include' });
+          if (r.ok) {
+            const arr = await r.json() as Array<{ prefix: string; amount: number; positions: number }>;
+            const map: Record<string, { amount: number; positions: number }> = {};
+            for (const b of arr) if (b.prefix) map[b.prefix] = { amount: b.amount, positions: b.positions };
+            setBaseBalance(map);
+          }
+        } catch { /* base unavailable — deltas shown alone */ }
+      }
+    };
+
+    const impact = useMemo(() => {
+      if (!svcMod || !mappings || lines.length === 0) return null;
+      const items = lines.map(l => {
+        const cands = results?.[l.row] || [];
+        return { line: l, cand: cands.find(c => c.id === chosen[l.row]) || null };
+      });
+      return svcMod.computeImpactByPrefix(items, mappings);
+    }, [svcMod, mappings, lines, results, chosen]);
 
     if (mode !== 'api') {
       return (
@@ -644,14 +681,84 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         <div className="flex flex-wrap items-end gap-3 mb-3">
           <div>
             <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
-            <input value={loadId} onChange={e => setLoadId(e.target.value)} placeholder="e.g. 1002" className={input} />
+            <input value={loadId} onChange={e => { setLoadId(e.target.value); setBaseBalance(null); }} placeholder="e.g. 1002" className={input} />
           </div>
           {reportingDate && <p className="text-sm text-brand-text-secondary pb-2">→ reporting date <strong>{reportingDate}</strong></p>}
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Booking center (new positions)</label>
+            <input value={bookingCenter} onChange={e => setBookingCenter(e.target.value)} placeholder="BookingCenterId" className={input} />
+          </div>
           <button onClick={runMatch} disabled={busy || !mappings || lines.length === 0 || !loadId}
             className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
             {busy ? 'Matching…' : '🔍 Run matching on core_positions'}
           </button>
+          <button onClick={toggleImpact} disabled={!mappings || lines.length === 0}
+            className={`text-sm font-semibold border py-2 px-4 rounded-md transition-colors disabled:opacity-50 ${showImpact ? 'bg-brand-secondary text-white border-brand-secondary' : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
+            📊 Balance sheet impact
+          </button>
         </div>
+
+        {showImpact && impact && mappings && (() => {
+          const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 2 });
+          const prefixes = Array.from(new Set([...Object.keys(baseBalance || {}), ...impact.keys()])).sort();
+          const sections: Array<{ title: string; match: (p: string) => boolean }> = [
+            { title: 'Assets (1xx)', match: p => p.startsWith('1') },
+            { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
+            { title: 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
+          ];
+          return (
+            <div className="border border-efg-line rounded-lg mb-3 overflow-x-auto">
+              <table className="w-full text-xs whitespace-nowrap">
+                <thead className="bg-brand-bg-body"><tr>
+                  {['Account (LEFT 3)', 'Label', 'Base (load)', 'Adjustments', 'After', 'Adj lines'].map((h, hi) =>
+                    <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 && hi <= 4 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {sections.map(sec => {
+                    const ps = prefixes.filter(sec.match);
+                    if (ps.length === 0) return null;
+                    let tBase = 0, tDelta = 0, tLines = 0;
+                    return (
+                      <React.Fragment key={sec.title}>
+                        <tr className="border-t border-efg-line bg-brand-bg-body/60">
+                          <td colSpan={6} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
+                        </tr>
+                        {ps.map(p => {
+                          const base = baseBalance?.[p]?.amount ?? 0;
+                          const d = impact.get(p);
+                          const delta = d?.delta ?? 0;
+                          tBase += base; tDelta += delta; tLines += d?.lines ?? 0;
+                          return (
+                            <tr key={p} className={`border-t border-efg-line/60 ${delta !== 0 ? 'font-semibold' : ''}`}>
+                              <td className="px-3 py-1">{p}</td>
+                              <td className="px-3 py-1 text-brand-text-secondary font-normal max-w-xs truncate">{mappings.accountLabels.get(p) || '—'}</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{baseBalance ? fmt(base) : '—'}</td>
+                              <td className={`px-3 py-1 text-right tabular-nums ${delta > 0 ? 'text-status-green' : delta < 0 ? 'text-status-red' : 'text-brand-text-secondary'}`}>{delta === 0 ? '—' : fmt(delta)}</td>
+                              <td className="px-3 py-1 text-right tabular-nums">{baseBalance ? fmt(base + delta) : '—'}</td>
+                              <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary font-normal">{d?.lines || ''}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="border-t border-efg-line font-semibold">
+                          <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{baseBalance ? fmt(tBase) : '—'}</td>
+                          <td className={`px-3 py-1.5 text-right tabular-nums ${tDelta > 0 ? 'text-status-green' : tDelta < 0 ? 'text-status-red' : ''}`}>{tDelta === 0 ? '—' : fmt(tDelta)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{baseBalance ? fmt(tBase + tDelta) : '—'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tLines || ''}</td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
+                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} grouped by LEFT(LegalAccountNumber, 3);
+                matched lines hit the account of the chosen position, unmatched lines the Mapping_GL_BALANCESHEET account of their LIGNE.
+                {!baseBalance && ' Base balance unavailable (MERCURY not reachable or loadid empty) — showing adjustment deltas only.'}
+              </p>
+            </div>
+          );
+        })()}
 
         {lines.length > 0 && (
           <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -663,6 +770,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
               <tbody>
                 {lines.map(l => {
                   const gl = mappings?.gl.get(l.ligne);
+                  const interco = l.ind ? mappings?.industry.get(l.ind)?.interco : undefined;
                   const cands = results?.[l.row];
                   const cand = cands?.find(c => c.id === chosen[l.row]);
                   const status = !cands ? '—'
@@ -680,7 +788,13 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                         <td className="px-3 py-1.5 font-semibold">{l.ligne}</td>
                         <td className="px-3 py-1.5 whitespace-normal max-w-xs">{l.libelle || l.description || '—'}</td>
                         <td className="px-3 py-1.5">{l.reference}</td>
-                        <td className="px-3 py-1.5">{l.client || '—'}</td>
+                        <td className="px-3 py-1.5">
+                          {l.client || '—'}
+                          {interco && (
+                            <span title={`Intercompany — IND ${l.ind} → ${mappings?.industry.get(l.ind || '')?.description || ''} → CounterpartyBookingCenterId ${interco}`}
+                              className="ml-1 text-[9px] font-semibold px-1 py-0.5 rounded border border-brand-secondary/50 text-brand-secondary">IC {interco}</span>
+                          )}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</td>
                         <td className="px-3 py-1.5">{gl?.legalAccountNumber || <span className="text-status-red">no GL map</span>}</td>
                         <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>{status}</td>
@@ -792,6 +906,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                 ['nominal', 'Nominal', '', 'w-28'],
                 ['reference', 'Reference', 'auto if empty', 'w-40'],
                 ['client', 'Client (CounterpartyId)', '', 'w-32'],
+                ['ind', 'IND (interco)', '', 'w-24'],
                 ['libelle', 'Libellé', '', 'w-48'],
               ] as const).map(([key, label, ph, w]) => (
                 <div key={key}>
@@ -832,7 +947,9 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
           No candidate → full new-position package built from the mappings (LIGNE→GL account/TypeOf, IND→INDUSTRY, CATEG→RT01, counterparty = CLIENT),
           including the missing referential rows so no C5 orphan is created: list_counterparties for the CLIENT (guarded by IF NOT EXISTS) and,
           when the GL line is cp_TypeOf = Security, a list_securities row (issuer = CLIENT) linked via SecurityId.
+          Intercompany: an IND code carrying HYPERIOD_INTERCO in the INDUSTRY sheet (badge IC) forces the group company into CounterpartyBookingCenterId — on both matched adjustments and new positions. The Booking center field stamps BookingCenterId on new positions.
           One-shot generation: a single .sql with every INSERT (one execution in SSMS) or an Excel with the core_positions rows (all columns) for mass review / bulk import.
+          The 📊 impact preview shows base (load aggregate from MERCURY), adjustments and resulting balance per LEFT(LegalAccountNumber,3), split assets / liabilities / off-balance, labels derived from the GL mapping.
           Every copied or downloaded script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
         </p>
       </Card>

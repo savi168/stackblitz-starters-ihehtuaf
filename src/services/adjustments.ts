@@ -19,11 +19,23 @@ export interface GlMapEntry {
   description?: string;
 }
 
+export interface IndustryEntry {
+  typeOf?: string;
+  economicActivityType?: string;
+  /** HYPERIOD_INTERCO — when set, the IND code is an intercompany: this value
+   * goes into CounterpartyBookingCenterId of the generated position. */
+  interco?: string;
+  description?: string;
+}
+
 export interface AdjustmentMappings {
   gl: Map<string, GlMapEntry>;              // LIGNE → GL entry
   fx: Map<string, number>;                  // CCY → CHF rate per 1 unit
   rt01: Map<string, string>;                // CATEG (RT01) → QDL TypeOf
-  industry: Map<string, { typeOf?: string; economicActivityType?: string }>;
+  industry: Map<string, IndustryEntry>;     // IND code → attributes (+ interco)
+  /** LEFT(LegalAccountNumber,3) → label, derived from the GL sheet (most
+   * frequent HFM description per prefix) — used by the impact preview. */
+  accountLabels: Map<string, string>;
 }
 
 export interface AdjustmentLine {
@@ -81,8 +93,9 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     return wb.Sheets[key];
   };
 
-  // GL balance sheet mapping
+  // GL balance sheet mapping (+ account-prefix labels for the impact preview)
   const gl = new Map<string, GlMapEntry>();
+  const accountLabels = new Map<string, string>();
   {
     const rows = sheetRows(need('Mapping_GL_BALANCESHEET'));
     const h = rows[0] || [];
@@ -91,7 +104,9 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     const iType = headerIndex(h, 'cp_TypeOf');
     const iSub = headerIndex(h, 'cp_SubType');
     const iDesc = headerIndex(h, 'Combined.DESC', 'CAO_DM.RepLineHFMDsc');
+    const iHfm = headerIndex(h, 'CAO_DM.RepLineHFMDsc');
     if (iLine === -1 || iLan === -1) throw new Error('Mapping_GL_BALANCESHEET: columns "Line" and "Legal Account Number" are required.');
+    const labelVotes = new Map<string, Map<string, number>>();
     for (let r = 1; r < rows.length; r++) {
       const line = norm(rows[r]?.[iLine]);
       const lan = norm(rows[r]?.[iLan]);
@@ -105,6 +120,22 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
           description: iDesc >= 0 ? norm(rows[r]?.[iDesc]) || undefined : undefined,
         });
       }
+      if (/^\d{3}/.test(lan)) {
+        // Label of the LEFT3 prefix = most frequent HFM description ("111 00 01
+        // - Cash in hand" → "Cash in hand"), falling back to Combined.DESC.
+        const hfm = iHfm >= 0 ? norm(rows[r]?.[iHfm]).split(' - ').slice(1).join(' - ') : '';
+        const label = hfm || (iDesc >= 0 ? norm(rows[r]?.[iDesc]) : '');
+        if (label) {
+          const prefix = lan.slice(0, 3);
+          const votes = labelVotes.get(prefix) ?? new Map<string, number>();
+          votes.set(label, (votes.get(label) || 0) + 1);
+          labelVotes.set(prefix, votes);
+        }
+      }
+    }
+    for (const [prefix, votes] of labelVotes) {
+      const best = Array.from(votes.entries()).sort((a, b) => b[1] - a[1])[0];
+      if (best) accountLabels.set(prefix, best[0]);
     }
   }
 
@@ -137,25 +168,29 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     }
   }
 
-  // Industry codes
-  const industry = new Map<string, { typeOf?: string; economicActivityType?: string }>();
+  // Industry codes (+ HYPERIOD_INTERCO → intercompany booking center)
+  const industry = new Map<string, IndustryEntry>();
   {
     const rows = sheetRows(need('INDUSTRY'));
     const h = rows[0] || [];
     const iId = headerIndex(h, 'ID');
     const iType = headerIndex(h, 'TypeOf');
     const iEco = headerIndex(h, 'EconomicActivityType');
+    const iInterco = headerIndex(h, 'HYPERIOD_INTERCO', 'HYPERION_INTERCO');
+    const iDesc = headerIndex(h, 'Description');
     for (let r = 1; r < rows.length; r++) {
       const id = norm(rows[r]?.[iId]);
       if (!id) continue;
       industry.set(id, {
         typeOf: iType >= 0 ? norm(rows[r]?.[iType]) || undefined : undefined,
         economicActivityType: iEco >= 0 ? norm(rows[r]?.[iEco]) || undefined : undefined,
+        interco: iInterco >= 0 ? norm(rows[r]?.[iInterco]) || undefined : undefined,
+        description: iDesc >= 0 ? norm(rows[r]?.[iDesc]) || undefined : undefined,
       });
     }
   }
 
-  return { gl, fx, rt01, industry };
+  return { gl, fx, rt01, industry, accountLabels };
 };
 
 /** Parses the accounting adjustments file (Book6-like: header row with LIGNE…). */
@@ -313,6 +348,21 @@ export const CORE_POSITION_COLS: Array<[string, PosColKind]> = [
 ];
 
 const numOrSelf = (v: string): number | string => (/^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v);
+
+/** Options applied at generation time (chosen in the UI when the adjustment
+ * files are loaded). */
+export interface AdjustmentBuildOptions {
+  /** BookingCenterId stamped on brand-new positions. */
+  bookingCenterId?: string;
+}
+
+/** Intercompany lookup: IND code → HYPERIOD_INTERCO of the INDUSTRY sheet —
+ * when set, the counterparty is a group company and the value goes into
+ * CounterpartyBookingCenterId. */
+export const intercoOf = (line: AdjustmentLine, mappings: AdjustmentMappings): IndustryEntry | undefined => {
+  const e = line.ind ? mappings.industry.get(line.ind) : undefined;
+  return e?.interco ? e : undefined;
+};
 const chfOf = (line: AdjustmentLine, mappings: AdjustmentMappings): { rate: number; chf: number } => {
   const rate = mappings.fx.get(line.ccy) ?? 1;
   return { rate, chf: Math.round(line.montant * rate * 100) / 100 };
@@ -336,7 +386,8 @@ const isIsin = (v: string): boolean => /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(v);
 
 /** JS values of a brand-new position built from the mappings (no match). */
 const newPositionValues = (
-  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const glEntry = mappings.gl.get(line.ligne);
   const { chf } = chfOf(line, mappings);
@@ -350,6 +401,7 @@ const newPositionValues = (
   Object.assign(row, {
     Id: `ADJ-${line.ligne}-${line.row}`,
     LoadId: numOrSelf(loadId),
+    BookingCenterId: opts?.bookingCenterId ?? '',
     LegalAccountNumber: numOrSelf(glEntry?.legalAccountNumber ?? '0'),
     Currency: line.ccy,
     InternalReference1: String(line.reference),
@@ -359,6 +411,7 @@ const newPositionValues = (
     Notional: line.nominal ?? 0,
     CounterpartyId: line.client ?? '',
     CounterpartyPIT: numOrSelf(loadId),
+    CounterpartyBookingCenterId: intercoOf(line, mappings)?.interco ?? '',
     TypeOf: glEntry?.typeOf ?? '',
     SubType: glEntry?.subType ?? '',
     IsEdited: 1,
@@ -373,6 +426,7 @@ const adjustmentOverrides = (
   line: AdjustmentLine, cand: MatchCandidate, mappings: AdjustmentMappings
 ): Record<string, unknown> => {
   const { chf } = chfOf(line, mappings);
+  const interco = intercoOf(line, mappings);
   return {
     Id: `${cand.id}-ADJ-${line.row}`,
     Currency: line.ccy,
@@ -384,6 +438,9 @@ const adjustmentOverrides = (
     Notional: line.nominal ?? 0,
     InternalLendingValue: 0, PV: 0, Provision: 0,
     IsEdited: 1,
+    // The accounting line's IND code marks an intercompany → force the group
+    // company into CounterpartyBookingCenterId (otherwise keep the copied one).
+    ...(interco ? { CounterpartyBookingCenterId: interco.interco } : {}),
   };
 };
 
@@ -394,9 +451,11 @@ export const buildAdjustmentInsert = (
   const { rate, chf } = chfOf(line, mappings);
   const over = adjustmentOverrides(line, cand, mappings);
   const adjId = String(over.Id);
+  const interco = intercoOf(line, mappings);
   return [
     `-- Adjustment for accounting line ${line.ligne} (row ${line.row})${line.libelle ? ` — ${line.libelle}` : ''}`,
     `-- Matched position ${cand.id} (account ${cand.legalAccountNumber}); MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
+    ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- 1) CHECK:`,
     `SELECT * FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(adjId)};`,
     `-- 2) INSERT (all other NOT NULL columns are copied from the matched position):`,
@@ -411,18 +470,21 @@ export const buildAdjustmentInsert = (
 
 /** Full new position when no candidate exists — built from the mappings. */
 export const buildNewPositionInsert = (
-  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): string => {
   const glEntry = mappings.gl.get(line.ligne);
   const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
   const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
-  const row = newPositionValues(line, loadId, reportingDate, mappings);
+  const interco = intercoOf(line, mappings);
+  const row = newPositionValues(line, loadId, reportingDate, mappings, opts);
   const newId = String(row.Id);
   const lan = glEntry?.legalAccountNumber ?? '0';
   return [
     `-- New position for accounting line ${line.ligne} (row ${line.row}) — no match found in load ${loadId}`,
     `-- GL mapping: account ${lan}, TypeOf ${glEntry?.typeOf ?? '?'}${glEntry?.subType ? `/${glEntry.subType}` : ''}${glEntry?.description ? ` (${glEntry.description})` : ''}`,
     `-- Counterparty ${line.client ?? '?'} — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'}/${ind?.economicActivityType ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`,
+    ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- ⚠ Review every default before executing (all NOT NULL columns get neutral values).`,
     `-- 1) CHECK:`,
     `SELECT * FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(newId)};`,
@@ -537,7 +599,8 @@ const buildListInsert = (
  * by IF NOT EXISTS — no duplicate if they already exist at the PIT), then
  * the core_positions INSERT. */
 export const buildNewPositionPackage = (
-  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): string => {
   const parts: string[] = [];
   const sec = isSecurityLine(line, mappings);
@@ -551,7 +614,7 @@ export const buildNewPositionPackage = (
       securityValues(line, loadId, reportingDate, mappings),
       `Referential: security ${newSecurityId(line)} at PIT ${loadId} (GL line is cp_TypeOf = Security)`));
   }
-  parts.push(buildNewPositionInsert(line, loadId, reportingDate, mappings));
+  parts.push(buildNewPositionInsert(line, loadId, reportingDate, mappings, opts));
   return parts.join('\n\n');
 };
 
@@ -564,10 +627,11 @@ export interface AdjustmentItem { line: AdjustmentLine; cand: MatchCandidate | n
 /** JS values (all core_positions columns) of the row a line will generate —
  * copied attributes + overrides when matched, mapping defaults otherwise. */
 export const buildPositionRow = (
-  item: AdjustmentItem, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  item: AdjustmentItem, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const { line, cand } = item;
-  if (!cand?.raw) return newPositionValues(line, loadId, reportingDate, mappings);
+  if (!cand?.raw) return newPositionValues(line, loadId, reportingDate, mappings, opts);
   const rawKeys = Object.keys(cand.raw);
   const row: Record<string, unknown> = {};
   for (const [name] of CORE_POSITION_COLS) {
@@ -583,7 +647,8 @@ export const buildPositionRow = (
 
 /** Single combined script for all resolved lines — one execution in SSMS. */
 export const buildAllSql = (
-  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): string => {
   const adj = items.filter(i => i.cand).length;
   const header = [
@@ -596,15 +661,37 @@ export const buildAllSql = (
   ].join('\n');
   return [header, ...items.map(i => (i.cand
     ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings)
-    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings)))].join('\n\n');
+    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings, opts)))].join('\n\n');
+};
+
+/** Balance-sheet impact of the adjustments, aggregated by
+ * LEFT(LegalAccountNumber,3): matched lines hit the account of the chosen
+ * position, new lines the GL-mapping account; amounts in CHF (CCY sheet). */
+export const computeImpactByPrefix = (
+  items: AdjustmentItem[], mappings: AdjustmentMappings
+): Map<string, { delta: number; lines: number }> => {
+  const per = new Map<string, { delta: number; lines: number }>();
+  for (const { line, cand } of items) {
+    const lan = cand
+      ? String(cand.legalAccountNumber ?? '')
+      : (mappings.gl.get(line.ligne)?.legalAccountNumber ?? '');
+    const prefix = lan.slice(0, 3) || '???';
+    const { chf } = chfOf(line, mappings);
+    const e = per.get(prefix) ?? { delta: 0, lines: 0 };
+    e.delta = Math.round((e.delta + chf) * 100) / 100;
+    e.lines += 1;
+    per.set(prefix, e);
+  }
+  return per;
 };
 
 /** Excel workbook: Summary sheet + the core_positions rows to insert (all
  * columns, ready for a bulk import / mass review). Triggers the download. */
 export const exportAdjustmentsWorkbook = (
-  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  items: AdjustmentItem[], loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): string => {
-  const rows = items.map(i => buildPositionRow(i, loadId, reportingDate, mappings));
+  const rows = items.map(i => buildPositionRow(i, loadId, reportingDate, mappings, opts));
   const summary = items.map((i, idx) => ({
     Row: i.line.row,
     LIGNE: i.line.ligne,

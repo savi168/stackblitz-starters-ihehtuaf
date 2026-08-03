@@ -163,6 +163,23 @@ REFERENCE en a le format, MaturityDate depuis MAT DATE, issuer = CLIENT) liée
 L'Excel one-shot ajoute les feuilles `list_counterparties` /
 `list_securities` correspondantes (dédupliquées).
 
+**Intercompany & booking center** : un code IND portant `HYPERIOD_INTERCO`
+dans la feuille INDUSTRY marque une position intercompany — la valeur (ex.
+`3000 00` pour COMPANY Bank SA Zurich) est forcée dans
+`CounterpartyBookingCenterId`, sur les ajustements matchés comme sur les
+nouvelles positions (badge « IC » dans le tableau des lignes). Le champ
+*Booking center* de l'UI est estampillé dans `BookingCenterId` des nouvelles
+positions.
+
+**Aperçu d'impact bilan** (bouton 📊) : `GET
+/api/production/mercury/balance?loadId=` agrège le load par
+`LEFT(LegalAccountNumber,3)` (SUM BookAmount) ; l'UI affiche par préfixe —
+sections Actif (1xx) / Passif (2xx) / Hors-bilan — le bilan de base, le delta
+des ajustements (lignes matchées → compte de la position choisie, sinon compte
+du mapping GL, montants convertis en CHF) et le bilan résultant, avec les
+intitulés dérivés du mapping GL (description HFM la plus fréquente par
+préfixe).
+
 **Génération one-shot** : dès que le matching est résolu, deux exports —
 un **.sql unique** (tous les INSERT, une seule exécution SSMS) et un
 **Excel** (feuille Summary + feuille core_positions avec les lignes à insérer,

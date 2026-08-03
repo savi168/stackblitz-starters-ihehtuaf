@@ -154,6 +154,46 @@ WHERE LoadId = @loadId
         return new { loadId = req.LoadId, results };
     }
 
+    /// <summary>
+    /// Base balance sheet of a load, aggregated by LEFT(LegalAccountNumber,3)
+    /// — feeds the Adjustments impact preview (base + adjustments = after).
+    /// </summary>
+    [HttpGet("mercury/balance")]
+    public async Task<ActionResult<object>> Balance([FromQuery] string loadId)
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(loadId))
+            return Problem("loadId is required.", statusCode: 400);
+
+        var rows = new List<object>();
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+SELECT LEFT(CAST(LegalAccountNumber AS varchar(20)), 3) AS Prefix,
+       SUM(CAST(BookAmount AS float)) AS Amount,
+       COUNT(*) AS Positions
+FROM core_positions
+WHERE LoadId = @loadId
+GROUP BY LEFT(CAST(LegalAccountNumber AS varchar(20)), 3)
+ORDER BY Prefix";
+        cmd.CommandTimeout = 120;
+        cmd.Parameters.AddWithValue("@loadId", loadId);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+        {
+            rows.Add(new
+            {
+                prefix = rd.IsDBNull(0) ? "" : rd.GetString(0),
+                amount = rd.IsDBNull(1) ? 0d : rd.GetDouble(1),
+                positions = rd.IsDBNull(2) ? 0 : rd.GetInt32(2),
+            });
+        }
+        return rows;
+    }
+
     public class MercuryLoadRequest
     {
         /// <summary>counterparties | securities</summary>
