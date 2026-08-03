@@ -542,6 +542,29 @@ public class ProdFindingLog
     public string DecidedAt { get; set; } = "";
 }
 
+/// <summary>
+/// One row of the persisted adjustments mapping workbook (Mapping.xlsb), so
+/// the team does not re-upload it for every adjustment session. Sparse
+/// columns per kind: gl (MapKey=LIGNE, TextValue=LegalAccountNumber, TypeOf,
+/// SubType, Description) · fx (MapKey=CCY, NumValue=rate) · rt01
+/// (MapKey=CATEG, TextValue=QDL) · industry (MapKey=IND code, TypeOf,
+/// EconomicActivityType, Interco, Description) · label (MapKey=LEFT3 prefix,
+/// TextValue=label).
+/// </summary>
+public class ProdMappingEntry
+{
+    public long Id { get; set; }
+    public string Kind { get; set; } = "";      // gl | fx | rt01 | industry | label
+    public string MapKey { get; set; } = "";
+    public string? TextValue { get; set; }
+    public double? NumValue { get; set; }
+    public string? TypeOf { get; set; }
+    public string? SubType { get; set; }
+    public string? EconomicActivityType { get; set; }
+    public string? Interco { get; set; }
+    public string? Description { get; set; }
+}
+
 /// <summary>Expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1).</summary>
 public class ProdGuaranteeRef
 {
@@ -586,6 +609,7 @@ public class CentralData
     public List<ProdSecurityRecord> ProdSecurities { get; set; } = new();
     public List<ProdGuaranteeRef> ProdGuaranteeRefs { get; set; } = new();
     public List<ProdFindingLog> ProdFindingLogs { get; set; } = new();
+    public List<ProdMappingEntry> ProdMappingEntries { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

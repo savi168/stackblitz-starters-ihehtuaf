@@ -30,6 +30,8 @@ IF OBJECT_ID('list_securities') IS NOT NULL DROP TABLE list_securities;
 IF OBJECT_ID('list_reporting_entities') IS NOT NULL DROP TABLE list_reporting_entities;
 IF OBJECT_ID('list_reporting_sets') IS NOT NULL DROP TABLE list_reporting_sets;
 IF OBJECT_ID('list_booking_centers') IS NOT NULL DROP TABLE list_booking_centers;
+IF OBJECT_ID('core_load_collections') IS NOT NULL DROP TABLE core_load_collections;
+IF OBJECT_ID('core_loads_loads_collection') IS NOT NULL DROP TABLE core_loads_loads_collection;
 GO
 
 CREATE TABLE list_counterparties (
@@ -171,6 +173,30 @@ INSERT INTO list_reporting_sets (ReportingEntityId, ConsolidatedBookingCenterId,
 ('MOCK-SOLO',  'BC-GVA', 'HeadOffice', 'CH'),
 ('MOCK-GROUP', 'BC-GVA', 'HeadOffice', 'CH'),
 ('MOCK-GROUP', 'BC-ZH',  'Branch',     'CH');
+GO
+
+-- Load collections: the adjustments unit of work — a collection carries the
+-- reporting entity (consolidation level) and groups its loads.
+CREATE TABLE core_load_collections (
+    CreateDate date NULL, ReportingDate date NOT NULL, Name varchar(50) NOT NULL,
+    ReportingEntityId varchar(100) NULL, IsVisible bit NOT NULL DEFAULT 1,
+    Calculations nvarchar(max) NULL, IsArchived bit NOT NULL DEFAULT 0,
+    SimulationFromLoadCollectionId int NULL, LoadCollectionId int NOT NULL PRIMARY KEY,
+    IsMaster bit NOT NULL DEFAULT 0
+);
+CREATE TABLE core_loads_loads_collection (
+    LoadCollectionsLoadCollectionId int NOT NULL,
+    LoadsLoadId int NOT NULL,
+    PRIMARY KEY (LoadCollectionsLoadCollectionId, LoadsLoadId)
+);
+INSERT INTO core_load_collections (LoadCollectionId, ReportingDate, Name, ReportingEntityId, IsVisible, IsArchived, IsMaster) VALUES
+(501, '2025-12-31', 'DEC-25 GROUP monthly', 'MOCK-GROUP', 1, 0, 1),
+(502, '2026-01-31', 'JAN-26 GROUP monthly', 'MOCK-GROUP', 1, 0, 1),
+(503, '2026-01-31', 'JAN-26 SOLO',          'MOCK-SOLO',  1, 0, 0);
+INSERT INTO core_loads_loads_collection (LoadCollectionsLoadCollectionId, LoadsLoadId) VALUES
+(501, 1001),
+(502, 1002),
+(503, 1002);
 GO
 
 -- Now create the two TVFs in THIS database: open docs/SQL_MERCURY_TVFS.sql,

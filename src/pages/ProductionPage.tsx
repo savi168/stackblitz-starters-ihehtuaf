@@ -384,12 +384,17 @@ const OrphanInsertHelper: React.FC<{ keyValue: string; periodDate?: string }> = 
  * INSERT scripts (copied attributes, or full build from the mappings). */
 const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void; onError: (m: string) => void }> =
   ({ entity, onNotice, onError }) => {
-    const { mode, apiBaseUrl, setData, currentUser } = useData();
+    const { mode, apiBaseUrl, data, setData, currentUser } = useData();
     const [mappings, setMappings] = useState<AdjustmentMappings | null>(null);
     const [mappingInfo, setMappingInfo] = useState('');
     const [lines, setLines] = useState<AdjustmentLine[]>([]);
     const [linesInfo, setLinesInfo] = useState('');
     const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string; name?: string | null }>>([]);
+    const [collections, setCollections] = useState<Array<{
+      loadCollectionId: number | string; name?: string | null; reportingDate?: string | null;
+      reportingEntityId?: string | null; isMaster?: boolean; loadIds: Array<number | string>;
+    }>>([]);
+    const [collectionSel, setCollectionSel] = useState('');
     const [loadId, setLoadId] = useState('');
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<Record<number, MatchCandidate[]> | null>(null);
@@ -416,12 +421,70 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         .then(r => (r.ok ? r.json() : []))
         .then(l => setLoads(Array.isArray(l) ? l : []))
         .catch(() => setLoads([]));
+      fetch(`${apiBaseUrl}/production/mercury/load-collections`, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(l => setCollections(Array.isArray(l) ? l.map(c => ({ ...c, loadIds: Array.isArray(c.loadIds) ? c.loadIds : [] })) : []))
+        .catch(() => setCollections([]));
+      // Conso referential fetched up front: the collection's reporting entity
+      // resolves to a scope immediately, so eliminations show right away.
+      fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(out => {
+          if (!out) return;
+          const sets: Record<string, string[]> = {};
+          for (const s of out.sets || []) (sets[String(s.reportingEntityId)] ??= []).push(String(s.bookingCenterId));
+          const bcNames: Record<string, string> = {};
+          for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
+          setConso({
+            entities: (out.entities || []).map((e: { id: unknown; name?: unknown; bankOffice?: unknown; parentCompany?: unknown; consoGroup?: unknown }) => ({
+              id: String(e.id), name: e.name ? String(e.name) : undefined,
+              bankOffice: e.bankOffice === true, parentCompany: e.parentCompany === true, consoGroup: e.consoGroup === true,
+            })),
+            sets, bcNames,
+          });
+        })
+        .catch(() => { /* conso referential unavailable — scope selector empty */ });
     }, [mode, apiBaseUrl]);
 
+    // Mappings persisted in the RegReport database (ProdMappingEntries):
+    // loaded automatically so the workbook is not re-uploaded every session.
+    const storedMappings = data.prodMappingEntries || [];
+    useEffect(() => {
+      if (mappings || storedMappings.length === 0) return;
+      import('../services/adjustments').then(svc => {
+        setSvcMod(svc);
+        const m = svc.entriesToMappings(storedMappings);
+        setMappings(m);
+        setMappingInfo(`database — ${m.gl.size} GL lines, ${m.fx.size} FX rates, ${m.rt01.size} RT01→QDL, ${m.industry.size} industry codes`);
+      });
+    }, [storedMappings.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const saveMappings = async () => {
+      if (!mappings) return;
+      const svc = await import('../services/adjustments');
+      const entries = svc.mappingsToEntries(mappings);
+      setData(prev => ({ ...prev, prodMappingEntries: entries }));
+      onNotice(`Mappings saved to the database (${entries.length} rows in ProdMappingEntries) — no re-upload needed next session; re-upload the workbook and save again to update (e.g. new CCY rates).`);
+    };
+
+    const collection = useMemo(() =>
+      collections.find(c => String(c.loadCollectionId) === collectionSel) || null, [collections, collectionSel]);
+    const collLoadIds = useMemo(() => (collection?.loadIds || []).map(String), [collection]);
+
+    const pickCollection = (c: typeof collections[number]) => {
+      setCollectionSel(String(c.loadCollectionId));
+      setBaseRows(null);
+      const ids = (c.loadIds || []).map(String);
+      if (ids.length > 0) setLoadId(ids[0]);
+      // The collection's reporting entity IS the consolidation level.
+      setScopeSel(c.reportingEntityId ? String(c.reportingEntityId) : '');
+    };
+
     const reportingDate = useMemo(() => {
+      if (collection?.reportingDate) return String(collection.reportingDate).slice(0, 10);
       const l = loads.find(x => String(x.loadId) === loadId);
       return l ? String(l.reportingDate).slice(0, 10) : '';
-    }, [loads, loadId]);
+    }, [collection, loads, loadId]);
 
     const onMappingFile = async (f: File | undefined) => {
       if (!f) return;
@@ -445,7 +508,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     };
 
     const runMatch = async () => {
-      if (!mappings || lines.length === 0 || !loadId) { onError('Adjustments: mapping workbook, adjustments file and loadid are all required.'); return; }
+      if (!mappings || lines.length === 0 || (!loadId && collLoadIds.length === 0)) { onError('Adjustments: mappings, adjustments file and a load collection (or loadid) are all required.'); return; }
       setBusy(true);
       try {
         const svc = await import('../services/adjustments');
@@ -455,6 +518,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
           credentials: 'include',
           body: JSON.stringify({
             loadId,
+            loadIds: collLoadIds.length > 0 ? collLoadIds : undefined,
             lines: lines.map(l => ({
               row: l.row, reference: l.reference, client: l.client || null,
               legalAccountNumber: mappings.gl.get(l.ligne)?.legalAccountNumber || null,
@@ -482,7 +546,8 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
         const total = lines.length;
         const none = lines.filter(l => (map[l.row] || []).length === 0).length;
         const auto = Object.keys(pre).length;
-        onNotice(`Matching done on load ${loadId}: ${auto}/${total} line(s) resolved automatically, ${total - auto - none} to disambiguate, ${none} without match (new position).`);
+        const target = collection ? `collection ${collection.loadCollectionId} (${collLoadIds.length} load(s))` : `load ${loadId}`;
+        onNotice(`Matching done on ${target}: ${auto}/${total} line(s) resolved automatically, ${total - auto - none} to disambiguate, ${none} without match (new position).`);
       } catch (err) { onError(`Adjustments matching failed: ${err instanceof Error ? err.message : String(err)}`); }
       finally { setBusy(false); }
     };
@@ -613,37 +678,17 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     const toggleImpact = async () => {
       if (showImpact) { setShowImpact(false); return; }
       setShowImpact(true);
-      if (!baseRows && loadId) {
+      if (!baseRows && (loadId || collLoadIds.length > 0)) {
         try {
-          const r = await fetch(`${apiBaseUrl}/production/mercury/balance?loadId=${encodeURIComponent(loadId)}`, { credentials: 'include' });
+          const qs = collLoadIds.length > 0
+            ? `loadIds=${encodeURIComponent(collLoadIds.join(','))}`
+            : `loadId=${encodeURIComponent(loadId)}`;
+          const r = await fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' });
           if (r.ok) {
             const arr = await r.json() as Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>;
             setBaseRows(arr.filter(b => b.prefix));
           }
         } catch { /* base unavailable — deltas shown alone */ }
-      }
-      if (!conso) {
-        try {
-          const r = await fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' });
-          if (r.ok) {
-            const out = await r.json() as {
-              entities: Array<{ id: unknown; name?: unknown; bankOffice?: unknown; parentCompany?: unknown; consoGroup?: unknown }>;
-              sets: Array<{ reportingEntityId: string; bookingCenterId: string }>;
-              bookingCenters: Array<{ id: string; name?: string }>;
-            };
-            const sets: Record<string, string[]> = {};
-            for (const s of out.sets || []) (sets[String(s.reportingEntityId)] ??= []).push(String(s.bookingCenterId));
-            const bcNames: Record<string, string> = {};
-            for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
-            setConso({
-              entities: (out.entities || []).map(e => ({
-                id: String(e.id), name: e.name ? String(e.name) : undefined,
-                bankOffice: e.bankOffice === true, parentCompany: e.parentCompany === true, consoGroup: e.consoGroup === true,
-              })),
-              sets, bcNames,
-            });
-          }
-        } catch { /* conso referential unavailable — scope selector hidden */ }
       }
     };
 
@@ -689,60 +734,122 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
 
     const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
     const fileBtn = 'block text-sm text-brand-text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-gray-300 file:bg-white file:text-sm file:font-semibold file:text-brand-text-primary hover:file:border-brand-secondary';
+    const stepTitle = 'text-[11px] uppercase tracking-[0.12em] font-bold text-brand-primary mb-2';
     return (
       <Card>
         <SectionHeader title="Adjustments from accounting"
-          suffix="match each line against core_positions of the load (LIKE on InternalReference1/ContractId + CLIENT), then prepare the INSERT" />
-        <div className="grid md:grid-cols-2 gap-4 mb-3">
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">1 — Mapping workbook (Mapping.xlsb)</label>
-            <input type="file" accept=".xlsb,.xlsx,.xls" onChange={e => onMappingFile(e.target.files?.[0])} className={fileBtn} />
-            {mappingInfo && <p className="text-[11px] text-status-green mt-1">✓ {mappingInfo}</p>}
+          suffix="pick a load collection (= consolidation level), match each line against core_positions, prepare the INSERTs — eliminations previewed before loading" />
+
+        {/* 1 — Mappings (persisted in the RegReport database) */}
+        <div className="border border-efg-line rounded-lg p-3 mb-3">
+          <p className={stepTitle}>1 — Mappings {storedMappings.length > 0 ? '· stored in database' : '· not stored yet'}</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Mapping workbook (Mapping.xlsb) — only to update</label>
+              <input type="file" accept=".xlsb,.xlsx,.xls" onChange={e => onMappingFile(e.target.files?.[0])} className={fileBtn} />
+            </div>
+            {mappings && (
+              <button onClick={saveMappings}
+                className="text-[12px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors">
+                💾 Save to database
+              </button>
+            )}
           </div>
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">2 — Adjustments file (LIGNE, REFERENCE, MONTANT…)</label>
-            <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={fileBtn} />
-            {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}</p>}
+          {mappingInfo && <p className="text-[11px] text-status-green mt-1">✓ Mappings loaded from {mappingInfo}</p>}
+          <p className="text-[11px] text-brand-text-secondary mt-1">
+            GL and INDUSTRY are static; to refresh the CCY rates, re-upload the workbook and 💾 save again — stored relationally in ProdMappingEntries.
+          </p>
+        </div>
+
+        {/* 2 — Adjustments file */}
+        <div className="border border-efg-line rounded-lg p-3 mb-3">
+          <p className={stepTitle}>2 — Accounting adjustments file</p>
+          <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={fileBtn} />
+          {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}</p>}
+        </div>
+
+        {/* 3 — Load collection (consolidation level) */}
+        <div className="border border-efg-line rounded-lg p-3 mb-3">
+          <p className={stepTitle}>3 — Load collection · the reporting entity of the collection sets the consolidation scope</p>
+          {collections.length > 0 ? (
+            <div className="overflow-x-auto border border-efg-line rounded-lg mb-2 max-h-44 overflow-y-auto">
+              <table className="w-full text-xs whitespace-nowrap">
+                <thead className="bg-brand-bg-body sticky top-0"><tr>
+                  {['Collection', 'Name', 'Reporting date', 'Reporting entity (scope)', 'Loads', 'Master'].map(h =>
+                    <th key={h} className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {collections.map(c => (
+                    <tr key={String(c.loadCollectionId)} onClick={() => pickCollection(c)}
+                      className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(c.loadCollectionId) === collectionSel ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
+                      <td className="px-3 py-1">{String(c.loadCollectionId) === collectionSel ? '● ' : ''}{String(c.loadCollectionId)}</td>
+                      <td className="px-3 py-1">{c.name || ''}</td>
+                      <td className="px-3 py-1">{c.reportingDate ? String(c.reportingDate).slice(0, 10) : ''}</td>
+                      <td className="px-3 py-1">{c.reportingEntityId || '—'}</td>
+                      <td className="px-3 py-1 text-brand-text-secondary">{(c.loadIds || []).join(', ') || '—'}</td>
+                      <td className="px-3 py-1">{c.isMaster ? '★' : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : loads.length > 0 && (
+            <div className="overflow-x-auto border border-efg-line rounded-lg mb-2 max-h-40 overflow-y-auto">
+              <table className="w-full text-xs whitespace-nowrap">
+                <thead className="bg-brand-bg-body sticky top-0"><tr>
+                  {['Loadid (no collections found)', 'Reporting date', 'Name'].map(h =>
+                    <th key={h} className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {loads.map(l => (
+                    <tr key={String(l.loadId)} onClick={() => setLoadId(String(l.loadId))}
+                      className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(l.loadId) === loadId ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
+                      <td className="px-3 py-1">{String(l.loadId) === loadId ? '● ' : ''}{String(l.loadId)}</td>
+                      <td className="px-3 py-1">{String(l.reportingDate).slice(0, 10)}</td>
+                      <td className="px-3 py-1 text-brand-text-secondary">{l.name || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            {collLoadIds.length > 1 ? (
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Target load (new positions)</label>
+                <select value={loadId} onChange={e => setLoadId(e.target.value)} className={input}>
+                  {collLoadIds.map(id => <option key={id} value={id}>{id}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
+                <input value={loadId} onChange={e => { setLoadId(e.target.value); setBaseRows(null); }} placeholder="e.g. 1002" className={input} />
+              </div>
+            )}
+            {reportingDate && <p className="text-sm text-brand-text-secondary pb-2">→ reporting date <strong>{reportingDate}</strong></p>}
+            {collection?.reportingEntityId && (
+              <p className="text-sm text-brand-text-secondary pb-2">
+                → scope <strong>{collection.reportingEntityId}</strong>
+                {scopeSet ? ` (${scopeSet.size} booking centers)` : ' (not in list_reporting_sets)'}
+              </p>
+            )}
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Booking center (new positions)</label>
+              <input value={bookingCenter} onChange={e => setBookingCenter(e.target.value)} placeholder="BookingCenterId" className={input} />
+            </div>
           </div>
         </div>
-        {loads.length > 0 && (
-          <div className="overflow-x-auto border border-efg-line rounded-lg mb-3 max-h-40 overflow-y-auto">
-            <table className="w-full text-xs whitespace-nowrap">
-              <thead className="bg-brand-bg-body sticky top-0"><tr>
-                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">3 — Loadid (core_loads)</th>
-                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Reporting date</th>
-                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Name</th>
-              </tr></thead>
-              <tbody>
-                {loads.map(l => (
-                  <tr key={String(l.loadId)} onClick={() => setLoadId(String(l.loadId))}
-                    className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(l.loadId) === loadId ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
-                    <td className="px-3 py-1">{String(l.loadId) === loadId ? '● ' : ''}{String(l.loadId)}</td>
-                    <td className="px-3 py-1">{String(l.reportingDate).slice(0, 10)}</td>
-                    <td className="px-3 py-1 text-brand-text-secondary">{l.name || ''}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-wrap items-end gap-3 mb-3">
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
-            <input value={loadId} onChange={e => { setLoadId(e.target.value); setBaseRows(null); }} placeholder="e.g. 1002" className={input} />
-          </div>
-          {reportingDate && <p className="text-sm text-brand-text-secondary pb-2">→ reporting date <strong>{reportingDate}</strong></p>}
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Booking center (new positions)</label>
-            <input value={bookingCenter} onChange={e => setBookingCenter(e.target.value)} placeholder="BookingCenterId" className={input} />
-          </div>
-          <button onClick={runMatch} disabled={busy || !mappings || lines.length === 0 || !loadId}
+
+        {/* 4 — Matching & impact */}
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <button onClick={runMatch} disabled={busy || !mappings || lines.length === 0 || (!loadId && collLoadIds.length === 0)}
             className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
-            {busy ? 'Matching…' : '🔍 Run matching on core_positions'}
+            {busy ? 'Matching…' : `🔍 Run matching${collection ? ` on collection ${collection.loadCollectionId}` : ''}`}
           </button>
           <button onClick={toggleImpact} disabled={!mappings || lines.length === 0}
             className={`text-sm font-semibold border py-2 px-4 rounded-md transition-colors disabled:opacity-50 ${showImpact ? 'bg-brand-secondary text-white border-brand-secondary' : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
-            📊 Balance sheet impact
+            📊 Balance sheet impact{scopeSel ? ` — ${scopeSel}` : ''}
           </button>
         </div>
 
@@ -869,6 +976,20 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                     : cands.length === 0 ? 'text-status-amber font-semibold'
                     : cand ? 'text-status-green font-semibold'
                     : 'text-status-red font-semibold';
+                  // Scope view: is the line eliminated (interco inside the
+                  // consolidation scope) or booked outside the scope?
+                  const rawField = (raw: Record<string, unknown> | undefined, name: string): string => {
+                    if (!raw) return '';
+                    const k = Object.keys(raw).find(x => x.toLowerCase() === name.toLowerCase());
+                    const v = k === undefined ? undefined : raw[k];
+                    return v === null || v === undefined ? '' : String(v).trim();
+                  };
+                  const lineCbc = interco ?? (cand ? rawField(cand.raw, 'CounterpartyBookingCenterId') : '');
+                  const lineBc = cand ? rawField(cand.raw, 'BookingCenterId') : bookingCenter.trim();
+                  const scopeTag = !scopeSet ? null
+                    : lineBc && !scopeSet.has(lineBc) ? { txt: `⊘ out of scope (${lineBc})`, cls: 'text-status-amber' }
+                    : lineCbc && scopeSet.has(lineCbc) ? { txt: `✂ eliminated in ${scopeSel} (IC ${lineCbc})`, cls: 'text-status-red' }
+                    : null;
                   return (
                     <React.Fragment key={l.row}>
                       <tr className="border-t border-efg-line align-top">
@@ -885,7 +1006,10 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</td>
                         <td className="px-3 py-1.5">{gl?.legalAccountNumber || <span className="text-status-red">no GL map</span>}</td>
-                        <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>{status}</td>
+                        <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>
+                          {status}
+                          {scopeTag && <span className={`ml-1.5 text-[10px] font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
+                        </td>
                       </tr>
                       {cands && (
                         <tr className="border-t border-efg-line/50 bg-brand-bg-body/40">
@@ -893,7 +1017,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                             {cands.length > 0 && (
                               <table className="text-[11px] w-full mb-2">
                                 <thead><tr>
-                                  {['Pick', 'Position Id', 'Account', 'TypeOf', 'Ccy', 'Book amount', 'Counterparty', 'InternalRef1', 'ContractId', 'Source'].map(h =>
+                                  {['Pick', 'Position Id', 'Load', 'Account', 'TypeOf', 'Ccy', 'Book amount', 'Counterparty', 'InternalRef1', 'ContractId', 'Source'].map(h =>
                                     <th key={h} className="px-2 py-1 text-left text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
                                 </tr></thead>
                                 <tbody>
@@ -902,6 +1026,7 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
                                       className={`border-t border-efg-line/60 cursor-pointer hover:bg-white ${chosen[l.row] === c.id ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
                                       <td className="px-2 py-1">{chosen[l.row] === c.id ? '●' : '○'}</td>
                                       <td className="px-2 py-1">{c.id}</td>
+                                      <td className="px-2 py-1 text-brand-text-secondary">{c.loadId || '—'}</td>
                                       <td className={`px-2 py-1 ${c.accountMatch ? 'text-status-green font-semibold' : ''}`}>{c.legalAccountNumber || '—'}{c.accountMatch ? ' ✓GL' : ''}</td>
                                       <td className="px-2 py-1">{c.typeOf || '—'}{c.subType ? `/${c.subType}` : ''}</td>
                                       <td className="px-2 py-1">{c.currency || '—'}</td>
@@ -1041,6 +1166,36 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
           A consolidation scope (list_reporting_entities / list_reporting_sets / list_booking_centers) restricts the view to the reporting set's booking centers and eliminates intra-scope intercompany amounts — base and adjustments alike.
           Every copied or downloaded script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
         </p>
+
+        {(() => {
+          const adjLogs = (data.prodFindingLogs || [])
+            .filter(l => l.control === 'ADJ' && l.entity === entity)
+            .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
+          return adjLogs.length > 0 ? (
+            <div className="mt-4 border-t border-efg-line pt-3">
+              <p className={stepTitle}>Audit trail — {adjLogs.length} generation(s), stored in the RegReport database (ProdFindingLogs)</p>
+              <div className="overflow-x-auto border border-efg-line rounded-lg max-h-56 overflow-y-auto">
+                <table className="w-full text-xs whitespace-nowrap">
+                  <thead className="bg-brand-bg-body sticky top-0"><tr>
+                    {['Generated at', 'By', 'What', 'Period', 'Detail'].map(h =>
+                      <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {adjLogs.map(l => (
+                      <tr key={l.id} className="border-t border-efg-line">
+                        <td className="px-3 py-1.5 tabular-nums">{l.decidedAt.slice(0, 16).replace('T', ' ')}</td>
+                        <td className="px-3 py-1.5">{l.decidedBy}</td>
+                        <td className="px-3 py-1.5 font-semibold">{l.findingKey}</td>
+                        <td className="px-3 py-1.5">{l.date}</td>
+                        <td className="px-3 py-1.5 whitespace-normal max-w-xl text-brand-text-secondary">{l.note || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null;
+        })()}
       </Card>
     );
   };

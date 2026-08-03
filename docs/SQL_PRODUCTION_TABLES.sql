@@ -74,3 +74,25 @@ IF OBJECT_ID('ProdFindingLogs') IS NOT NULL AND NOT EXISTS
    (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProdFindingLogs_Entity_Signature')
 CREATE INDEX [IX_ProdFindingLogs_Entity_Signature] ON [ProdFindingLogs] ([Entity], [Signature]);
 GO
+
+-- Persisted adjustments mapping workbook (Mapping.xlsb) — one row per entry,
+-- sparse columns per kind (gl / fx / rt01 / industry / label) so the team does
+-- not re-upload the file for every adjustment session.
+IF OBJECT_ID('ProdMappingEntries') IS NULL
+CREATE TABLE [ProdMappingEntries] (
+    [Id] bigint NOT NULL IDENTITY,
+    [Kind] nvarchar(450) NOT NULL,
+    [MapKey] nvarchar(450) NOT NULL,
+    [TextValue] nvarchar(max) NULL,
+    [NumValue] float NULL,
+    [TypeOf] nvarchar(max) NULL,
+    [SubType] nvarchar(max) NULL,
+    [EconomicActivityType] nvarchar(max) NULL,
+    [Interco] nvarchar(max) NULL,
+    [Description] nvarchar(max) NULL,
+    CONSTRAINT [PK_ProdMappingEntries] PRIMARY KEY ([Id])
+);
+IF OBJECT_ID('ProdMappingEntries') IS NOT NULL AND NOT EXISTS
+   (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProdMappingEntries_Kind_MapKey')
+CREATE INDEX [IX_ProdMappingEntries_Kind_MapKey] ON [ProdMappingEntries] ([Kind], [MapKey]);
+GO

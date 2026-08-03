@@ -23,10 +23,12 @@ public class ProductionController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
-    public ProductionController(AppDbContext db, IConfiguration config)
+    private readonly ILogger<ProductionController> _logger;
+    public ProductionController(AppDbContext db, IConfiguration config, ILogger<ProductionController> logger)
     {
         _db = db;
         _config = config;
+        _logger = logger;
     }
 
     [HttpGet("mercury/status")]
@@ -96,8 +98,15 @@ public class ProductionController : ControllerBase
     public class AdjMatchRequest
     {
         public string LoadId { get; set; } = "";
+        /// <summary>When set, match across all these loads (a load collection)
+        /// instead of the single LoadId.</summary>
+        public List<string>? LoadIds { get; set; }
         public List<AdjMatchLine> Lines { get; set; } = new();
     }
+
+    private static List<string> EffectiveLoadIds(string loadId, List<string>? loadIds) =>
+        (loadIds is { Count: > 0 } ? loadIds : new List<string> { loadId })
+        .Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()).Distinct().Take(50).ToList();
 
     /// <summary>
     /// Adjustments matching: for each accounting line, find the core_positions
@@ -111,11 +120,13 @@ public class ProductionController : ControllerBase
         var cs = _config.GetConnectionString("Mercury");
         if (string.IsNullOrWhiteSpace(cs))
             return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
-        if (string.IsNullOrWhiteSpace(req.LoadId) || req.Lines.Count == 0)
-            return Problem("loadId and at least one line are required.", statusCode: 400);
+        var loadIds = EffectiveLoadIds(req.LoadId, req.LoadIds);
+        if (loadIds.Count == 0 || req.Lines.Count == 0)
+            return Problem("loadId (or loadIds) and at least one line are required.", statusCode: 400);
         if (req.Lines.Count > 500)
             return Problem("Too many lines in one call (max 500).", statusCode: 400);
 
+        var inClause = string.Join(", ", loadIds.Select((_, i) => $"@l{i}"));
         var results = new List<object>();
         await using var conn = new SqlConnection(cs);
         await conn.OpenAsync();
@@ -127,14 +138,15 @@ public class ProductionController : ControllerBase
                 await using var cmd = conn.CreateCommand();
                 // SELECT * — the full row is needed client-side to build the
                 // one-shot Excel export of the adjusted positions.
-                cmd.CommandText = @"
+                cmd.CommandText = $@"
 SELECT TOP 25 *
 FROM core_positions
-WHERE LoadId = @loadId
+WHERE LoadId IN ({inClause})
   AND (InternalReference1 LIKE @ref OR ContractId LIKE @ref)
   AND (@client IS NULL OR CounterpartyId LIKE @client)";
                 cmd.CommandTimeout = 120;
-                cmd.Parameters.AddWithValue("@loadId", req.LoadId);
+                for (var i = 0; i < loadIds.Count; i++)
+                    cmd.Parameters.AddWithValue($"@l{i}", loadIds[i]);
                 cmd.Parameters.AddWithValue("@ref", $"%{line.Reference.Trim()}%");
                 cmd.Parameters.AddWithValue("@client",
                     string.IsNullOrWhiteSpace(line.Client) ? DBNull.Value : (object)$"%{line.Client.Trim()}%");
@@ -151,7 +163,7 @@ WHERE LoadId = @loadId
             }
             results.Add(new { row = line.Row, candidates });
         }
-        return new { loadId = req.LoadId, results };
+        return new { loadId = req.LoadId, loadIds, results };
     }
 
     /// <summary>
@@ -159,14 +171,17 @@ WHERE LoadId = @loadId
     /// — feeds the Adjustments impact preview (base + adjustments = after).
     /// </summary>
     [HttpGet("mercury/balance")]
-    public async Task<ActionResult<object>> Balance([FromQuery] string loadId)
+    public async Task<ActionResult<object>> Balance([FromQuery] string? loadId, [FromQuery] string? loadIds)
     {
         var cs = _config.GetConnectionString("Mercury");
         if (string.IsNullOrWhiteSpace(cs))
             return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
-        if (string.IsNullOrWhiteSpace(loadId))
-            return Problem("loadId is required.", statusCode: 400);
+        var ids = EffectiveLoadIds(loadId ?? "",
+            string.IsNullOrWhiteSpace(loadIds) ? null : loadIds.Split(',').ToList());
+        if (ids.Count == 0)
+            return Problem("loadId or loadIds is required.", statusCode: 400);
 
+        var inClause = string.Join(", ", ids.Select((_, i) => $"@l{i}"));
         var rows = new List<object>();
         await using var conn = new SqlConnection(cs);
         await conn.OpenAsync();
@@ -174,20 +189,21 @@ WHERE LoadId = @loadId
         // Grouped by booking center + counterparty booking center so the UI
         // can restrict the base to a consolidation scope (list_reporting_sets)
         // and eliminate intra-scope intercompany amounts.
-        cmd.CommandText = @"
+        cmd.CommandText = $@"
 SELECT LEFT(CAST(LegalAccountNumber AS varchar(20)), 3) AS Prefix,
        LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))) AS Bc,
        LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
        SUM(CAST(BookAmount AS float)) AS Amount,
        COUNT(*) AS Positions
 FROM core_positions
-WHERE LoadId = @loadId
+WHERE LoadId IN ({inClause})
 GROUP BY LEFT(CAST(LegalAccountNumber AS varchar(20)), 3),
          LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))),
          LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), '')))
 ORDER BY Prefix";
         cmd.CommandTimeout = 120;
-        cmd.Parameters.AddWithValue("@loadId", loadId);
+        for (var i = 0; i < ids.Count; i++)
+            cmd.Parameters.AddWithValue($"@l{i}", ids[i]);
         await using var rd = await cmd.ExecuteReaderAsync();
         while (await rd.ReadAsync())
         {
@@ -201,6 +217,76 @@ ORDER BY Prefix";
             });
         }
         return rows;
+    }
+
+    /// <summary>
+    /// Load collections: the production unit of work for adjustments — a
+    /// collection groups the loads of a reporting date and points to the
+    /// reporting entity (= consolidation level). One load can belong to
+    /// several collections.
+    /// </summary>
+    [HttpGet("mercury/load-collections")]
+    public async Task<ActionResult<object>> LoadCollections()
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+
+        var query = _config["Production:LoadCollectionsQuery"] ?? @"
+SELECT TOP 100 LoadCollectionId, Name, ReportingDate, ReportingEntityId, IsMaster
+FROM core_load_collections
+WHERE IsVisible = 1 AND IsArchived = 0
+ORDER BY LoadCollectionId DESC";
+        try
+        {
+            var collections = new List<Dictionary<string, object?>>();
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = query;
+                cmd.CommandTimeout = 60;
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = 0; i < rd.FieldCount; i++)
+                        row[rd.GetName(i)] = rd.IsDBNull(i) ? null : rd.GetValue(i);
+                    collections.Add(row);
+                }
+            }
+            // Member loads of the returned collections.
+            var links = new Dictionary<string, List<object>>();
+            await using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+SELECT CAST(LoadCollectionsLoadCollectionId AS varchar(20)) AS CollectionId, LoadsLoadId
+FROM core_loads_loads_collection";
+                cmd.CommandTimeout = 60;
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var cid = rd.IsDBNull(0) ? "" : rd.GetString(0);
+                    if (cid.Length == 0 || rd.IsDBNull(1)) continue;
+                    if (!links.TryGetValue(cid, out var list)) links[cid] = list = new List<object>();
+                    list.Add(rd.GetValue(1));
+                }
+            }
+            return collections.Select(c => new
+            {
+                loadCollectionId = c.GetValueOrDefault("LoadCollectionId"),
+                name = c.GetValueOrDefault("Name"),
+                reportingDate = c.GetValueOrDefault("ReportingDate"),
+                reportingEntityId = c.GetValueOrDefault("ReportingEntityId"),
+                isMaster = c.GetValueOrDefault("IsMaster"),
+                loadIds = links.GetValueOrDefault(Convert.ToString(c.GetValueOrDefault("LoadCollectionId")) ?? "") ?? new List<object>(),
+            }).ToList<object>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "MERCURY load collections query failed");
+            return new List<object>();
+        }
     }
 
     /// <summary>

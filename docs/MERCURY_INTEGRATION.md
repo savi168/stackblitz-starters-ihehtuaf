@@ -180,6 +180,30 @@ du mapping GL, montants convertis en CHF) et le bilan résultant, avec les
 intitulés dérivés du mapping GL (description HFM la plus fréquente par
 préfixe).
 
+**Load collections (unité de travail des ajustements)** : `GET
+/api/production/mercury/load-collections` liste `core_load_collections`
+(visibles, non archivées ; requête surchargeable via
+`Production:LoadCollectionsQuery`) avec leurs loads membres
+(`core_loads_loads_collection`). Choisir une collection dans l'onglet : le
+matching couvre **tous les loads** de la collection (l'INSERT d'un ajustement
+matché vise le load du candidat), la `ReportingEntityId` de la collection
+**fixe automatiquement le scope de consolidation** (éliminations visibles de
+suite, badges ✂/⊘ par ligne), et le bilan de base agrège tous les loads. Le
+« Target load » (nouvelles positions) se choisit parmi les membres.
+
+**Mappings persistés** : bouton 💾 *Save to database* → table relationnelle
+`ProdMappingEntries` (RegReport, script gardé dans
+`SQL_PRODUCTION_TABLES.sql`) — kinds `gl` / `fx` / `rt01` / `industry` /
+`label`. Au chargement de l'onglet, les mappings viennent de la base ; le
+re-upload du classeur ne sert qu'aux mises à jour (ex. taux CCY), suivi d'un
+nouveau 💾.
+
+**Audit trail** : chaque script copié ou export one-shot est journalisé
+(contrôle `ADJ`) dans `ProdFindingLogs` — table SQL de la base RegReport,
+comme les décisions des contrôles C1–C5. L'onglet Adjustments affiche
+l'historique (qui / quand / quoi) ; l'onglet Controls garde sa « Decision
+history ».
+
 **Éliminations selon le scope de consolidation** : l'aperçu 📊 propose un
 sélecteur *Consolidation scope* alimenté par `GET
 /api/production/mercury/conso` (`list_reporting_entities` + niveaux BO/PC/GR,

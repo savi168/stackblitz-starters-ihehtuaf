@@ -286,6 +286,22 @@ export interface ProdSecurityRecord {
 }
 
 /** Decision taken on a production control finding (validated as correct, or corrected). */
+/** One persisted row of the adjustments mapping workbook (Mapping.xlsb) —
+ * sparse columns per kind (gl / fx / rt01 / industry / label) so the team
+ * does not re-upload the file for every adjustment session. */
+export interface ProdMappingEntry {
+  id: number;
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label';
+  mapKey: string;
+  textValue?: string;
+  numValue?: number;
+  typeOf?: string;
+  subType?: string;
+  economicActivityType?: string;
+  interco?: string;
+  description?: string;
+}
+
 export interface ProdFindingLog {
   id: number;
   entity: string;
@@ -462,6 +478,7 @@ export interface CentralData {
   prodSecurities?: ProdSecurityRecord[];
   prodGuaranteeRefs?: ProdGuaranteeRef[];
   prodFindingLogs?: ProdFindingLog[];
+  prodMappingEntries?: ProdMappingEntry[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }

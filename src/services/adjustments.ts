@@ -247,9 +247,54 @@ export const parseAdjustmentsFile = (buffer: ArrayBuffer): AdjustmentLine[] => {
 
 const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
 
+/** Persisted-mapping row (mirror of the ProdMappingEntry API shape). */
+export interface MappingEntryRow {
+  id: number;
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label';
+  mapKey: string;
+  textValue?: string;
+  numValue?: number;
+  typeOf?: string;
+  subType?: string;
+  economicActivityType?: string;
+  interco?: string;
+  description?: string;
+}
+
+/** Flattens parsed mappings into rows for the RegReport database (table
+ * ProdMappingEntries) — the reverse of entriesToMappings. */
+export const mappingsToEntries = (m: AdjustmentMappings): MappingEntryRow[] => {
+  const rows: MappingEntryRow[] = [];
+  let id = 1;
+  for (const g of m.gl.values())
+    rows.push({ id: id++, kind: 'gl', mapKey: g.line, textValue: g.legalAccountNumber, typeOf: g.typeOf, subType: g.subType, description: g.description });
+  for (const [ccy, rate] of m.fx) rows.push({ id: id++, kind: 'fx', mapKey: ccy, numValue: rate });
+  for (const [k, v] of m.rt01) rows.push({ id: id++, kind: 'rt01', mapKey: k, textValue: v });
+  for (const [k, v] of m.industry)
+    rows.push({ id: id++, kind: 'industry', mapKey: k, typeOf: v.typeOf, economicActivityType: v.economicActivityType, interco: v.interco, description: v.description });
+  for (const [k, v] of m.accountLabels) rows.push({ id: id++, kind: 'label', mapKey: k, textValue: v });
+  return rows;
+};
+
+/** Rebuilds the AdjustmentMappings lookups from the persisted rows. */
+export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings => {
+  const m: AdjustmentMappings = { gl: new Map(), fx: new Map(), rt01: new Map(), industry: new Map(), accountLabels: new Map() };
+  for (const r of rows) {
+    if (r.kind === 'gl') m.gl.set(r.mapKey, { line: r.mapKey, legalAccountNumber: r.textValue ?? '0', typeOf: r.typeOf || undefined, subType: r.subType || undefined, description: r.description || undefined });
+    else if (r.kind === 'fx' && r.numValue !== undefined && r.numValue !== null) m.fx.set(r.mapKey.toUpperCase(), r.numValue);
+    else if (r.kind === 'rt01' && r.textValue) m.rt01.set(r.mapKey, r.textValue);
+    else if (r.kind === 'industry') m.industry.set(r.mapKey, { typeOf: r.typeOf || undefined, economicActivityType: r.economicActivityType || undefined, interco: r.interco || undefined, description: r.description || undefined });
+    else if (r.kind === 'label' && r.textValue) m.accountLabels.set(r.mapKey, r.textValue);
+  }
+  m.fx.set('CHF', 1);
+  return m;
+};
+
 /** Candidate row returned by the match endpoint (subset of core_positions). */
 export interface MatchCandidate {
   id: string;
+  /** LoadId the candidate row belongs to (multi-load collection matching). */
+  loadId?: string;
   legalAccountNumber?: string;
   typeOf?: string;
   subType?: string;
@@ -289,6 +334,7 @@ export const normalizeCandidate = (raw: Record<string, unknown>): MatchCandidate
   };
   return {
     id: s('Id') ?? '',
+    loadId: s('LoadId'),
     legalAccountNumber: s('LegalAccountNumber'),
     typeOf: s('TypeOf'),
     subType: s('SubType'),
@@ -452,19 +498,22 @@ export const buildAdjustmentInsert = (
   const over = adjustmentOverrides(line, cand, mappings);
   const adjId = String(over.Id);
   const interco = intercoOf(line, mappings);
+  // With a load collection, the candidate keeps its own load — the adjustment
+  // is inserted next to the matched position.
+  const targetLoad = cand.loadId ?? loadId;
   return [
     `-- Adjustment for accounting line ${line.ligne} (row ${line.row})${line.libelle ? ` — ${line.libelle}` : ''}`,
-    `-- Matched position ${cand.id} (account ${cand.legalAccountNumber}); MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
+    `-- Matched position ${cand.id} (load ${targetLoad}, account ${cand.legalAccountNumber}); MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
     ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- 1) CHECK:`,
-    `SELECT * FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(adjId)};`,
+    `SELECT * FROM core_positions WHERE LoadId = ${targetLoad} AND Id = ${q(adjId)};`,
     `-- 2) INSERT (all other NOT NULL columns are copied from the matched position):`,
     `INSERT INTO core_positions (`,
     ...chunk6(CORE_POSITION_COLS.map(([n]) => n)),
     `)`,
     `SELECT`,
     ...chunk6(CORE_POSITION_COLS.map(([n]) => (n in over ? sqlVal(over[n]) : n))),
-    `FROM core_positions WHERE LoadId = ${loadId} AND Id = ${q(cand.id)};`,
+    `FROM core_positions WHERE LoadId = ${targetLoad} AND Id = ${q(cand.id)};`,
   ].join('\n');
 };
 
