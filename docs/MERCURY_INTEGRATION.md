@@ -114,7 +114,7 @@ reval, garant, HQLA level).
    référentiel garantie/HQLA) — automatiques dès que les données sont là.
 3. Le CSV manuel reste disponible en secours (mêmes tables, mêmes contrôles).
 
-## 5. Module Adjustments — règles convenues (à implémenter)
+## 5. Module Adjustments — règles convenues (onglet *Production → Adjustments*)
 
 Sources : `docs/mercury-model/adjustments-sample.xlsx` (lignes compta : LIGNE,
 REFERENCE, MONTANT, NOMINAL, CCY, CATEG, IND, CLIENT, DEBIT/CREDIT…) et
@@ -139,3 +139,15 @@ RT01→QDL, INDUSTRY).
    CATEG→Maping (RT01→QDL), contrepartie = CLIENT.
 4. Tout passe par des scripts SQL préparés (SELECT de contrôle + INSERT) et le
    journal de décisions, comme les contrôles C1–C5.
+
+**Implémentation** : onglet *Production → Adjustments* — upload du classeur de
+mapping + du fichier d'ajustements, choix du loadid (core_loads), bouton
+*Run matching* → `POST /api/production/mercury/adjustments/match` (clé LIKE
+composite, TOP 25 candidats par ligne, flag `accountMatch` quand le
+LegalAccountNumber du candidat = celui du mapping GL de la LIGNE). Candidat
+unique ou seul ✓GL → présélectionné ; plusieurs → choix dans l'UI ; aucun →
+INSERT de construction complète. Le bouton *Copy + log decision* journalise
+la décision (contrôle `ADJ`) dans l'historique de l'onglet Controls.
+Le mock (`SQL_MERCURY_MOCK.sql`) contient trois positions de test
+(POS-ADJ-A/B/C, load 1002) alignées sur le fichier d'exemple
+`adjustments-sample.xlsx` (références 5950216318 / 5900175308).

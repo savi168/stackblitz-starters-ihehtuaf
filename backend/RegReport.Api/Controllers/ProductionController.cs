@@ -84,6 +84,77 @@ public class ProductionController : ControllerBase
         }
     }
 
+    public class AdjMatchLine
+    {
+        public int Row { get; set; }
+        public string Reference { get; set; } = "";
+        public string? Client { get; set; }
+        /// <summary>LegalAccountNumber expected from Mapping_GL_BALANCESHEET[LIGNE] — used to disambiguate.</summary>
+        public string? LegalAccountNumber { get; set; }
+    }
+
+    public class AdjMatchRequest
+    {
+        public string LoadId { get; set; } = "";
+        public List<AdjMatchLine> Lines { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Adjustments matching: for each accounting line, find the core_positions
+    /// candidates of the load via the agreed composite LIKE key
+    /// (InternalReference1 OR ContractId ~ REFERENCE, CounterpartyId ~ CLIENT),
+    /// flagging those whose LegalAccountNumber equals the GL-mapping account.
+    /// </summary>
+    [HttpPost("mercury/adjustments/match")]
+    public async Task<ActionResult<object>> MatchAdjustments(AdjMatchRequest req)
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+        if (string.IsNullOrWhiteSpace(req.LoadId) || req.Lines.Count == 0)
+            return Problem("loadId and at least one line are required.", statusCode: 400);
+        if (req.Lines.Count > 500)
+            return Problem("Too many lines in one call (max 500).", statusCode: 400);
+
+        var results = new List<object>();
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        foreach (var line in req.Lines)
+        {
+            var candidates = new List<Dictionary<string, object?>>();
+            if (!string.IsNullOrWhiteSpace(line.Reference))
+            {
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+SELECT TOP 25 Id, LegalAccountNumber, TypeOf, SubType, Currency, BookAmount,
+       PositionCurrencyBookAmount, CounterpartyId, CounterpartyPIT,
+       InternalReference1, ContractId, SecurityId, SecurityPIT,
+       GuarantorId, GuarantorPIT, BookingCenterId, LocationCountry, DataSource
+FROM core_positions
+WHERE LoadId = @loadId
+  AND (InternalReference1 LIKE @ref OR ContractId LIKE @ref)
+  AND (@client IS NULL OR CounterpartyId LIKE @client)";
+                cmd.CommandTimeout = 120;
+                cmd.Parameters.AddWithValue("@loadId", req.LoadId);
+                cmd.Parameters.AddWithValue("@ref", $"%{line.Reference.Trim()}%");
+                cmd.Parameters.AddWithValue("@client",
+                    string.IsNullOrWhiteSpace(line.Client) ? DBNull.Value : (object)$"%{line.Client.Trim()}%");
+                await using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                    for (var i = 0; i < rd.FieldCount; i++)
+                        row[rd.GetName(i)] = rd.IsDBNull(i) ? null : rd.GetValue(i);
+                    row["accountMatch"] = !string.IsNullOrWhiteSpace(line.LegalAccountNumber)
+                        && Convert.ToString(row["LegalAccountNumber"])?.Trim() == line.LegalAccountNumber.Trim();
+                    candidates.Add(row);
+                }
+            }
+            results.Add(new { row = line.Row, candidates });
+        }
+        return new { loadId = req.LoadId, results };
+    }
+
     public class MercuryLoadRequest
     {
         /// <summary>counterparties | securities</summary>

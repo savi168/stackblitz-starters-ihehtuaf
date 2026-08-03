@@ -60,6 +60,11 @@ CREATE TABLE core_positions (
     CounterpartyId varchar(100), CounterpartyPIT int,
     GuarantorId varchar(100), GuarantorPIT int,
     SecurityId varchar(100), SecurityPIT int,
+    -- Columns used by the Adjustments matching (LIKE on the accounting REFERENCE/CLIENT)
+    PositionCurrencyBookAmount decimal(18,2) NULL,
+    InternalReference1 varchar(100) NULL, ContractId varchar(100) NULL,
+    BookingCenterId varchar(20) NULL, LocationCountry varchar(5) NULL,
+    DataSource varchar(50) NULL,
     PRIMARY KEY (Id, LoadId)
 );
 GO
@@ -74,6 +79,8 @@ INSERT INTO list_counterparties (Id, PointInTime, Name, TypeOf, EconomicActivity
 ('CLI-PRIV1',  1001, 'Private client 1',   'IP',   '970000', 5, 'LEX-PRIV1'),
 ('CLI-EFGSUB', 1001, 'EFG Subsidiary',     'Bank', '641001', 2, 'LEX-EFG'),
 ('CLI-EFGFIN', 1001, 'EFG Finance',        'Corp', '649900', 2, 'LEX-EFG'),   -- C2: same LEX group, other sector
+('CLI-595021', 1001, 'Bank, Luxembourg',   'Bank', '641001', 2, 'LEX-BLUX'),  -- Adjustments test (CLIENT 595021)
+('CLI-590017', 1001, 'Bank AG, Frankfurt', 'Bank', '641001', 2, 'LEX-BFRA'),  -- Adjustments test (CLIENT 590017)
 -- PIT 2 (Jan) — with deliberate drifts
 ('CLI-KFW',    1002, 'KFW',                'Bank', '641001', 1, 'LEX-KFW'),
 ('CLI-DEGOV',  1002, 'German government',  'CGov', '841100', 1, 'LEX-DE-GOV'),
@@ -81,7 +88,9 @@ INSERT INTO list_counterparties (Id, PointInTime, Name, TypeOf, EconomicActivity
 ('CLI-NESTLE', 1002, 'Nestle SA',          'Corp', '107300', 4, 'LEX-NESTLE'), -- C1: rating 3 → 4
 ('CLI-PRIV1',  1002, 'Private client 1',   'IP',   '970000', 5, 'LEX-PRIV1B'), -- C1: grouplexid change
 ('CLI-EFGSUB', 1002, 'EFG Subsidiary',     'Bank', '641001', 2, 'LEX-EFG'),
-('CLI-EFGFIN', 1002, 'EFG Finance',        'Corp', '649900', 2, 'LEX-EFG');
+('CLI-EFGFIN', 1002, 'EFG Finance',        'Corp', '649900', 2, 'LEX-EFG'),
+('CLI-595021', 1002, 'Bank, Luxembourg',   'Bank', '641001', 2, 'LEX-BLUX'),
+('CLI-590017', 1002, 'Bank AG, Frankfurt', 'Bank', '641001', 2, 'LEX-BFRA');
 
 -- Securities ------------------------------------------------------------------
 INSERT INTO list_securities (Id, PointInTime, Name, ISIN, TypeOf, RatingClass, RevaluationFrequency, IssuerId, IssuerPIT, HQLACategory) VALUES
@@ -116,6 +125,15 @@ INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, Boo
 ('POS-DEP1',  1002, '202001', 'Account',  NULL,       21500000, 'CHF', 'CLI-PRIV1',  1002,    NULL, NULL, NULL, NULL),
 ('POS-ORPH',  1002, '104009', 'Contract', NULL,        5100000, 'USD', 'CLI-GHOST',  1002,    NULL, NULL, NULL, NULL), -- C5
 ('POS-LOAN4', 1002, '104004', 'Contract', NULL,        2000000, 'CHF', 'CLI-NESTLE', 1001,    NULL, NULL, NULL, NULL); -- C2: stale PIT 1001 in a 1002 load
+
+-- Adjustments matching test rows (load 1002) ----------------------------------
+-- Sample file: LIGNE 155 (REFERENCE 5950216318, CLIENT 595021) matches TWO
+-- positions — only POS-ADJ-A carries the GL-mapping account 102001 (✓GL);
+-- LIGNE 2060 (REFERENCE 5900175308, CLIENT 590017) matches via ContractId.
+INSERT INTO core_positions (Id, LoadId, LegalAccountNumber, TypeOf, SubType, BookAmount, Currency, CounterpartyId, CounterpartyPIT, InternalReference1, ContractId, PositionCurrencyBookAmount, DataSource) VALUES
+('POS-ADJ-A', 1002, '102001', 'Account',  NULL,   750000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         800000, 'CORE'),
+('POS-ADJ-B', 1002, '104001', 'Contract', NULL,   500000, 'EUR', 'CLI-595021', 1002, '5950216318', NULL,         535000, 'CORE'),
+('POS-ADJ-C', 1002, '201001', 'Account',  NULL,  -750000, 'EUR', 'CLI-590017', 1002, NULL,         '5900175308', -800000, 'CORE');
 GO
 
 -- Now create the two TVFs in THIS database: open docs/SQL_MERCURY_TVFS.sql,

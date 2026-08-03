@@ -5,6 +5,7 @@ import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
+import type { AdjustmentLine, AdjustmentMappings, MatchCandidate } from '../services/adjustments';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -376,9 +377,295 @@ const OrphanInsertHelper: React.FC<{ keyValue: string; periodDate?: string }> = 
   );
 };
 
+/** Adjustments (step 3): accounting adjustment lines matched against
+ * core_positions of a load via the agreed composite LIKE key
+ * (InternalReference1 OR ContractId ~ REFERENCE, CounterpartyId ~ CLIENT),
+ * disambiguated by the Mapping_GL_BALANCESHEET account. Output = prepared
+ * INSERT scripts (copied attributes, or full build from the mappings). */
+const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void; onError: (m: string) => void }> =
+  ({ entity, onNotice, onError }) => {
+    const { mode, apiBaseUrl, setData, currentUser } = useData();
+    const [mappings, setMappings] = useState<AdjustmentMappings | null>(null);
+    const [mappingInfo, setMappingInfo] = useState('');
+    const [lines, setLines] = useState<AdjustmentLine[]>([]);
+    const [linesInfo, setLinesInfo] = useState('');
+    const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string; name?: string | null }>>([]);
+    const [loadId, setLoadId] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [results, setResults] = useState<Record<number, MatchCandidate[]> | null>(null);
+    const [chosen, setChosen] = useState<Record<number, string>>({});
+    const [scripts, setScripts] = useState<Record<number, string>>({});
+
+    useEffect(() => {
+      if (mode !== 'api') return;
+      fetch(`${apiBaseUrl}/production/mercury/loads`, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(l => setLoads(Array.isArray(l) ? l : []))
+        .catch(() => setLoads([]));
+    }, [mode, apiBaseUrl]);
+
+    const reportingDate = useMemo(() => {
+      const l = loads.find(x => String(x.loadId) === loadId);
+      return l ? String(l.reportingDate).slice(0, 10) : '';
+    }, [loads, loadId]);
+
+    const onMappingFile = async (f: File | undefined) => {
+      if (!f) return;
+      try {
+        const svc = await import('../services/adjustments');
+        const m = svc.parseMappingWorkbook(await f.arrayBuffer());
+        setMappings(m);
+        setMappingInfo(`${f.name} — ${m.gl.size} GL lines, ${m.fx.size} FX rates, ${m.rt01.size} RT01→QDL, ${m.industry.size} industry codes`);
+      } catch (err) { onError(`Mapping workbook: ${err instanceof Error ? err.message : String(err)}`); }
+    };
+    const onLinesFile = async (f: File | undefined) => {
+      if (!f) return;
+      try {
+        const svc = await import('../services/adjustments');
+        const parsed = svc.parseAdjustmentsFile(await f.arrayBuffer());
+        setLines(parsed);
+        setResults(null); setChosen({}); setScripts({});
+        setLinesInfo(`${f.name} — ${parsed.length} adjustment line(s)`);
+      } catch (err) { onError(`Adjustments file: ${err instanceof Error ? err.message : String(err)}`); }
+    };
+
+    const runMatch = async () => {
+      if (!mappings || lines.length === 0 || !loadId) { onError('Adjustments: mapping workbook, adjustments file and loadid are all required.'); return; }
+      setBusy(true);
+      try {
+        const svc = await import('../services/adjustments');
+        const res = await fetch(`${apiBaseUrl}/production/mercury/adjustments/match`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            loadId,
+            lines: lines.map(l => ({
+              row: l.row, reference: l.reference, client: l.client || null,
+              legalAccountNumber: mappings.gl.get(l.ligne)?.legalAccountNumber || null,
+            })),
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`);
+        }
+        const out = await res.json() as { results: Array<{ row: number; candidates: Array<Record<string, unknown>> }> };
+        const map: Record<number, MatchCandidate[]> = {};
+        const pre: Record<number, string> = {};
+        for (const r of out.results || []) {
+          const cands = (r.candidates || []).map(svc.normalizeCandidate)
+            .sort((a, b) => Number(b.accountMatch) - Number(a.accountMatch));
+          map[r.row] = cands;
+          // Preselect when the answer is unambiguous: a single candidate, or a
+          // single one carrying the GL-mapping account.
+          const matches = cands.filter(c => c.accountMatch);
+          if (cands.length === 1) pre[r.row] = cands[0].id;
+          else if (matches.length === 1) pre[r.row] = matches[0].id;
+        }
+        setResults(map); setChosen(pre); setScripts({});
+        const total = lines.length;
+        const none = lines.filter(l => (map[l.row] || []).length === 0).length;
+        const auto = Object.keys(pre).length;
+        onNotice(`Matching done on load ${loadId}: ${auto}/${total} line(s) resolved automatically, ${total - auto - none} to disambiguate, ${none} without match (new position).`);
+      } catch (err) { onError(`Adjustments matching failed: ${err instanceof Error ? err.message : String(err)}`); }
+      finally { setBusy(false); }
+    };
+
+    const makeScript = async (line: AdjustmentLine) => {
+      if (!mappings) return;
+      const svc = await import('../services/adjustments');
+      const cands = results?.[line.row] || [];
+      const cand = cands.find(c => c.id === chosen[line.row]);
+      const sql = cand
+        ? svc.buildAdjustmentInsert(line, cand, loadId, mappings)
+        : svc.buildNewPositionInsert(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings);
+      setScripts(prev => ({ ...prev, [line.row]: sql }));
+    };
+
+    const copyAndLog = (line: AdjustmentLine, sql: string) => {
+      navigator.clipboard.writeText(sql);
+      const cand = (results?.[line.row] || []).find(c => c.id === chosen[line.row]);
+      setData(prev => ({
+        ...prev,
+        prodFindingLogs: [...(prev.prodFindingLogs || []), {
+          id: Date.now(), entity, date: reportingDate || loadId,
+          control: 'ADJ', findingKey: `LIGNE ${line.ligne} · row ${line.row}`,
+          signature: `${entity}|ADJ|${loadId}|${line.row}|${line.reference}|${line.montant}`,
+          decision: 'corrected' as const,
+          note: cand
+            ? `Adjustment INSERT from position ${cand.id} (${line.montant} ${line.ccy}, ref ${line.reference})`
+            : `New position INSERT (no match for ref ${line.reference}, ${line.montant} ${line.ccy})`,
+          decidedBy: currentUser.name, decidedAt: new Date().toISOString(),
+        }],
+      }));
+      onNotice(`Script for LIGNE ${line.ligne} (row ${line.row}) copied and logged — review it, then run in SSMS.`);
+    };
+
+    if (mode !== 'api') {
+      return (
+        <Card>
+          <SectionHeader title="Adjustments from accounting" suffix="requires the API backend" />
+          <p className="text-sm text-brand-text-secondary">
+            Connect the app to the .NET backend to match the accounting adjustment lines against core_positions
+            of a MERCURY load — see docs/MERCURY_INTEGRATION.md §5.
+          </p>
+        </Card>
+      );
+    }
+
+    const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
+    const fileBtn = 'block text-sm text-brand-text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-gray-300 file:bg-white file:text-sm file:font-semibold file:text-brand-text-primary hover:file:border-brand-secondary';
+    return (
+      <Card>
+        <SectionHeader title="Adjustments from accounting"
+          suffix="match each line against core_positions of the load (LIKE on InternalReference1/ContractId + CLIENT), then prepare the INSERT" />
+        <div className="grid md:grid-cols-2 gap-4 mb-3">
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">1 — Mapping workbook (Mapping.xlsb)</label>
+            <input type="file" accept=".xlsb,.xlsx,.xls" onChange={e => onMappingFile(e.target.files?.[0])} className={fileBtn} />
+            {mappingInfo && <p className="text-[11px] text-status-green mt-1">✓ {mappingInfo}</p>}
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">2 — Adjustments file (LIGNE, REFERENCE, MONTANT…)</label>
+            <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={fileBtn} />
+            {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}</p>}
+          </div>
+        </div>
+        {loads.length > 0 && (
+          <div className="overflow-x-auto border border-efg-line rounded-lg mb-3 max-h-40 overflow-y-auto">
+            <table className="w-full text-xs whitespace-nowrap">
+              <thead className="bg-brand-bg-body sticky top-0"><tr>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">3 — Loadid (core_loads)</th>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Reporting date</th>
+                <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Name</th>
+              </tr></thead>
+              <tbody>
+                {loads.map(l => (
+                  <tr key={String(l.loadId)} onClick={() => setLoadId(String(l.loadId))}
+                    className={`border-t border-efg-line cursor-pointer hover:bg-brand-bg-body/60 ${String(l.loadId) === loadId ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
+                    <td className="px-3 py-1">{String(l.loadId) === loadId ? '● ' : ''}{String(l.loadId)}</td>
+                    <td className="px-3 py-1">{String(l.reportingDate).slice(0, 10)}</td>
+                    <td className="px-3 py-1 text-brand-text-secondary">{l.name || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3 mb-3">
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid</label>
+            <input value={loadId} onChange={e => setLoadId(e.target.value)} placeholder="e.g. 1002" className={input} />
+          </div>
+          {reportingDate && <p className="text-sm text-brand-text-secondary pb-2">→ reporting date <strong>{reportingDate}</strong></p>}
+          <button onClick={runMatch} disabled={busy || !mappings || lines.length === 0 || !loadId}
+            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
+            {busy ? 'Matching…' : '🔍 Run matching on core_positions'}
+          </button>
+        </div>
+
+        {lines.length > 0 && (
+          <div className="overflow-x-auto border border-efg-line rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-brand-bg-body"><tr>
+                {['Row', 'LIGNE', 'Description', 'Reference', 'Client', 'Amount', 'GL account', 'Match'].map(h =>
+                  <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {lines.map(l => {
+                  const gl = mappings?.gl.get(l.ligne);
+                  const cands = results?.[l.row];
+                  const cand = cands?.find(c => c.id === chosen[l.row]);
+                  const status = !cands ? '—'
+                    : cands.length === 0 ? '✚ new position'
+                    : cand ? `✓ ${cand.id}`
+                    : `${cands.length} candidates`;
+                  const statusCls = !cands ? 'text-brand-text-secondary'
+                    : cands.length === 0 ? 'text-status-amber font-semibold'
+                    : cand ? 'text-status-green font-semibold'
+                    : 'text-status-red font-semibold';
+                  return (
+                    <React.Fragment key={l.row}>
+                      <tr className="border-t border-efg-line align-top">
+                        <td className="px-3 py-1.5 tabular-nums">{l.row}</td>
+                        <td className="px-3 py-1.5 font-semibold">{l.ligne}</td>
+                        <td className="px-3 py-1.5 whitespace-normal max-w-xs">{l.libelle || l.description || '—'}</td>
+                        <td className="px-3 py-1.5">{l.reference}</td>
+                        <td className="px-3 py-1.5">{l.client || '—'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</td>
+                        <td className="px-3 py-1.5">{gl?.legalAccountNumber || <span className="text-status-red">no GL map</span>}</td>
+                        <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>{status}</td>
+                      </tr>
+                      {cands && (
+                        <tr className="border-t border-efg-line/50 bg-brand-bg-body/40">
+                          <td colSpan={8} className="px-4 py-2">
+                            {cands.length > 0 && (
+                              <table className="text-[11px] w-full mb-2">
+                                <thead><tr>
+                                  {['Pick', 'Position Id', 'Account', 'TypeOf', 'Ccy', 'Book amount', 'Counterparty', 'InternalRef1', 'ContractId', 'Source'].map(h =>
+                                    <th key={h} className="px-2 py-1 text-left text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                                </tr></thead>
+                                <tbody>
+                                  {cands.map(c => (
+                                    <tr key={c.id} onClick={() => { setChosen(prev => ({ ...prev, [l.row]: c.id })); setScripts(prev => { const p = { ...prev }; delete p[l.row]; return p; }); }}
+                                      className={`border-t border-efg-line/60 cursor-pointer hover:bg-white ${chosen[l.row] === c.id ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
+                                      <td className="px-2 py-1">{chosen[l.row] === c.id ? '●' : '○'}</td>
+                                      <td className="px-2 py-1">{c.id}</td>
+                                      <td className={`px-2 py-1 ${c.accountMatch ? 'text-status-green font-semibold' : ''}`}>{c.legalAccountNumber || '—'}{c.accountMatch ? ' ✓GL' : ''}</td>
+                                      <td className="px-2 py-1">{c.typeOf || '—'}{c.subType ? `/${c.subType}` : ''}</td>
+                                      <td className="px-2 py-1">{c.currency || '—'}</td>
+                                      <td className="px-2 py-1 text-right tabular-nums">{c.bookAmount?.toLocaleString('en-CH') ?? '—'}</td>
+                                      <td className="px-2 py-1">{c.counterpartyId || '—'}</td>
+                                      <td className="px-2 py-1">{c.internalReference1 || '—'}</td>
+                                      <td className="px-2 py-1">{c.contractId || '—'}</td>
+                                      <td className="px-2 py-1">{c.dataSource || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                            <div className="flex gap-2">
+                              <button onClick={() => makeScript(l)}
+                                disabled={cands.length > 0 && !cand}
+                                className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-2.5 rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-secondary">
+                                {cands.length === 0 ? '✚ Prepare new-position INSERT (from mappings)' : cand ? `Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
+                              </button>
+                            </div>
+                            {scripts[l.row] && (
+                              <div className="mt-2">
+                                <textarea readOnly value={scripts[l.row]} rows={Math.min(scripts[l.row].split('\n').length, 24)}
+                                  className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
+                                <button onClick={() => copyAndLog(l, scripts[l.row])}
+                                  className="mt-1 text-[11px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1 px-3 rounded-md transition-colors">
+                                  📋 Copy + log decision (run in SSMS after review)
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-[11px] text-brand-text-secondary mt-3">
+          Matching key (agreed rules): (InternalReference1 LIKE '%REFERENCE%' OR ContractId LIKE '%REFERENCE%') AND CounterpartyId LIKE '%CLIENT%',
+          on the chosen load. Candidates carrying the Mapping_GL_BALANCESHEET account of the LIGNE are flagged ✓GL and preselected when unambiguous.
+          One candidate → adjustment INSERT copying the position's attributes (signed MONTANT, CHF via the CCY sheet, Id suffixed -ADJ, DataSource = 'ADJUSTMENT').
+          No candidate → full new position built from the mappings (LIGNE→GL account/TypeOf, IND→INDUSTRY, CATEG→RT01, counterparty = CLIENT).
+          Every copied script is logged in the decision history (control ADJ). The tool never writes to MERCURY — review and run in SSMS.
+        </p>
+      </Card>
+    );
+  };
+
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities, currentUser } = useData();
-  const [tab, setTab] = useState<'prereq' | 'controls'>('prereq');
+  const [tab, setTab] = useState<'prereq' | 'controls' | 'adjust'>('prereq');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -491,6 +778,7 @@ const ProductionPage: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3">
         <TabButton label="Prerequisites" isActive={tab === 'prereq'} onClick={() => setTab('prereq')} />
         <TabButton label={`Controls${counts.error > 0 ? ` (${counts.error} ⚠)` : ''}`} isActive={tab === 'controls'} onClick={() => setTab('controls')} />
+        <TabButton label="Adjustments" isActive={tab === 'adjust'} onClick={() => setTab('adjust')} />
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Entity</label>
           <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
@@ -537,6 +825,10 @@ const ProductionPage: React.FC = () => {
             )}
           </Card>
         </>
+      )}
+
+      {tab === 'adjust' && (
+        <AdjustmentsCard entity={entity} onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
       )}
 
       {tab === 'controls' && (
