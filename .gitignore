@@ -5,3 +5,13 @@ dist
 .env.*
 !.env.example
 .DS_Store
+
+# Backend build outputs & IDE state
+backend/**/bin/
+backend/**/obj/
+backend/.vs/
+# Per-machine settings (connection strings, admin users) — never committed
+appsettings.*.local.json
+
+# Release artifacts produced by scripts/release.ps1
+releases/

@@ -81,6 +81,22 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+
+// --- Single-deliverable deployment (releases) ---
+// scripts/release.ps1 copies the built frontend (dist/) into wwwroot: when
+// index.html is there, the API serves the SPA itself — same origin, so the
+// front is built with VITE_API_BASE_URL=/api and CORS becomes irrelevant.
+// In dev (no wwwroot/index.html) nothing changes.
+var webRoot = !string.IsNullOrEmpty(app.Environment.WebRootPath)
+    ? app.Environment.WebRootPath
+    : Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+var servesSpa = File.Exists(Path.Combine(webRoot, "index.html"));
+if (servesSpa)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+
 if (windowsAuth)
 {
     app.UseAuthentication();
@@ -89,5 +105,7 @@ if (windowsAuth)
 // For Entra ID / JWT instead of Windows auth, see docs/BACKEND.md §7 — the
 // role model (Reader/Admin + MutationsRequireAdminFilter) stays the same.
 app.MapControllers();
+if (servesSpa)
+    app.MapFallbackToFile("index.html").AllowAnonymous(); // SPA routes (deep links)
 
 app.Run();
