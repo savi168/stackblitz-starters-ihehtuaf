@@ -171,12 +171,21 @@ const parsePnl = (ws: Sheet, fileName: string): Array<Omit<FinStatement, 'id' | 
         const v = norm(cellV(ws, r, cc));
         if (v && /^\d/.test(v)) { code = v; break; }
       }
-      // Coded rows: 7* = income, 6* = expenses. Uncoded rows are computed
-      // aggregates (Underlying P&L, Life Insurance…) → memo; a few coded rows
-      // are aggregates of other coded rows (743 Operating income) → memo too.
-      const codedAggregate = /^operating income$/i.test(label);
+      // Coded rows: 7* = income, 6* = expenses. Aggregates stay memo so the
+      // additive net does not double count: 743 (Operating income) sums other
+      // coded rows, and 77 ("IFRS (reported) Net profit after tax") is the
+      // grand total — a control line, NOT an additive item (it once was, which
+      // made net = Underlying + Reported instead of Reported).
+      const codedAggregate = code === '743' || code === '77'
+        || /^operating income$/i.test(label) || /net profit after tax/i.test(label);
+      // Uncoded rows are computed aggregates (Underlying P&L, Life Insurance,
+      // Legal cases…) → memo — EXCEPT "Non-underlying P&L", the additive
+      // counterpart of the coded underlying rows: with it the net equals the
+      // reported IFRS profit (underlying + non-underlying), which is what
+      // feeds the CET1 YTD/bridge. Its detail children remain memo.
+      const nonUnderlying = /^non-underlying p&l$/i.test(label);
       if (code) lineItems.push(mkItem(code.startsWith('7') ? 'income' : 'expenses', code, label, amount, codedAggregate || undefined));
-      else lineItems.push(mkItem(amount >= 0 ? 'income' : 'expenses', '', label, amount, true));
+      else lineItems.push(mkItem(amount >= 0 ? 'income' : 'expenses', '', label, amount, nonUnderlying ? undefined : true));
     }
     if (lineItems.length > 0) {
       statements.push({ date: monthEnd(col.year, col.month), kind: 'pnl', gaap: 'IFRS', source: 'excel', fileName, lineItems });
