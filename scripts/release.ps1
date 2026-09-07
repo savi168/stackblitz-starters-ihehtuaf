@@ -14,13 +14,21 @@
 # service — see docs/OFFLINE_DEPLOYMENT.md). No internet needed on the target.
 # =============================================================================
 param(
-    [Parameter(Mandatory = $true)][string]$Version,
+    # Defaults to APP_VERSION in src/version.ts (single source of truth).
+    [string]$Version,
     # win-x64 for a classic Windows server/PC; use linux-x64 for a Linux host.
     [string]$Runtime = 'win-x64'
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+if (-not $Version) {
+    $m = Select-String -Path (Join-Path $root 'src\version.ts') -Pattern "APP_VERSION\s*=\s*'([^']+)'"
+    if (-not $m) { throw 'Could not read APP_VERSION from src/version.ts — pass -Version explicitly.' }
+    $Version = $m.Matches[0].Groups[1].Value
+    Write-Host "Version from src/version.ts: $Version" -ForegroundColor Cyan
+}
 
 $publish = Join-Path $root "releases\RegReport-v$Version"
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
@@ -32,7 +40,8 @@ if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
 Remove-Item Env:\VITE_API_BASE_URL
 
 Write-Host "2/5  Publishing the API (self-contained $Runtime)..." -ForegroundColor Cyan
-dotnet publish backend/RegReport.Api/RegReport.Api.csproj -c Release -r $Runtime --self-contained true -o $publish
+# /p:Version stamps the assembly: GET /api/meta and the header badge report it.
+dotnet publish backend/RegReport.Api/RegReport.Api.csproj -c Release -r $Runtime --self-contained true -o $publish /p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
 
 Write-Host "3/5  Bundling the frontend into wwwroot..." -ForegroundColor Cyan

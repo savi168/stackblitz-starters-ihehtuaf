@@ -1,7 +1,8 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import { ErrorBoundary } from './components';
+import { APP_VERSION, fetchMeta } from './version';
 
 // adminOnly modules stay hidden (and their routes blocked) for users without
 // the Admin role — the API enforces the same rule server-side on mutations.
@@ -45,6 +46,32 @@ const PageLoader: React.FC = () => (
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAdmin } = useData();
   return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
+};
+
+/** Release number + deployment environment (PROD / TEST / DEV / LOCAL) —
+ * the environment comes from the API (/api/meta), so the badge tells at a
+ * glance which backend this browser tab is talking to. */
+const VersionBadge: React.FC = () => {
+  const { mode, apiBaseUrl } = useData();
+  const [env, setEnv] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (mode !== 'api' || !apiBaseUrl) { setEnv('LOCAL'); return; }
+    fetchMeta(apiBaseUrl).then(m => { if (!cancelled) setEnv(m?.environmentLabel || null); });
+    return () => { cancelled = true; };
+  }, [mode, apiBaseUrl]);
+  const tone = env === 'PROD'
+    ? 'bg-status-green/15 text-status-green'
+    : env === 'LOCAL' ? 'bg-brand-bg-body text-brand-text-secondary'
+    : 'bg-status-amber/15 text-status-amber';
+  return (
+    <span className="flex items-center gap-1.5" title={`RegReport v${APP_VERSION}${env ? ` — ${env} environment` : ''}`}>
+      <span className="text-[10px] text-brand-text-secondary tabular-nums">v{APP_VERSION}</span>
+      {env && (
+        <span className={`text-[10px] font-bold tracking-wider rounded px-1.5 py-0.5 ${tone}`}>{env}</span>
+      )}
+    </span>
+  );
 };
 
 const NavBar: React.FC = () => {
@@ -102,14 +129,17 @@ const App: React.FC = () => {
         <div className="min-h-screen flex flex-col bg-brand-bg-body text-brand-text-primary">
           <header className="bg-white border-b border-efg-line sticky top-0 z-40">
             <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
-              <Link to="/" className="flex items-center gap-2 group">
-                <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
-                  Reg<span className="text-brand-primary">Report</span>
-                </span>
-                <span className="hidden sm:inline text-xs uppercase tracking-widest text-brand-text-secondary border-l border-efg-line pl-2">
-                  Regulatory Reporting
-                </span>
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link to="/" className="flex items-center gap-2 group">
+                  <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
+                    Reg<span className="text-brand-primary">Report</span>
+                  </span>
+                  <span className="hidden sm:inline text-xs uppercase tracking-widest text-brand-text-secondary border-l border-efg-line pl-2">
+                    Regulatory Reporting
+                  </span>
+                </Link>
+                <VersionBadge />
+              </div>
               <div className="flex items-center gap-2">
                 <NavBar />
                 <button onClick={toggleTheme} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}

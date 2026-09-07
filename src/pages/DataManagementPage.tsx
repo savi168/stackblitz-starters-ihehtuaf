@@ -4,6 +4,7 @@ import { Deadline, KpiHistoryEntry, CounterpartyRwa, RiskAppetite, LiquidityData
 import { parseDateToYmd, formatDate } from '../utils';
 import { Card, PageHeader, BackButton, InfoBox, Select, Modal, SectionHeader } from '../components';
 import { diagnoseKpiData } from '../services/diagnosisService';
+import { APP_VERSION, ApiMeta, fetchMeta } from '../version';
 
 // --- DATA MANAGEMENT HELPERS ---
 
@@ -249,8 +250,83 @@ const toCounterpartyRwa = (obj: Record<string, string>): CounterpartyRwa | null 
 };
 
 
+/** Deployment & health panel: release number, environment, backend, database
+ * migrations, MERCURY link — replaces the pre-central-database
+ * "browser localStorage" card. */
+const SystemPanel: React.FC = () => {
+    const { mode, apiBaseUrl, currentUser, isAdmin, lastSyncedAt } = useData();
+    const [meta, setMeta] = useState<ApiMeta | null>(null);
+    const [mercury, setMercury] = useState<{ configured: boolean; connected: boolean; database?: string; server?: string; error?: string } | null>(null);
+    const [showMigrations, setShowMigrations] = useState(false);
+
+    useEffect(() => {
+        if (mode !== 'api' || !apiBaseUrl) return;
+        fetchMeta(apiBaseUrl).then(setMeta);
+        fetch(`${apiBaseUrl}/production/mercury/status`, { credentials: 'include' })
+            .then(r => r.ok ? r.json() : null).then(setMercury).catch(() => setMercury(null));
+    }, [mode, apiBaseUrl]);
+
+    const fact = (label: string, value: React.ReactNode) => (
+        <div>
+            <p className="text-[10px] uppercase tracking-wider text-brand-text-secondary">{label}</p>
+            <p className="text-sm text-brand-text-primary font-medium">{value}</p>
+        </div>
+    );
+    const envTone = meta?.environmentLabel === 'PROD' ? 'bg-status-green/15 text-status-green'
+        : meta ? 'bg-status-amber/15 text-status-amber' : 'bg-brand-bg-body text-brand-text-secondary';
+
+    return (
+        <Card className="mb-8">
+            <SectionHeader title="System" suffix="release, environment & connections" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                {fact('Application', `v${APP_VERSION}`)}
+                {fact('Environment', (
+                    <span className={`text-[11px] font-bold tracking-wider rounded px-2 py-0.5 ${envTone}`}>
+                        {mode === 'api' ? (meta?.environmentLabel || '…') : 'LOCAL'}
+                    </span>
+                ))}
+                {fact('API', mode === 'api'
+                    ? <>{apiBaseUrl}{meta ? <span className="text-brand-text-secondary"> · v{meta.version}</span> : ''}</>
+                    : 'not connected — browser data only')}
+                {fact('Signed in as', `${currentUser.name.split('\\').pop()} (${isAdmin ? 'Admin' : 'Reader'})`)}
+                {fact('Last data sync', lastSyncedAt ? new Date(lastSyncedAt).toLocaleString('en-GB') : '—')}
+                {fact('MERCURY', mercury === null ? (mode === 'api' ? '…' : '—')
+                    : !mercury.configured ? 'not configured'
+                    : mercury.connected ? `connected — ${mercury.database} @ ${mercury.server}`
+                    : <span className="text-status-red">unreachable{mercury.error ? ` — ${mercury.error.slice(0, 60)}` : ''}</span>)}
+                {fact('Schema migrations', meta
+                    ? <button onClick={() => setShowMigrations(v => !v)} className="text-brand-secondary hover:text-brand-primary underline">
+                        {meta.migrations.length} applied {showMigrations ? '▾' : '▸'}
+                      </button>
+                    : '—')}
+            </div>
+            {showMigrations && meta && (
+                <div className="mt-3 border border-efg-line rounded-lg max-w-md">
+                    <table className="w-full text-xs">
+                        <tbody className="divide-y divide-efg-line">
+                            {meta.migrations.map(m => (
+                                <tr key={m.name}>
+                                    <td className="px-3 py-1.5 font-medium text-brand-text-primary">{m.name}</td>
+                                    <td className="px-3 py-1.5 text-right text-brand-text-secondary tabular-nums">{m.appliedAt}</td>
+                                </tr>
+                            ))}
+                            {meta.migrations.length === 0 && (
+                                <tr><td className="px-3 py-2 text-brand-text-secondary">No migration recorded yet (fresh database).</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            <p className="text-[11px] text-brand-text-secondary mt-3">
+                Releases upgrade the database schema automatically at API startup (additive, idempotent — see docs/UPGRADES.md);
+                existing data is never dropped. Back up with <code>BACKUP DATABASE RegReport</code> before a major release.
+            </p>
+        </Card>
+    );
+};
+
 export const DataManagementPage: React.FC = () => {
-    const { data, setData, allEntities } = useData();
+    const { data, setData, allEntities, mode } = useData();
     const [textData, setTextData] = useState(JSON.stringify(data, null, 2));
     const [jsonError, setJsonError] = useState<string | null>(null);
     const [deadlineImportMode, setDeadlineImportMode] = useState<'replace' | 'append'>('replace');
@@ -947,18 +1023,23 @@ export const DataManagementPage: React.FC = () => {
                 </div>
             )}
             
-            <Card className="mb-8">
-                <SectionHeader title="Application State" suffix="browser localStorage" />
-                <InfoBox>
-                    The application automatically saves all your changes to your browser's local storage. You can reset the application to its original state, but be aware that this action is irreversible.
-                </InfoBox>
-                <button
-                    onClick={handleResetData}
-                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
-                >
-                    Reset to Default Data
-                </button>
-            </Card>
+            <SystemPanel />
+
+            {mode !== 'api' && (
+                <Card className="mb-8">
+                    <SectionHeader title="Application State" suffix="browser localStorage (local mode only)" />
+                    <InfoBox>
+                        Without the API backend, changes live in this browser's local storage. You can reset to the
+                        demo defaults — irreversible for this browser.
+                    </InfoBox>
+                    <button
+                        onClick={handleResetData}
+                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+                    >
+                        Reset to Default Data
+                    </button>
+                </Card>
+            )}
 
             <Card className="mb-8">
                 <SectionHeader title="Import & Export" />
