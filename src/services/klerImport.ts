@@ -123,12 +123,22 @@ export const parseKlerWorkbook = (buffer: ArrayBuffer, fileName: string): Parsed
     const limitMchf = tier1Kchf !== null
       ? ((limitFrac && limitFrac > 0 ? limitFrac : 0.25) * tier1Kchf) / 1000
       : 0;
+    // Decomposition (kCHF): direct U–Z, indirect AA–AB, CRM AD–AG (negative
+    // in the template → stored positive).
+    const sumOf = (letters: string[]) =>
+      letters.reduce((a, L) => a + (colOf[L] !== undefined ? (num(cellV(ler02, r, colOf[L])) ?? 0) : 0), 0);
+    const directKchf = sumOf(['U', 'V', 'W', 'X', 'Y', 'Z']);
+    const indirectKchf = sumOf(['AA', 'AB']);
+    const crmKchf = Math.abs(sumOf(['AD', 'AE', 'AF', 'AG']));
     rows.push({
       date,
       counterparty: name,
       exposureValue: Math.round(adjustedKchf) / 1000, // kCHF → mCHF
       limit: Math.round(limitMchf * 10) / 10,
       counterpartyType: type || undefined,
+      directExposure: Math.round(directKchf) / 1000,
+      indirectExposure: Math.round(indirectKchf) / 1000,
+      crmReduction: Math.round(crmKchf) / 1000,
     });
   }
   if (rows.length === 0) throw new Error('K-LER: no counterparty rows found in LER_02.');

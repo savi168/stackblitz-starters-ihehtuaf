@@ -140,6 +140,12 @@ export interface LargeExposure {
   /** FINMA K-LER counterparty type (SOV, SOB, BFN, NFC…) when imported from
    * the LER template — drives the sovereign filter of the overview tile. */
   counterpartyType?: string;
+  /** K-LER decomposition (mCHF): direct positions (U–Z), indirect positions
+   * (AA–AB) and credit-risk-mitigation / risk-transfer reduction (AD–AG,
+   * stored positive). */
+  directExposure?: number;
+  indirectExposure?: number;
+  crmReduction?: number;
 }
 
 export interface TeamMember {

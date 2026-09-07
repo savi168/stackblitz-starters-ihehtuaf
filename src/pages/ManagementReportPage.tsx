@@ -2004,9 +2004,8 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
     };
     // K-LER imports carry the exact FINMA type — sovereign family excluded
     // precisely; name keywords only as fallback for keyed data.
-    const SOVISH = new Set(['SOV', 'SOB', 'SOO', 'CAN', 'MUN', 'FPS']);
     const isSovRec = (l: { counterparty: string; counterpartyType?: string }) =>
-      l.counterpartyType ? SOVISH.has(l.counterpartyType.toUpperCase()) : isSov(l.counterparty);
+      l.counterpartyType ? SOVEREIGN_TYPES.has(l.counterpartyType.toUpperCase()) : isSov(l.counterparty);
     const topExpoRec = leDate
       ? [...les.filter(l => l.date === leDate && !isSovRec(l))].sort((a, b) => b.exposureValue - a.exposureValue)[0]
       : undefined;
@@ -2108,6 +2107,11 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
 };
 
 // --- Page ------------------------------------------------------------------------------
+
+// FINMA K-LER sovereign family — EXEMPT from the 25% upper limit (reported
+// but never in breach): sovereigns, central banks, supranationals, Swiss
+// cantons/municipalities, foreign PSE.
+const SOVEREIGN_TYPES = new Set(['SOV', 'SOB', 'SOO', 'CAN', 'MUN', 'FPS']);
 
 // --- Leverage tab ---------------------------------------------------------------
 
@@ -2243,16 +2247,34 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
     .filter(l => l.date === leDate)
     .map(l => ({
       ...l,
+      exempt: SOVEREIGN_TYPES.has((l.counterpartyType || '').toUpperCase()),
       pctT1: tier1 ? (l.exposureValue / tier1) * 100 : null,
       pctLimit: l.limit > 0 ? (l.exposureValue / l.limit) * 100 : null,
     }))
     .sort((a, b) => b.exposureValue - a.exposureValue), [les, leDate, tier1]);
 
   const nLarge = rows.filter(r => (r.pctT1 ?? 0) >= 10).length;
-  const nBreach = rows.filter(r => (r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100)).length;
+  const nBreach = rows.filter(r => !r.exempt && ((r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100))).length;
+  const nExempt = rows.filter(r => r.exempt).length;
   const maxPct = rows.reduce<number | null>((m, r) => (r.pctT1 !== null && (m === null || r.pctT1 > m) ? r.pctT1 : m), null);
   const top = rows.slice(0, 10);
-  const chart = top.map(r => ({ name: r.counterparty, pct: r.pctT1 ?? 0 }));
+  // Chart: the ADJUSTED % of Tier 1 split into direct (net of CRM / risk
+  // transfer) and indirect portions, using the gross shares of the K-LER
+  // decomposition — the stack always sums to the regulatory adjusted %.
+  const chart = top.map(r => {
+    const pct = r.pctT1 ?? 0;
+    const netDirect = Math.max(0, (r.directExposure ?? 0) - (r.crmReduction ?? 0));
+    const indirect = Math.max(0, r.indirectExposure ?? 0);
+    const base = netDirect + indirect;
+    const dShare = base > 0 ? netDirect / base : 1;
+    return {
+      name: r.counterparty,
+      direct: pct * dShare,
+      indirect: pct * (1 - dShare),
+      total: pct,
+    };
+  });
+  const hasSplit = rows.some(r => r.directExposure !== undefined || r.indirectExposure !== undefined);
 
   const history = useMemo(() => dates.map(d => {
     const t1 = tier1At(d);
@@ -2262,7 +2284,8 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
       date: d, n: rs.length,
       nLarge: pcts.filter(p => p >= 10).length,
       max: pcts.length ? Math.max(...pcts) : 0,
-      breaches: rs.filter((r, i) => pcts[i] > 25 || (r.limit > 0 && r.exposureValue > r.limit)).length,
+      breaches: rs.filter((r, i) => !SOVEREIGN_TYPES.has((r.counterpartyType || '').toUpperCase())
+        && (pcts[i] > 25 || (r.limit > 0 && r.exposureValue > r.limit))).length,
     };
   }), [dates, les, capSeries]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2276,6 +2299,8 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
       'Large exposure = exposure ≥ 10% of Tier 1 capital (reportable); regulatory limit = 25% of Tier 1.',
       `% of Tier 1 uses Tier 1 = ${fmt(tier1, 0)} m at the closest capital period ≤ the exposure date.`,
       'The per-row Limit column is the stored limit of the record (e.g. adjusted limit for banks); Utilisation = exposure / limit.',
+      'Sovereign family (SOV, SOB, SOO, CAN, MUN, FPS) is EXEMPT from the 25% limit — reported, never in breach.',
+      'Direct = K-LER cols U–Z, Indirect = AA–AB, CRM = AD–AG (risk transfer, shown negative); chart bars split the adjusted % by the direct-net-of-CRM vs indirect gross shares.',
     ],
   }];
 
@@ -2290,8 +2315,8 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
           {[
             { label: 'Counterparties reported', value: String(rows.length), sub: monthLabel(leDate) },
             { label: 'Large exposures (≥10% T1)', value: String(nLarge), sub: 'reportable to FINMA' },
-            { label: 'Largest exposure', value: fmtPct(maxPct, 1), sub: 'of Tier 1 (limit 25%)' },
-            { label: 'Limit breaches', value: String(nBreach), sub: '> 25% T1 or > record limit', alert: nBreach > 0 },
+            { label: 'Largest exposure', value: fmtPct(maxPct, 1), sub: `of Tier 1${nExempt > 0 ? ` · ${nExempt} sovereign-family exempt` : ''}` },
+            { label: 'Limit breaches', value: String(nBreach), sub: '> 25% T1 or > limit (exempt excluded)', alert: nBreach > 0 },
           ].map(c => (
             <Card key={c.label}>
               <p className="text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary">{c.label}</p>
@@ -2311,21 +2336,29 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
       </div>
 
       <Card>
-        <AuditedHeader title="Top exposures vs Tier 1" suffix="% of Tier 1 — 10% reporting threshold, 25% regulatory limit" queries={audit} />
+        <AuditedHeader title="Top exposures vs Tier 1"
+          suffix={`% of Tier 1 — 10% reporting threshold, 25% limit${hasSplit ? ' · direct (net of CRM) vs indirect' : ''}`} queries={audit} />
         <ResponsiveContainer width="100%" height={Math.max(220, 36 * chart.length + 60)}>
-          <BarChart data={chart} layout="vertical" margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
+          <BarChart data={chart} layout="vertical" margin={{ top: 10, right: 46, left: 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 11 }} unit="%" domain={[0, (max: number) => Math.max(30, Math.ceil(max + 2))]} />
             <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => `${v.toFixed(1)}% of Tier 1`} />
-            <Bar dataKey="pct" name="% of Tier 1" radius={[0, 3, 3, 0]}
-              fill={PALETTE.slate}>
-              <LabelList dataKey="pct" position="right" formatter={(v: number) => `${v.toFixed(1)}%`} style={{ fontSize: 10 }} />
+            <Tooltip formatter={(v: number, n: string) => [`${v.toFixed(1)}% of Tier 1`, n]} />
+            {hasSplit && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            <Bar dataKey="direct" name="Direct (net of CRM)" stackId="e" fill={PALETTE.slate} />
+            <Bar dataKey="indirect" name="Indirect" stackId="e" fill={PALETTE.mist} radius={[0, 3, 3, 0]}>
+              <LabelList dataKey="total" position="right" formatter={(v: number) => `${v.toFixed(1)}%`} style={{ fontSize: 10 }} />
             </Bar>
             <ReferenceLine x={10} stroke={STATUS_COLORS.amber} strokeDasharray="4 4" label={{ value: '10%', fontSize: 10, fill: STATUS_COLORS.amber, position: 'top' }} />
             <ReferenceLine x={25} stroke={STATUS_COLORS.red} strokeDasharray="4 4" label={{ value: '25% limit', fontSize: 10, fill: STATUS_COLORS.red, position: 'top' }} />
           </BarChart>
         </ResponsiveContainer>
+        {hasSplit && (
+          <p className="text-[11px] text-brand-text-secondary mt-1">
+            Each bar = the adjusted % of Tier 1, split by the gross shares of direct positions net of CRM / risk transfer (U–Z − AD–AG) vs indirect positions (AA–AB).
+            Sovereign-family counterparties (SOV, SOB, SOO, CAN, MUN, FPS) are exempt from the 25% limit.
+          </p>
+        )}
       </Card>
 
       <Card>
@@ -2333,27 +2366,31 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
         <div className="overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-brand-bg-body"><tr>
-              {['Counterparty', 'Type', 'Exposure', '% of Tier 1', 'Record limit', 'Utilisation', 'Status'].map((h, i) =>
-                <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 1 && i < 6 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+              {['Counterparty', 'Type', 'Direct', 'Indirect', 'CRM / risk transfer', 'Adjusted expo', '% of Tier 1', 'Limit', 'Utilisation', 'Status'].map((h, i) =>
+                <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 1 && i < 9 ? 'text-right' : 'text-left'}`}>{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.map(r => {
-                const breach = (r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100);
-                const large = !breach && (r.pctT1 ?? 0) >= 10;
+                const breach = !r.exempt && ((r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100));
+                const large = !breach && !r.exempt && (r.pctT1 ?? 0) >= 10;
                 return (
                   <tr key={r.counterparty} className="border-t border-efg-line">
                     <td className="px-3 py-1.5">{r.counterparty}</td>
                     <td className="px-3 py-1.5 text-brand-text-secondary">{r.counterpartyType || '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{fmt(r.exposureValue, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{r.directExposure !== undefined ? fmt(r.directExposure, 0) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{r.indirectExposure !== undefined ? fmt(r.indirectExposure, 0) : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{r.crmReduction ? `(${fmt(r.crmReduction, 0)})` : '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{fmt(r.exposureValue, 0)}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${breach ? 'text-status-red font-semibold' : large ? 'text-status-amber font-semibold' : ''}`}>{fmtPct(r.pctT1, 1)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{r.limit > 0 ? fmt(r.limit, 0) : '—'}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.pctLimit !== null && r.pctLimit > 100 ? 'text-status-red font-semibold' : ''}`}>{fmtPct(r.pctLimit, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{r.exempt ? '—' : r.limit > 0 ? fmt(r.limit, 0) : '—'}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${!r.exempt && r.pctLimit !== null && r.pctLimit > 100 ? 'text-status-red font-semibold' : ''}`}>{r.exempt ? '—' : fmtPct(r.pctLimit, 0)}</td>
                     <td className="px-3 py-1.5">
                       <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${
-                        breach ? 'bg-status-red/10 text-status-red border-status-red/30'
+                        r.exempt ? 'bg-brand-secondary/10 text-brand-secondary border-brand-secondary/30'
+                        : breach ? 'bg-status-red/10 text-status-red border-status-red/30'
                         : large ? 'bg-status-amber/10 text-status-amber border-status-amber/30'
                         : 'bg-status-green/10 text-status-green border-status-green/30'}`}>
-                        {breach ? 'breach' : large ? 'large (≥10%)' : 'ok'}
+                        {r.exempt ? 'exempted' : breach ? 'breach' : large ? 'large (≥10%)' : 'ok'}
                       </span>
                     </td>
                   </tr>

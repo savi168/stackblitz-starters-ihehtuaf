@@ -287,6 +287,10 @@ public class LargeExposure
     public double Limit { get; set; }
     // FINMA K-LER counterparty type (SOV, SOB, BFN, NFC…), when imported.
     public string? CounterpartyType { get; set; }
+    // K-LER decomposition (mCHF): direct (U–Z), indirect (AA–AB), CRM (AD–AG, positive).
+    public double? DirectExposure { get; set; }
+    public double? IndirectExposure { get; set; }
+    public double? CrmReduction { get; set; }
 }
 
 public class TeamMember
