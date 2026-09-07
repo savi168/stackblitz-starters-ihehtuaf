@@ -5,6 +5,7 @@ import { parseDateToYmd, formatDate } from '../utils';
 import { Card, PageHeader, BackButton, InfoBox, Select, Modal, SectionHeader } from '../components';
 import { diagnoseKpiData } from '../services/diagnosisService';
 import { APP_VERSION, ApiMeta, fetchMeta } from '../version';
+import { listDocuments } from '../services/documents';
 
 // --- DATA MANAGEMENT HELPERS ---
 
@@ -325,10 +326,63 @@ const SystemPanel: React.FC = () => {
     );
 };
 
+/** Collapsible card — keeps the legacy/bulk sections out of the way. */
+const Collapsible: React.FC<{ title: string; suffix?: string; defaultOpen?: boolean; children: React.ReactNode }> =
+    ({ title, suffix, defaultOpen, children }) => {
+    const [open, setOpen] = useState(!!defaultOpen);
+    return (
+        <Card className="mb-8">
+            <button onClick={() => setOpen(v => !v)} className="w-full text-left">
+                <SectionHeader title={`${open ? '▾' : '▸'} ${title}`} suffix={suffix} className={open ? '' : 'mb-0 pb-0 border-0'} />
+            </button>
+            {open && <div className="mt-2">{children}</div>}
+        </Card>
+    );
+};
+
+/** Row counts per dataset — a quick "what is in the database" overview. */
+const DataInventory: React.FC = () => {
+    const { data, mode, apiBaseUrl } = useData();
+    const [docCount, setDocCount] = useState<number | null>(null);
+    useEffect(() => {
+        if (mode !== 'api' || !apiBaseUrl) return;
+        listDocuments(apiBaseUrl).then(d => setDocCount(d.length)).catch(() => setDocCount(null));
+    }, [mode, apiBaseUrl]);
+
+    const rows: Array<[string, number | string, string]> = [
+        ['KPI history entries', data.kpisHistory.length, 'Report · Daily Reports'],
+        ['Capital reports (CASABIS)', (data.capitalReports || []).length, 'Workbench'],
+        ['LCR reports', (data.lcrReports || []).length, 'Workbench'],
+        ['NSFR reports', (data.nsfrReports || []).length, 'Workbench'],
+        ['Financial statements', (data.finStatements || []).length, 'Workbench'],
+        ['Scenarios', (data.scenarios || []).length, 'Scenarios'],
+        ['Large exposures', data.largeExposures.length, 'K-LER import'],
+        ['Counterparty RWA', data.counterpartyRwa.length, 'CSV feed'],
+        ['Deadlines', data.deadlines.length, 'Deadlines'],
+        ['Team + contacts', data.team.length + (data.contacts || []).length, 'Team & Contacts'],
+        ['Projects / tasks', `${data.projects.length} / ${data.projectTasks.length}`, 'Projects'],
+        ['Bridge adjustments', (data.bridgeAdjustments || []).length, 'Report → Capital'],
+        ['Production rows', (data.prodCounterparties || []).length + (data.prodSecurities || []).length, 'Production'],
+        ['Prod decisions & mappings', (data.prodFindingLogs || []).length + (data.prodMappingEntries || []).length, 'Production'],
+        ['Documents (Library)', docCount === null ? (mode === 'api' ? '…' : '—') : docCount, 'Library — stored in DB, outside /api/data'],
+    ];
+    return (
+        <Card className="mb-8">
+            <SectionHeader title="Data inventory" suffix="row counts per dataset" />
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+                {rows.map(([label, count, where]) => (
+                    <div key={label} className="rounded-md border border-efg-line px-3 py-2" title={where}>
+                        <p className="text-xl font-light text-brand-text-primary tabular-nums">{count}</p>
+                        <p className="text-[11px] text-brand-text-secondary leading-tight">{label}</p>
+                    </div>
+                ))}
+            </div>
+        </Card>
+    );
+};
+
 export const DataManagementPage: React.FC = () => {
     const { data, setData, allEntities, mode } = useData();
-    const [textData, setTextData] = useState(JSON.stringify(data, null, 2));
-    const [jsonError, setJsonError] = useState<string | null>(null);
     const [deadlineImportMode, setDeadlineImportMode] = useState<'replace' | 'append'>('replace');
     const [kpiCapitalImportMode, setKpiCapitalImportMode] = useState<'replace' | 'append'>('append');
     const [kpiLiquidityImportMode, setKpiLiquidityImportMode] = useState<'replace' | 'append'>('append');
@@ -362,9 +416,7 @@ export const DataManagementPage: React.FC = () => {
     });
 
     useEffect(() => {
-        setTextData(JSON.stringify(data, null, 2));
         setAppetiteData(data.riskAppetite);
-        setJsonError(null);
     }, [data]);
     
     const availableDatesForEntity = useMemo(() => {
@@ -389,31 +441,6 @@ export const DataManagementPage: React.FC = () => {
     }, [selectedEntity]);
 
 
-    const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setTextData(e.target.value);
-        try {
-            JSON.parse(e.target.value);
-            setJsonError(null);
-        } catch (error) {
-            setJsonError("Invalid JSON format. Please correct it before saving.");
-        }
-    };
-
-    const handleUpdateData = () => {
-        if(jsonError) {
-            alert('❌ Cannot save, JSON data is invalid.');
-            return;
-        }
-        try {
-            const parsedData = JSON.parse(textData);
-            setData(parsedData);
-            alert('✅ Data updated successfully!');
-        } catch (error) {
-            setJsonError("Invalid JSON format. Could not update data.");
-            alert('❌ Invalid JSON format. Could not update data.');
-        }
-    };
-    
     const handleAppetiteChange = (entity: string, kpi: 'cet1' | 'lcr' | 'nsfr' | 'leverage', level: 'red' | 'amber', value: string) => {
         const numValue = parseFloat(value);
         setAppetiteData(prev => ({
@@ -1041,69 +1068,70 @@ export const DataManagementPage: React.FC = () => {
                 </Card>
             )}
 
+            <DataInventory />
+
             <Card className="mb-8">
-                <SectionHeader title="Import & Export" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-12">
-                    {/* Column 1: Imports */}
+                <SectionHeader title="Backup & restore" suffix="JSON snapshot of the central data" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                     <div>
-                        <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-4">Import Data</h3>
-                        <div className="space-y-6">
-                            <div>
-                                <h4 className="font-semibold text-brand-text-primary mb-2">Master Data</h4>
-                                <label className="block text-sm font-medium text-brand-text-secondary mb-2">From Master JSON file</label>
-                                <InfoBox className="!my-2">Importing a JSON file will <strong>overwrite all existing data</strong>.</InfoBox>
-                                <input type="file" accept=".json" onChange={handleJsonImport} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20"/>
-                            </div>
-                            <hr />
-                             <div>
-                                <h4 className="font-semibold text-brand-text-primary mb-2">Capital Adequacy KPIs</h4>
-                                <RadioGroup name="kpiCapitalMode" value={kpiCapitalImportMode} onChange={setKpiCapitalImportMode} />
-                                <InfoBox className="!my-2"><strong>Replace</strong> overwrites all KPI history with capital data. <strong>Append</strong> adds new entries and updates existing ones for the same entity and date.</InfoBox>
-                                <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'kpisCapital')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
-                            </div>
-                             <div>
-                                <h4 className="font-semibold text-brand-text-primary mb-2">Liquidity KPIs</h4>
-                                <RadioGroup name="kpiLiquidityMode" value={kpiLiquidityImportMode} onChange={setKpiLiquidityImportMode} />
-                                <InfoBox className="!my-2"><strong>Replace</strong> overwrites all KPI history with liquidity data. <strong>Append</strong> adds new entries and updates existing ones for the same entity and date.</InfoBox>
-                                <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'kpisLiquidity')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
-                            </div>
-                            <hr />
-                            <div>
-                                <h4 className="font-semibold text-brand-text-primary mb-2">Other Data</h4>
-                                <label className="block text-sm font-medium text-brand-text-secondary mb-2">Deadlines from CSV/TXT file</label>
-                                <RadioGroup name="deadlineMode" value={deadlineImportMode} onChange={setDeadlineImportMode} />
-                                <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'deadlines')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-brand-text-secondary mb-2">Counterparty RWA from CSV/TXT file</label>
-                                <RadioGroup name="counterpartyMode" value={counterpartyImportMode} onChange={setCounterpartyImportMode} />
-                                <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'counterpartyRwa')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
-                            </div>
-                        </div>
+                        <button onClick={downloadJson} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💾 Download All Data (JSON)</button>
+                        <p className="text-[11px] text-brand-text-secondary mt-2">
+                            Everything behind /api/data — KPIs, reports, statements, projects, contacts, deadlines…
+                            <strong> Library documents are NOT included</strong> (they stream outside /api/data):
+                            a full backup is <code>BACKUP DATABASE RegReport</code> on the SQL side.
+                        </p>
                     </div>
-                    {/* Column 2: Exports */}
-                     <div>
-                        <h3 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-4">Export Data &amp; Templates</h3>
-                        <div className="space-y-3 mt-4">
-                             <button onClick={downloadJson} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💾 Download All Data (JSON)</button>
-                             <hr className="my-4"/>
-                             <button onClick={exportKpiCapitalCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">📊 Export Capital KPIs (CSV)</button>
-                             <button onClick={exportKpiCapitalTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">📊 Download Capital KPI Template (CSV)</button>
-                             <button onClick={exportKpiLiquidityCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💧 Export Liquidity KPIs (CSV)</button>
-                             <button onClick={exportKpiLiquidityTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💧 Download Liquidity KPI Template (CSV)</button>
-                             <hr className="my-4"/>
-                             <button onClick={exportDeadlinesCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">📄 Export Deadlines (CSV)</button>
-                             <button onClick={exportDeadlineTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">📄 Download Deadline Template (CSV)</button>
-                             <button onClick={exportCounterpartyRwaCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">🏆 Export Counterparty RWA (CSV)</button>
-                             <button onClick={exportCounterpartyRwaTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">🏆 Download Counterparty RWA Template (CSV)</button>
-                        </div>
+                    <div>
+                        <label className="block text-sm font-medium text-brand-text-secondary mb-2">Restore from a JSON snapshot</label>
+                        <InfoBox className="!my-2">Restoring <strong>overwrites all central data</strong> with the file's content — the confirmation step recaps what gets replaced.</InfoBox>
+                        <input type="file" accept=".json" onChange={handleJsonImport} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20"/>
                     </div>
                 </div>
             </Card>
 
-            <Card className="mb-8">
-                <SectionHeader title="KPI Editor" />
-                <InfoBox>Select an entity and date to edit, or create a new entry. Liquidity values are edited for the 'TOT' currency aggregate only.</InfoBox>
+            <Collapsible title="CSV feeds" suffix="bulk loads — daily LCR & deadlines mainly; monthly capital/liquidity is superseded by the Workbench">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 mt-2">
+                    <div className="space-y-6">
+                        <div>
+                            <h4 className="font-semibold text-brand-text-primary mb-2">Liquidity KPIs <span className="text-[11px] font-normal text-brand-text-secondary">— the feed for DAILY LCR points (Daily Reports)</span></h4>
+                            <RadioGroup name="kpiLiquidityMode" value={kpiLiquidityImportMode} onChange={setKpiLiquidityImportMode} />
+                            <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'kpisLiquidity')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-brand-text-primary mb-2">Deadlines</h4>
+                            <RadioGroup name="deadlineMode" value={deadlineImportMode} onChange={setDeadlineImportMode} />
+                            <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'deadlines')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-brand-text-primary mb-2">Capital KPIs <span className="text-[11px] font-normal text-brand-text-secondary">— legacy: monthly figures now come from the Workbench CASABIS import</span></h4>
+                            <RadioGroup name="kpiCapitalMode" value={kpiCapitalImportMode} onChange={setKpiCapitalImportMode} />
+                            <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'kpisCapital')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
+                        </div>
+                        <div>
+                            <h4 className="font-semibold text-brand-text-primary mb-2">Counterparty RWA</h4>
+                            <RadioGroup name="counterpartyMode" value={counterpartyImportMode} onChange={setCounterpartyImportMode} />
+                            <input type="file" accept=".csv,.txt" onChange={(e) => handleCsvImport(e, 'counterpartyRwa')} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-primary/10 file:text-brand-primary hover:file:bg-brand-primary/20" />
+                        </div>
+                        <InfoBox className="!my-2"><strong>Replace</strong> overwrites the whole dataset; <strong>Append</strong> adds and updates rows for the same entity and date.</InfoBox>
+                    </div>
+                    <div>
+                        <h4 className="text-sm font-semibold uppercase tracking-widest text-brand-text-secondary mb-3">Exports &amp; templates</h4>
+                        <div className="space-y-2">
+                            <button onClick={exportKpiLiquidityCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">💧 Export Liquidity KPIs (CSV)</button>
+                            <button onClick={exportKpiLiquidityTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">💧 Liquidity KPI template</button>
+                            <button onClick={exportDeadlinesCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">📄 Export Deadlines (CSV)</button>
+                            <button onClick={exportDeadlineTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">📄 Deadline template</button>
+                            <button onClick={exportKpiCapitalCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">📊 Export Capital KPIs (CSV)</button>
+                            <button onClick={exportKpiCapitalTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">📊 Capital KPI template</button>
+                            <button onClick={exportCounterpartyRwaCSV} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">🏆 Export Counterparty RWA (CSV)</button>
+                            <button onClick={exportCounterpartyRwaTemplate} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-semibold py-2.5 px-4 rounded-lg transition-colors text-sm">🏆 Counterparty RWA template</button>
+                        </div>
+                    </div>
+                </div>
+            </Collapsible>
+
+            <Collapsible title="KPI history editor" suffix="advanced — daily LCR points & corrections">
+                <InfoBox>Select an entity and date to edit, or create a new entry (e.g. a daily LCR point). Liquidity values are edited for the 'TOT' currency aggregate only. ⚠ For a month that has a Workbench capital report, the capital figures are <strong>re-projected from the report</strong> — edit the report there, not here.</InfoBox>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 items-end">
                     {isCreating ? (
                          <>
@@ -1261,10 +1289,10 @@ export const DataManagementPage: React.FC = () => {
                         </div>
                     </form>
                 )}
-            </Card>
+            </Collapsible>
 
             <Card className="mb-8">
-                <SectionHeader title="Risk Appetite" suffix="Red / Amber thresholds by entity (%)" />
+                <SectionHeader title="Risk Appetite" suffix="Red / Amber thresholds by entity (%) — drives the status colors across the reports" />
                 <InfoBox>Set Red and Amber thresholds for each entity. Values should be percentages (e.g., 8 for 8%).</InfoBox>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1323,19 +1351,6 @@ export const DataManagementPage: React.FC = () => {
                 </div>
             </Card>
 
-            <Card>
-                <SectionHeader title="JSON Data Editor" suffix="advanced" />
-                <InfoBox>
-                    This is an advanced feature. Editing this JSON directly can break the application if the structure is not respected.
-                </InfoBox>
-                {jsonError && <p className="text-red-600 bg-red-100 p-3 rounded-md my-4">{jsonError}</p>}
-                <textarea value={textData} onChange={handleTextChange} className={`w-full h-96 p-3 font-mono text-xs bg-gray-50 border-2 rounded-lg ${jsonError ? 'border-red-500' : 'border-gray-200 focus:border-brand-primary focus:ring-brand-primary'}`} />
-                <div className="mt-4">
-                    <button onClick={handleUpdateData} disabled={!!jsonError} className="bg-brand-primary hover:bg-brand-primary-dark text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed">
-                        Save JSON
-                    </button>
-                </div>
-            </Card>
         </div>
     );
 };
