@@ -153,7 +153,10 @@ export const getTypeBadge = (type: Deadline['type']) => {
 type WaterfallDataPoint = { name: string; value: number };
 
 export const calculateCet1RatioEvolutionData = (startData: CalculatedKpis, endData: CalculatedKpis) => {
-    if (!startData.cet1CapitalBreakdown || !endData.cet1CapitalBreakdown || !endData.cet1CapitalBreakdown.dividend || startData.rwaTotal === 0) return null;
+    // A missing/zero dividend is a valid state (e.g. a mid-year CASABIS with
+    // no futureDividends line) — it must not suppress the whole bridge; the
+    // computation below already defaults it to 0.
+    if (!startData.cet1CapitalBreakdown || !endData.cet1CapitalBreakdown || startData.rwaTotal === 0) return null;
 
     const startRatio = parseFloat(startData.cet1);
     const endRatio = parseFloat(endData.cet1);
