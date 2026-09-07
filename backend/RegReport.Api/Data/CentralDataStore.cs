@@ -38,6 +38,7 @@ public static class CentralDataStore
             ProdGuaranteeRefs = await db.ProdGuaranteeRefs.AsNoTracking().ToListAsync(),
             ProdFindingLogs = await db.ProdFindingLogs.AsNoTracking().ToListAsync(),
             ProdMappingEntries = await db.ProdMappingEntries.AsNoTracking().ToListAsync(),
+            BridgeAdjustments = await db.BridgeAdjustments.AsNoTracking().ToListAsync(),
             Bilan = await db.Bilans.AsNoTracking().FirstOrDefaultAsync() ?? new Bilan(),
             RiskAppetite = riskRows.ToDictionary(r => r.Entity, r => r.Thresholds ?? new EntityThresholds()),
             DiagnosisResults = diagRows.Count == 0
@@ -80,6 +81,7 @@ public static class CentralDataStore
         db.ProdGuaranteeRefs.RemoveRange(db.ProdGuaranteeRefs);
         db.ProdFindingLogs.RemoveRange(db.ProdFindingLogs);
         db.ProdMappingEntries.RemoveRange(db.ProdMappingEntries);
+        db.BridgeAdjustments.RemoveRange(db.BridgeAdjustments);
         db.Bilans.RemoveRange(db.Bilans);
         db.RiskAppetite.RemoveRange(db.RiskAppetite);
         db.DiagnosisResults.RemoveRange(db.DiagnosisResults);
@@ -119,6 +121,7 @@ public static class CentralDataStore
         foreach (var p in data.ProdGuaranteeRefs) p.Id = 0;
         foreach (var p in data.ProdFindingLogs) p.Id = 0;
         foreach (var p in data.ProdMappingEntries) p.Id = 0;
+        foreach (var p in data.BridgeAdjustments) p.Id = 0;
 
         db.Deadlines.AddRange(data.Deadlines);
         db.KpiHistory.AddRange(data.KpisHistory); // LiquidityRows inserted via navigation
@@ -137,6 +140,7 @@ public static class CentralDataStore
         db.ProdGuaranteeRefs.AddRange(data.ProdGuaranteeRefs);
         db.ProdFindingLogs.AddRange(data.ProdFindingLogs);
         db.ProdMappingEntries.AddRange(data.ProdMappingEntries);
+        db.BridgeAdjustments.AddRange(data.BridgeAdjustments);
         db.Bilans.Add(data.Bilan);
         db.RiskAppetite.AddRange(data.RiskAppetite.Select(kv =>
             new RiskAppetiteEntry { Entity = kv.Key, Thresholds = kv.Value ?? new EntityThresholds() }));

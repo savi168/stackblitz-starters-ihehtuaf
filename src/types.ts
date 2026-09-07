@@ -302,6 +302,22 @@ export interface ProdMappingEntry {
   description?: string;
 }
 
+/** Manual CET1-bridge line (acquisition, disposal, debt redemption…) added by
+ * an admin for a given entity and period pair. The impact (percentage points
+ * of CET1 ratio) is carved out of the bridge's residual "Other" bar so the
+ * total still reconciles; recorded with who/when for the audit trail. */
+export interface BridgeAdjustment {
+  id: number;
+  entity: string;
+  fromDate: string;   // compared period (YYYY-MM-DD)
+  toDate: string;     // reference period (YYYY-MM-DD)
+  label: string;      // e.g. "Acquisition XYZ", "AT1 redemption"
+  impactPp: number;   // signed CET1-ratio impact in percentage points
+  note?: string;
+  createdBy: string;
+  createdAt: string;  // ISO timestamp
+}
+
 export interface ProdFindingLog {
   id: number;
   entity: string;
@@ -479,6 +495,7 @@ export interface CentralData {
   prodGuaranteeRefs?: ProdGuaranteeRef[];
   prodFindingLogs?: ProdFindingLog[];
   prodMappingEntries?: ProdMappingEntry[];
+  bridgeAdjustments?: BridgeAdjustment[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */
   importMapping?: ImportMapping;
 }

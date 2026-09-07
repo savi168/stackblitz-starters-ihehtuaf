@@ -590,6 +590,25 @@ public class StoredDocument
     public string UploadedAt { get; set; } = ""; // ISO timestamp
 }
 
+/// <summary>
+/// Manual CET1-bridge line (acquisition, disposal, debt redemption…) added by
+/// an admin for an entity + period pair — carved out of the bridge's "Other"
+/// residual on display; who/when recorded for the audit trail.
+/// </summary>
+public class BridgeAdjustment
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    public string FromDate { get; set; } = "";
+    public string ToDate { get; set; } = "";
+    public string Label { get; set; } = "";
+    /// <summary>Signed CET1-ratio impact in percentage points.</summary>
+    public double ImpactPp { get; set; }
+    public string? Note { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public string CreatedAt { get; set; } = "";
+}
+
 /// <summary>Expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1).</summary>
 public class ProdGuaranteeRef
 {
@@ -635,6 +654,7 @@ public class CentralData
     public List<ProdGuaranteeRef> ProdGuaranteeRefs { get; set; } = new();
     public List<ProdFindingLog> ProdFindingLogs { get; set; } = new();
     public List<ProdMappingEntry> ProdMappingEntries { get; set; } = new();
+    public List<BridgeAdjustment> BridgeAdjustments { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }

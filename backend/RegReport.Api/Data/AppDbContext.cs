@@ -33,6 +33,7 @@ public class AppDbContext : DbContext
     public DbSet<ProdFindingLog> ProdFindingLogs => Set<ProdFindingLog>();
     public DbSet<ProdMappingEntry> ProdMappingEntries => Set<ProdMappingEntry>();
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
+    public DbSet<BridgeAdjustment> BridgeAdjustments => Set<BridgeAdjustment>();
     public DbSet<Bilan> Bilans => Set<Bilan>();
     public DbSet<RiskAppetiteEntry> RiskAppetite => Set<RiskAppetiteEntry>();
     public DbSet<DiagnosisEntry> DiagnosisResults => Set<DiagnosisEntry>();
@@ -214,6 +215,12 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.Folder);
             e.HasIndex(x => new { x.Entity, x.Date });
+        });
+        b.Entity<BridgeAdjustment>(e =>
+        {
+            e.ToTable("BridgeAdjustments");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.FromDate, x.ToDate });
         });
 
         // Balance-sheet currency totals: single-row table (shadow identity key).

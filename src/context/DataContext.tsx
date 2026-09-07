@@ -74,6 +74,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         prodGuaranteeRefs: d.prodGuaranteeRefs ?? [],
         prodFindingLogs: d.prodFindingLogs ?? [],
         prodMappingEntries: d.prodMappingEntries ?? [],
+        bridgeAdjustments: d.bridgeAdjustments ?? [],
     });
 
     // Initial load from the configured repository (localStorage or API).

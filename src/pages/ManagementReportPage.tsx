@@ -250,7 +250,7 @@ const AuditedHeader: React.FC<{ title: string; suffix?: string; queries: AuditQu
 // --- Capital tab ---------------------------------------------------------------------
 
 const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
-  const { getKpisForDate } = useData();
+  const { data, setData, getKpisForDate, isAdmin, currentUser } = useData();
   const fullSeries = useCapitalSeries(entity);
   // Some periods may only exist as legacy KPI-history rows (demo/manual KPI
   // entries without a detailed Workbench report) — allow hiding them.
@@ -276,6 +276,51 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
     if (!a || !b) return null;
     return calculateCet1RatioEvolutionData(a, b);
   }, [entity, effFrom, effTo, getKpisForDate]);
+
+  // Manual bridge lines (acquisitions, disposals, debt redemptions…) for this
+  // entity + period pair. Shown as their own bars; their sum is carved out of
+  // the residual "Other" bar so the bridge still reconciles start → end.
+  const bridgeAdjs = useMemo(() =>
+    (data.bridgeAdjustments || [])
+      .filter(a => a.entity === entity && a.fromDate === effFrom && a.toDate === effTo)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [data.bridgeAdjustments, entity, effFrom, effTo]);
+
+  const bridgeWithManual = useMemo(() => {
+    if (!bridge || bridgeAdjs.length === 0) return bridge;
+    const manualSum = bridgeAdjs.reduce((s, a) => s + a.impactPp, 0);
+    const auto = bridge.deltas.filter(d => d.name !== 'Other');
+    const otherValue = (bridge.deltas.find(d => d.name === 'Other')?.value ?? 0) - manualSum;
+    return {
+      ...bridge,
+      deltas: [
+        ...auto,
+        ...bridgeAdjs.map(a => ({ name: a.label, value: a.impactPp })),
+        ...(Math.abs(otherValue) > 0.005 ? [{ name: 'Other', value: otherValue }] : []),
+      ],
+    };
+  }, [bridge, bridgeAdjs]);
+
+  const [adjLabel, setAdjLabel] = useState('');
+  const [adjImpact, setAdjImpact] = useState('');
+  const [adjNote, setAdjNote] = useState('');
+  const addBridgeAdj = () => {
+    const impact = Number(adjImpact.replace(/['\s]/g, '').replace(',', '.'));
+    if (!adjLabel.trim() || !isFinite(impact) || impact === 0) return;
+    setData(prev => ({
+      ...prev,
+      bridgeAdjustments: [...(prev.bridgeAdjustments || []), {
+        id: Date.now(), entity, fromDate: effFrom, toDate: effTo,
+        label: adjLabel.trim(), impactPp: impact, note: adjNote.trim() || undefined,
+        createdBy: currentUser.name, createdAt: new Date().toISOString(),
+      }],
+    }));
+    setAdjLabel(''); setAdjImpact(''); setAdjNote('');
+  };
+  const deleteBridgeAdj = (id: number) => {
+    if (!window.confirm('Remove this manual bridge line?')) return;
+    setData(prev => ({ ...prev, bridgeAdjustments: (prev.bridgeAdjustments || []).filter(a => a.id !== id) }));
+  };
 
   const ratioChart = lastN.map(p => ({
     name: monthLabel(p.date) + (p.isProjection ? ' (P)' : ''),
@@ -392,12 +437,64 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
             <div className="pb-2 text-sm text-brand-text-secondary">→ <span className="font-semibold text-brand-text-primary">{monthLabel(asOf)}</span></div>
           </div>
         </div>
-        {bridge ? (
-          <CapitalEvolutionChart data={bridge} />
+        {bridgeWithManual ? (
+          <CapitalEvolutionChart data={bridgeWithManual} />
         ) : (
           <p className="text-sm text-brand-text-secondary py-8 text-center">
             Select two different periods with CET1 breakdown data (the movement detail needs the composition — available for imported or workbench-entered reports).
           </p>
+        )}
+        {bridge && (bridgeAdjs.length > 0 || isAdmin) && (
+          <div className="mt-3 border-t border-efg-line pt-3">
+            <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-2">
+              Manual bridge lines — acquisitions, disposals, debt redemptions… (carved out of "Other"; stored with who/when)
+            </p>
+            {bridgeAdjs.length > 0 && (
+              <table className="text-xs mb-2">
+                <tbody>
+                  {bridgeAdjs.map(a => (
+                    <tr key={a.id} className="border-t border-efg-line/50">
+                      <td className="py-1 pr-4 font-semibold">{a.label}</td>
+                      <td className={`py-1 pr-4 text-right tabular-nums ${a.impactPp >= 0 ? 'text-status-green' : 'text-status-red'}`}>
+                        {a.impactPp >= 0 ? '+' : ''}{a.impactPp.toFixed(2)} pp
+                      </td>
+                      <td className="py-1 pr-4 text-brand-text-secondary">{a.note || ''}</td>
+                      <td className="py-1 pr-4 text-brand-text-secondary whitespace-nowrap">{a.createdBy.split('\\').pop()} · {a.createdAt.slice(0, 10)}</td>
+                      {isAdmin && (
+                        <td className="py-1">
+                          <button onClick={() => deleteBridgeAdj(a.id)} className="text-status-red/60 hover:text-status-red">✕</button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {isAdmin && (
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Label</label>
+                  <input value={adjLabel} onChange={e => setAdjLabel(e.target.value)} placeholder="e.g. Acquisition XYZ"
+                    className="p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-52" />
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Impact (pp of CET1 ratio)</label>
+                  <input value={adjImpact} onChange={e => setAdjImpact(e.target.value)} placeholder="e.g. -0.35"
+                    className="p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-32" />
+                </div>
+                <div>
+                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Note (optional)</label>
+                  <input value={adjNote} onChange={e => setAdjNote(e.target.value)} placeholder="e.g. closing 15 Jun, RWA impact included"
+                    className="p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-72" />
+                </div>
+                <button onClick={addBridgeAdj}
+                  disabled={!adjLabel.trim() || !isFinite(Number(adjImpact.replace(/['\s]/g, '').replace(',', '.'))) || Number(adjImpact.replace(/['\s]/g, '').replace(',', '.')) === 0}
+                  className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors disabled:opacity-40">
+                  ➕ Add to the bridge
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
