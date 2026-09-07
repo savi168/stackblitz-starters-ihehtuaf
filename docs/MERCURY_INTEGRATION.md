@@ -229,3 +229,26 @@ ambiguës (candidat non choisi) sont exclues et signalées.
 référence/client/libellé optionnels → INSERT complet avec les défauts du
 mapping, ou « Add to the lines » pour l'inclure dans le matching et le
 one-shot.
+
+## Taux de change fin de mois (proxy RWA par devise)
+
+`GET /api/production/mercury/fx-rates` lit la table des devises
+`EFG_CCY_MONTHLY` (colonne `BS_Rate_6` = taux de clôture **CHF pour 1 unité
+de devise**, une ligne par ReportingDate × Ccy). Requête surchargeable via
+`Production:FxRatesQuery` (elle doit renvoyer les colonnes `ReportingDate`,
+`Ccy`, `Rate`) — utile si le nom de table/colonne diffère ou pour filtrer :
+
+```json
+"Production": {
+  "FxRatesQuery": "SELECT ReportingDate, Ccy, BS_Rate_6 AS Rate FROM EFG_CCY_MONTHLY WHERE BS_Rate_6 IS NOT NULL"
+}
+```
+
+Consommé par le panneau **Workbench → RWA by currency — MERCURY FX proxy** :
+le RWA crédit *counterparty* (RWA crédit − non-counterparty risk, ce dernier
+laissé en CHF) est ventilé selon les parts de bilan par devise
+(USD/GBP/EUR/CHF/Other, saisies en %), puis écrit comme lignes mémo
+`<CCY>` / `FX <CCY>` sur le rapport capital de chaque période — le
+management report en dérive les montants en devise locale (proxy, marqués *)
+et le split FX vs business. Les lignes `<CCY> (LC)` mesurées, si elles sont
+alimentées par ailleurs, gardent la priorité sur le proxy.

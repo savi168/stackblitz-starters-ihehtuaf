@@ -1242,6 +1242,103 @@ export const CapitalWorkbenchPage: React.FC = () => {
     }
   };
 
+  // --- RWA by currency — MERCURY FX proxy -----------------------------------
+  // Counterparty credit RWA (credit RWA minus the non-counterparty part,
+  // essentially CHF) allocated by the balance-sheet currency shares, with the
+  // end-of-month rates pulled from MERCURY EFG_CCY_MONTHLY (BS_Rate_6, CHF
+  // per 1 unit). Writes the same "<CCY>" / "FX <CCY>" memo rows as the CSV.
+  const PROXY_CCYS = ['USD', 'GBP', 'EUR', 'CHF', 'OTH'] as const;
+  const [proxyShares, setProxyShares] = useState<Record<string, string>>(() => {
+    try {
+      const s = localStorage.getItem('regreport.rwaCcyShares');
+      if (s) { const o = JSON.parse(s); if (o && typeof o === 'object') return o; }
+    } catch { /* localStorage unavailable → defaults */ }
+    return { USD: '28.6', GBP: '26.8', EUR: '17.1', CHF: '22.8', OTH: '4.7' };
+  });
+  const setShare = (ccy: string, v: string) => {
+    setProxyShares(prev => {
+      const next = { ...prev, [ccy]: v };
+      try { localStorage.setItem('regreport.rwaCcyShares', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const [nonCptyOverride, setNonCptyOverride] = useState('');
+  type ProxyRow = { date: string; creditRwa: number; nonCpty: number; nonCptyDetected: boolean; alloc: number;
+    per: Record<string, { chf: number; rate?: number }> };
+  const [proxyPreview, setProxyPreview] = useState<{ rows: ProxyRow[]; warnings: string[] } | null>(null);
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const shareSum = PROXY_CCYS.reduce((a, c) => a + (Number((proxyShares[c] || '').replace(',', '.')) || 0), 0);
+
+  const buildFxProxy = async () => {
+    setImportError(null);
+    setProxyBusy(true);
+    try {
+      if (!apiBaseUrl) throw new Error('Central mode required — the FX proxy reads MERCURY through the API.');
+      if (Math.abs(shareSum - 100) > 0.5) throw new Error(`Currency shares sum to ${shareSum.toFixed(1)}% — they must total 100%.`);
+      const res = await fetch(`${apiBaseUrl}/production/mercury/fx-rates`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`MERCURY FX rates: ${res.status} ${res.statusText} — ${(await res.text()).slice(0, 300)}`);
+      const rates: Array<{ reportingDate: string; ccy: string; rate: number }> = await res.json();
+      const rateOf = (month: string, ccy: string): number | undefined => {
+        const hits = rates.filter(r => r.ccy === ccy && String(r.reportingDate).slice(0, 7) === month);
+        return hits.length > 0 ? hits[hits.length - 1].rate : undefined;
+      };
+      const reports = (data.capitalReports || [])
+        .filter(r => r.entity === entity && !r.isProjection)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      if (reports.length === 0) throw new Error(`No capital report for ${entity} — import the CASABIS first.`);
+      const override = nonCptyOverride.trim() === '' ? undefined : Number(nonCptyOverride.replace(',', '.'));
+      if (override !== undefined && isNaN(override)) throw new Error(`Non-counterparty override "${nonCptyOverride}" is not a number.`);
+      const warnings: string[] = [];
+      const rows: ProxyRow[] = reports.map(r => {
+        const s = computeCapitalSummary(r);
+        const detected = r.lineItems
+          .filter(i => i.section === 'rwa' && /non.?counterparty/i.test(i.label))
+          .reduce((a, i) => a + i.amount, 0);
+        const nonCpty = override ?? detected;
+        const alloc = Math.max(0, s.creditRwa - nonCpty);
+        const month = r.date.slice(0, 7);
+        const per: ProxyRow['per'] = {};
+        for (const c of PROXY_CCYS) {
+          const share = (Number((proxyShares[c] || '').replace(',', '.')) || 0) / 100;
+          const chf = alloc * share + (c === 'CHF' ? nonCpty : 0);
+          const rate = c === 'CHF' || c === 'OTH' ? undefined : rateOf(month, c);
+          if (rate === undefined && c !== 'CHF' && c !== 'OTH') warnings.push(`${r.date}: no MERCURY rate for ${c}.`);
+          per[c] = { chf, ...(rate !== undefined ? { rate } : {}) };
+        }
+        return { date: r.date, creditRwa: s.creditRwa, nonCpty, nonCptyDetected: detected !== 0 && override === undefined, alloc, per };
+      });
+      setProxyPreview({ rows, warnings: Array.from(new Set(warnings)) });
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+      setProxyPreview(null);
+    } finally {
+      setProxyBusy(false);
+    }
+  };
+
+  const applyFxProxy = () => {
+    if (!proxyPreview) return;
+    const { rows } = proxyPreview;
+    if (!window.confirm(
+      `Write the RWA-by-currency proxy for ${entity} across ${rows.length} period(s)?\n` +
+      `Existing "<CCY>" / "FX <CCY>" memo rows are updated ("(LC)" rows are left untouched and win over the proxy).`
+    )) return;
+    const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
+    for (const row of rows) {
+      const items: Array<{ section: CapitalSection; label: string; amount: number }> = [];
+      for (const c of PROXY_CCYS) {
+        const p = row.per[c];
+        if (!p || (p.chf === 0 && c !== 'CHF')) continue;
+        items.push({ section: 'rwa', label: c, amount: Math.round(p.chf * 10) / 10 });
+        if (p.rate !== undefined) items.push({ section: 'rwa', label: `FX ${c}`, amount: p.rate });
+      }
+      byDate.set(row.date, items);
+    }
+    applyMemoItemsByDate(byDate);
+    setProxyPreview(null);
+    setNotice(`RWA-by-currency FX proxy written for ${entity} across ${rows.length} period(s) — the report table and FX-vs-business split update automatically.`);
+  };
+
   const confirmImport = async (targetEntity: string) => {
     if (!parsed) return;
     // Archive the original return in the library first (non-blocking for the
@@ -1465,6 +1562,87 @@ export const CapitalWorkbenchPage: React.FC = () => {
           <span className="text-[11px] text-brand-text-secondary">
             multi-period feeds for {entity} — each date needs its capital report (CASABIS import or manual) first
           </span>
+        </div>
+        <div className="mt-3 border border-efg-line rounded-lg px-4 py-3 bg-brand-bg-body/40">
+          <p className="text-[11px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">
+            RWA by currency — MERCURY FX proxy
+          </p>
+          <p className="text-[11px] text-brand-text-secondary mt-1">
+            Counterparty credit RWA (credit risk − non-counterparty risk, the latter kept in CHF) allocated by the
+            balance-sheet currency shares; month-end rates pulled from MERCURY <code>EFG_CCY_MONTHLY</code>
+            (BS_Rate_6, CHF per 1 unit). Writes the "&lt;CCY&gt;" / "FX &lt;CCY&gt;" memo rows on every period
+            of {entity} — measured "(LC)" rows, when fed, still win over the proxy.
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            {PROXY_CCYS.map(c => (
+              <div key={c}>
+                <label className="block text-[10px] uppercase tracking-wider text-brand-text-secondary mb-0.5">{c === 'OTH' ? 'Other' : c} %</label>
+                <input value={proxyShares[c] ?? ''} onChange={e => setShare(c, e.target.value)}
+                  className="w-20 p-1.5 border border-gray-200 rounded-md text-sm text-right bg-white focus:border-brand-primary" />
+              </div>
+            ))}
+            <span className={`text-[11px] pb-2 ${Math.abs(shareSum - 100) > 0.5 ? 'text-status-red font-semibold' : 'text-brand-text-secondary'}`}>
+              Σ {shareSum.toFixed(1)}%
+            </span>
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider text-brand-text-secondary mb-0.5"
+                title="Optional: overrides the auto-detected 'non-counterparty' RWA rows for every period (mCHF)">
+                Non-cpty override
+              </label>
+              <input value={nonCptyOverride} onChange={e => setNonCptyOverride(e.target.value)} placeholder="auto"
+                className="w-24 p-1.5 border border-gray-200 rounded-md text-sm text-right bg-white focus:border-brand-primary" />
+            </div>
+            <button onClick={buildFxProxy} disabled={proxyBusy}
+              className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors disabled:opacity-50">
+              {proxyBusy ? 'Loading rates…' : '⇄ Load MERCURY rates & preview'}
+            </button>
+          </div>
+          {proxyPreview && (
+            <div className="mt-3">
+              {proxyPreview.warnings.length > 0 && (
+                <p className="text-[11px] text-status-amber mb-2">⚠ {proxyPreview.warnings.join(' · ')}</p>
+              )}
+              <div className="overflow-x-auto border border-efg-line rounded-lg">
+                <table className="w-full text-xs whitespace-nowrap">
+                  <thead className="bg-brand-bg-body">
+                    <tr>
+                      {['Date', 'Credit RWA', 'Non-cpty (CHF)', 'Allocated', ...PROXY_CCYS.map(c => c === 'OTH' ? 'Other' : `${c} (rate)`)].map((h, i) => (
+                        <th key={h} className={`px-3 py-1.5 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 ? 'text-right' : 'text-left'}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-efg-line">
+                    {proxyPreview.rows.map(r => (
+                      <tr key={r.date}>
+                        <td className="px-3 py-1.5 font-semibold">{r.date}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{r.creditRwa.toFixed(0)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums" title={r.nonCptyDetected ? 'Detected from the "non-counterparty" RWA rows of the report' : 'No non-counterparty row detected (0) — use the override if needed'}>
+                          {r.nonCpty.toFixed(0)}{r.nonCptyDetected ? '' : '·'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{r.alloc.toFixed(0)}</td>
+                        {PROXY_CCYS.map(c => (
+                          <td key={c} className="px-3 py-1.5 text-right tabular-nums">
+                            {r.per[c].chf.toFixed(0)}
+                            {r.per[c].rate !== undefined && <span className="text-brand-text-secondary italic"> ({r.per[c].rate!.toFixed(4)})</span>}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-2 flex gap-3">
+                <button onClick={applyFxProxy}
+                  className="text-[13px] font-semibold text-white bg-brand-secondary hover:bg-brand-primary py-1.5 px-4 rounded-md transition-colors">
+                  ✓ Write memo rows ({proxyPreview.rows.length} period{proxyPreview.rows.length > 1 ? 's' : ''})
+                </button>
+                <button onClick={() => setProxyPreview(null)}
+                  className="text-[13px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-4 rounded-md transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {importError && (
           <p className="mt-3 text-sm text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-4 py-2">{importError}</p>

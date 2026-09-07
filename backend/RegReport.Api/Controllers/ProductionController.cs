@@ -290,6 +290,63 @@ FROM core_loads_loads_collection";
     }
 
     /// <summary>
+    /// End-of-month FX rates to CHF from the MERCURY currency table
+    /// (EFG_CCY_MONTHLY: ReportingDate, Ccy, …, BS_Rate_6 = CHF per 1 unit).
+    /// Feeds the Workbench RWA-by-currency FX proxy. Query overridable via
+    /// Production:FxRatesQuery — it must return ReportingDate, Ccy, Rate.
+    /// </summary>
+    [HttpGet("mercury/fx-rates")]
+    public async Task<ActionResult<object>> FxRates()
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+
+        var query = _config["Production:FxRatesQuery"] ?? @"
+SELECT ReportingDate, Ccy, BS_Rate_6 AS Rate
+FROM EFG_CCY_MONTHLY
+WHERE BS_Rate_6 IS NOT NULL";
+        try
+        {
+            var rates = new List<object>();
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = query;
+            cmd.CommandTimeout = 60;
+            await using var rd = await cmd.ExecuteReaderAsync();
+            int iDate = -1, iCcy = -1, iRate = -1;
+            for (var i = 0; i < rd.FieldCount; i++)
+            {
+                var n = rd.GetName(i).ToLowerInvariant();
+                if (n == "reportingdate") iDate = i;
+                else if (n == "ccy" || n == "currency") iCcy = i;
+                else if (n == "rate") iRate = i;
+            }
+            if (iDate < 0 || iCcy < 0 || iRate < 0)
+                return Problem("FX rates query must return ReportingDate, Ccy and Rate columns.", statusCode: 400);
+            while (await rd.ReadAsync())
+            {
+                if (rd.IsDBNull(iDate) || rd.IsDBNull(iCcy) || rd.IsDBNull(iRate)) continue;
+                var date = rd.GetValue(iDate) switch
+                {
+                    DateTime dt => dt.ToString("yyyy-MM-dd"),
+                    var v => Convert.ToString(v) ?? "",
+                };
+                var ccy = (Convert.ToString(rd.GetValue(iCcy)) ?? "").Trim().ToUpperInvariant();
+                if (date.Length == 0 || ccy.Length == 0) continue;
+                rates.Add(new { reportingDate = date, ccy, rate = Convert.ToDouble(rd.GetValue(iRate)) });
+            }
+            return rates;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "MERCURY FX rates query failed");
+            return Problem($"MERCURY FX rates query failed: {ex.Message}", statusCode: 502);
+        }
+    }
+
+    /// <summary>
     /// Consolidation referential: reporting entities, their scopes
     /// (list_reporting_sets) and the booking centers (with OwnerId) — feeds
     /// the scope-aware impact preview of the Adjustments module.

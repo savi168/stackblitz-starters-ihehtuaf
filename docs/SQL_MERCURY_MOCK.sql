@@ -212,3 +212,26 @@ CREATE TABLE core_loads (
 INSERT INTO core_loads (LoadId, ReportingDate, Name) VALUES
     (1001, '2025-12-31', 'DEC-25 monthly'), (1002, '2026-01-31', 'JAN-26 monthly');
 GO
+
+-- ---------------------------------------------------------------------------
+-- EFG_CCY_MONTHLY: taux de change fin de mois vers le CHF (BS_Rate_6 = CHF
+-- pour 1 unité de devise) — alimente le proxy RWA par devise du Workbench
+-- (GET /api/production/mercury/fx-rates).
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID('EFG_CCY_MONTHLY') IS NOT NULL DROP TABLE EFG_CCY_MONTHLY;
+CREATE TABLE EFG_CCY_MONTHLY (
+    ReportingDate date NOT NULL,
+    CcyNumber int NULL,
+    Ccy varchar(3) NOT NULL,
+    Name varchar(50) NULL,
+    BS_Rate_2 float NULL,
+    BS_Rate_6 float NULL,
+    CONSTRAINT PK_EFG_CCY_MONTHLY PRIMARY KEY (ReportingDate, Ccy));
+INSERT INTO EFG_CCY_MONTHLY (ReportingDate, CcyNumber, Ccy, Name, BS_Rate_6) VALUES
+    ('2025-12-31', 840, 'USD', 'US Dollar',      0.8920),
+    ('2025-12-31', 978, 'EUR', 'Euro',           0.9360),
+    ('2025-12-31', 826, 'GBP', 'Pound Sterling', 1.1275),
+    ('2026-01-31', 840, 'USD', 'US Dollar',      0.8845),
+    ('2026-01-31', 978, 'EUR', 'Euro',           0.9295),
+    ('2026-01-31', 826, 'GBP', 'Pound Sterling', 1.1340);
+GO
