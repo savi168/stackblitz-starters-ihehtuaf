@@ -102,6 +102,7 @@
   <div class="tagline">Documentation</div>
 
   <div class="grp">Application</div>
+  <a href="#whatsnew">★ · Nouveautés v3.2</a>
   <a href="#overview">1 · Vue d'ensemble</a>
   <a href="#quickstart">2 · Démarrage rapide</a>
   <a href="#arch">3 · Architecture dossiers</a>
@@ -134,18 +135,56 @@
       <span class="pill">Recharts</span>
       <span class="pill">.NET 8 + EF Core</span>
       <span class="pill">SQL Server</span>
+      <span class="pill">Windows Auth</span>
+      <span class="pill">100 % offline</span>
     </div>
   </div>
 
   <!-- ============ PARTIE 1 — APPLICATION ============ -->
 
+  <section id="whatsnew">
+    <h2><span class="num">★</span>Nouveautés — v3.2 <span style="font-size:13px;color:var(--muted);font-weight:400">(septembre 2026)</span></h2>
+
+    <h3>Reporting &amp; Workbench</h3>
+    <ul>
+      <li><strong>Management Report enrichi</strong> : onglets <em>Leverage</em> et <em>Large Exposures</em> ; l'Overview gagne une seconde rangée de tuiles (top expo non-souveraine, total actifs, fonds propres, P&amp;L YTD).</li>
+      <li><strong>Import K-LER (FINMA)</strong> : le template Large Exposure alimente le registre — type de contrepartie, famille souveraine affichée <em>exempted</em> (hors compteur de breach), décomposition Direct / Indirect / CRM (atténuation par transfert de risque), graphe empilé direct-net-de-CRM vs indirect.</li>
+      <li><strong>RWA par devise</strong> : table dédiée + split <em>FX vs business</em> dans le CET1 movement ; <strong>proxy FX MERCURY</strong> — le RWA crédit <em>counterparty</em> est ventilé par les parts de bilan et les taux fin de mois d'<code>EFG_CCY_MONTHLY</code>, automatiquement à chaque import CASABIS si la case est cochée (Workbench).</li>
+      <li><strong>Bridge CET1 flexible</strong> : lignes manuelles éditables (acquisitions, cessions, remboursements…) horodatées et signées ; la barre P&amp;L suit le flux YTD des états mensuels.</li>
+      <li><strong>Import P&amp;L fiabilisé</strong> : le net mensuel = résultat IFRS reporté, auto-contrôle contre la ligne de contrôle du fichier, colonnes YTD.</li>
+    </ul>
+
+    <h3>Production / MERCURY</h3>
+    <ul>
+      <li><strong>Module Adjustments complet</strong> : matching par <em>load collection</em>, interco (HYPERIOD_INTERCO → CounterpartyBookingCenterId), aperçu d'impact bilan avec éliminations selon le scope de consolidation, génération one-shot .sql / Excel, ligne manuelle, mappings persistés en base, audit trail.</li>
+      <li>Sélecteur <strong>reporting entity</strong> MERCURY sur la page Production.</li>
+    </ul>
+
+    <h3>Nouveaux modules</h3>
+    <ul>
+      <li><strong>Projects</strong> (portage de l'outil « Pilote ») : Kanban à colonnes personnalisables avec drag &amp; drop, vue Liste filtrable, planning Gantt (zoom jour/semaine/mois, sous-tâches dépliables), sous-tâches, commentaires, journal d'activité signé par l'utilisateur Windows, pièces jointes par tâche (stockées en base, visibles aussi dans la Library).</li>
+      <li><strong>Library</strong> : documents stockés dans la base (re-téléchargeables, offline), arborescence avec sous-dossiers, renommage, drag &amp; drop, visionneuse intégrée (PDF/HTML/markdown), archivage automatique des fichiers sources importés au Workbench (entité/période/type).</li>
+      <li><strong>Team &amp; Contacts</strong> : équipe éditable + répertoire de contacts hors équipe (département, société, sujets-clés, commentaires) — une recherche « garantie bancaire » ressort qui appeler, avec lien vers la procédure dans la Library.</li>
+    </ul>
+
+    <h3>Plateforme</h3>
+    <ul>
+      <li><strong>Mode sombre</strong> (bascule dans le header) ; <strong>badge version + environnement</strong> (vX.Y.Z · PROD/TEST/DEV/LOCAL) alimenté par <code>GET /api/meta</code>.</li>
+      <li><strong>Migrateur de schéma intégré</strong> : à chaque démarrage l'API applique les évolutions additives et idempotentes (jamais de DROP) et les trace dans <code>__SchemaMigrations</code> — les releases se déploient sans script SSMS et sans perte de données (voir <code>docs/UPGRADES.md</code>).</li>
+      <li><strong>Admin refondu</strong> : panneau System (version, environnement, MERCURY, migrations), inventaire des données, <strong>gestion des entités</strong> (renommage en cascade sur tous les datasets, risk appetite, diagnostics et documents Library, avec détection des collisions de fusion), Backup &amp; restore JSON, feeds CSV repliés et étiquetés.</li>
+      <li><strong>Daily Reports</strong> sur les entités réellement présentes dans les données (plus de liste en dur), carte Large Exposures au niveau K-LER.</li>
+      <li><strong>Offline total</strong> : police auto-hébergée, aucune dépendance CDN, cache npm vendoré + kit NuGet ; <strong>release en un zip</strong> (<code>scripts\release.ps1</code>, l'API sert le front).</li>
+    </ul>
+  </section>
+
   <section id="overview">
     <h2><span class="num">1</span>Vue d'ensemble</h2>
     <table>
-      <tr><td style="width:130px"><strong>Type</strong></td><td>Single Page Application (SPA) React, 100 % front-end</td></tr>
-      <tr><td><strong>Stack</strong></td><td>React 18 + TypeScript, Vite, Tailwind CSS, React Router (hash), Recharts</td></tr>
-      <tr><td><strong>Données</strong></td><td>Aujourd'hui : <code>localStorage</code> du navigateur. Demain : API REST (voir partie back-end)</td></tr>
-      <tr><td><strong>Export</strong></td><td>PDF des rapports KPI (jsPDF + html2canvas, chargés à la demande)</td></tr>
+      <tr><td style="width:130px"><strong>Type</strong></td><td>SPA React servie par l'API .NET (release en un zip) ou par Vite en dev</td></tr>
+      <tr><td><strong>Stack</strong></td><td>React 18 + TypeScript, Vite, Tailwind CSS, React Router (hash), Recharts · .NET 8 + EF Core</td></tr>
+      <tr><td><strong>Données</strong></td><td><strong>SQL Server</strong> (schéma 100 % relationnel) via l'API — rôles Reader/Admin par Windows Auth. Le <code>localStorage</code> ne sert qu'au mode démo sans API.</td></tr>
+      <tr><td><strong>Sources</strong></td><td>Imports Excel (CASABIS, LCR_G, NSFR_G, K-LER, extraits finance), CSV, et la base MERCURY (production, taux de change)</td></tr>
+      <tr><td><strong>Export</strong></td><td>PDF des rapports (jsPDF + html2canvas, chargés à la demande), CSV, JSON</td></tr>
     </table>
     <p>L'application est <strong>modulaire</strong> : chaque page correspond à un module métier indépendant, accessible depuis la barre de navigation.</p>
   </section>
@@ -221,8 +260,10 @@ dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code><
         <tr><td><code>riskAppetite</code></td><td><code>RiskAppetite</code></td><td>Seuils red/amber par KPI et par entité</td></tr>
         <tr><td><code>counterpartyRwa</code></td><td><code>CounterpartyRwa[]</code></td><td>RWA par contrepartie/industrie</td></tr>
         <tr><td><code>largeExposures</code></td><td><code>LargeExposure[]</code></td><td>Grands risques vs limites</td></tr>
-        <tr><td><code>team</code></td><td><code>TeamMember[]</code></td><td>Annuaire de l'équipe</td></tr>
-        <tr><td><code>projects</code> / <code>projectTasks</code></td><td><code>Project[]</code> / <code>ProjectTask[]</code></td><td>Projets et leurs tâches</td></tr>
+        <tr><td><code>team</code> / <code>contacts</code></td><td><code>TeamMember[]</code> / <code>Contact[]</code></td><td>Équipe + répertoire de contacts (sujets recherchables)</td></tr>
+        <tr><td><code>projects</code> / <code>projectTasks</code> / <code>projStatuses</code> / <code>projComments</code> / <code>projActivities</code></td><td>…</td><td>Module Projects : projets, tâches et sous-tâches, colonnes Kanban, commentaires, journal</td></tr>
+        <tr><td><code>capitalReports</code> / <code>lcrReports</code> / <code>nsfrReports</code> / <code>finStatements</code></td><td>…</td><td>Rapports importés ligne à ligne (CASABIS, LCR_G, NSFR_G, extraits finance)</td></tr>
+        <tr><td><code>scenarios</code> / <code>bridgeAdjustments</code> / <code>prod*</code></td><td>…</td><td>Scénarios, lignes manuelles du bridge, datasets et décisions de production</td></tr>
         <tr><td><code>diagnosisResults</code></td><td><code>Record&lt;…&gt;</code></td><td>Résultats des contrôles de cohérence (clé <code>entity|date</code>)</td></tr>
       </tbody>
     </table>
@@ -243,38 +284,34 @@ dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code><
   <section id="modules">
     <h2><span class="num">6</span>Les modules (pages), pas à pas</h2>
     <table>
-      <thead><tr><th>Route</th><th>Fichier</th><th>Rôle</th></tr></thead>
+      <thead><tr><th>Route</th><th>Module</th><th>Rôle</th></tr></thead>
       <tbody>
-        <tr><td><code>/</code></td><td><code>HubPage</code></td><td>Accueil : aperçu chiffré, accès aux modules, vue brute des données</td></tr>
-        <tr><td><code>/details</code></td><td><code>KpiDetailsPage</code></td><td>Analyse KPI : tendances, seuils, waterfalls, export PDF</td></tr>
-        <tr><td><code>/daily-reports</code></td><td><code>DailyReportsPage</code></td><td>Reportings quotidiens LCR &amp; grands risques</td></tr>
-        <tr><td><code>/deadlines</code></td><td><code>DeadlinesPage</code></td><td>Calendrier et suivi des échéances</td></tr>
-        <tr><td><code>/projects</code></td><td><code>ProjectsPage</code> + détail</td><td>Projets et tâches</td></tr>
-        <tr><td><code>/team</code></td><td><code>TeamPage</code></td><td>Annuaire de l'équipe</td></tr>
-        <tr><td><code>/business-case</code></td><td><code>BusinessCasePage</code></td><td>Argumentaire ROI</td></tr>
-        <tr><td><code>/datamanagement</code></td><td><code>DataManagementPage</code></td><td>Administration : import/export CSV &amp; JSON, contrôles</td></tr>
+        <tr><td><code>/</code></td><td>Hub</td><td>Accueil : aperçu chiffré, accès aux modules</td></tr>
+        <tr><td><code>/report</code></td><td>Management Report</td><td>Le pack complet : Overview, Capital (résumé mensuel, CET1 movement, RWA par devise, bridge), LCR, NSFR, Leverage, Large Exposures, Financials — export PDF par section, requêtes d'audit sur chaque table</td></tr>
+        <tr><td><code>/scenarios</code></td><td>Scenarios</td><td>Simulations what-if : chocs sur CET1 / LCR / NSFR / leverage</td></tr>
+        <tr><td><code>/capital</code></td><td>Workbench <em>(admin)</em></td><td>Alimentation : imports CASABIS / LCR_G / NSFR_G / K-LER / extraits finance (P&amp;L, bilan, equity), saisie manuelle, feeds CSV multi-périodes, proxy FX MERCURY, archivage des fichiers sources</td></tr>
+        <tr><td><code>/production</code></td><td>Production <em>(admin)</em></td><td>Aide à la production MERCURY : contrôles C1–C5 avec décisions tracées, module Adjustments (matching, interco, éliminations, one-shot SQL/Excel)</td></tr>
+        <tr><td><code>/daily-reports</code></td><td>Daily Reports</td><td>LCR quotidien &amp; grands risques par entité (entités dérivées des données)</td></tr>
+        <tr><td><code>/deadlines</code></td><td>Deadlines</td><td>Calendrier et suivi des échéances (statuts, historique, pièces jointes)</td></tr>
+        <tr><td><code>/library</code></td><td>Library</td><td>Documents en base : réglementation, working papers, sources Workbench, visionneuse intégrée</td></tr>
+        <tr><td><code>/projects</code></td><td>Projects</td><td>Kanban / Liste / Planning Gantt / Fichiers, sous-tâches, commentaires, journal d'activité</td></tr>
+        <tr><td><code>/team</code></td><td>Team &amp; Contacts</td><td>Équipe éditable + répertoire de contacts recherchable par sujet</td></tr>
+        <tr><td><code>/cockpit</code></td><td>Backend <em>(admin)</em></td><td>Documentation vivante du schéma SQL et des endpoints</td></tr>
+        <tr><td><code>/datamanagement</code></td><td>Admin <em>(admin)</em></td><td>System, inventaire, entités, backup/restore, feeds CSV, risk appetite</td></tr>
       </tbody>
     </table>
 
-    <h3>6.2 KPI Analysis <code>/details</code> — le module le plus riche</h3>
-    <ul>
-      <li>Sélection <strong>entité / date / devise / période</strong> et <strong>date de comparaison</strong>.</li>
-      <li>Onglets <strong>Overview / Capital / Liquidity</strong>.</li>
-      <li>Cartes KPI avec <strong>seuils risk-appetite</strong> (red/amber/green) et graphes d'évolution.</li>
-      <li><strong>Waterfalls</strong> : évolution du ratio CET1, du RWA, du LCR entre deux dates.</li>
-      <li>Tables de composition (capital CET1, RWA), top contreparties.</li>
-      <li><strong>Export PDF</strong> du rapport affiché (jsPDF / html2canvas chargés dynamiquement à ce moment-là).</li>
-    </ul>
-
-    <h3>6.4 Deadlines <code>/deadlines</code></h3>
+    <h3>6.2 Deadlines <code>/deadlines</code></h3>
     <p>Liste triable et calendrier visuel ; chaque échéance a un statut (<code>completed</code> / <code>inprogress</code> / <code>upcoming</code>), un historique de changements et des pièces jointes. Calcul de l'échéance réglementaire (+10 jours ouvrés).</p>
 
-    <h3>6.6 Data Management <code>/datamanagement</code></h3>
+    <h3>6.3 Admin <code>/datamanagement</code></h3>
     <ul>
-      <li><strong>Import</strong> CSV/JSON pour KPI, liquidité, contreparties, grands risques… (modes <em>replace</em> ou <em>append/merge</em>).</li>
-      <li><strong>Export</strong> des données et templates CSV.</li>
-      <li><strong>Diagnostic</strong> via <code>diagnosisService.ts</code> (variations anormales, densité RWA élevée, valeurs négatives suspectes…).</li>
-      <li>Réinitialisation des données (<code>localStorage.removeItem</code>).</li>
+      <li><strong>System</strong> : version, environnement (PROD/TEST/DEV), connexion MERCURY, migrations de schéma appliquées.</li>
+      <li><strong>Data inventory</strong> : compteurs de lignes par dataset.</li>
+      <li><strong>Entities</strong> : renommage d'entité en cascade sur tous les datasets (+ risk appetite, diagnostics, documents Library), fusion contrôlée.</li>
+      <li><strong>Backup &amp; restore</strong> : snapshot JSON (hors documents Library — backup complet = <code>BACKUP DATABASE</code>).</li>
+      <li><strong>CSV feeds</strong> (repliés) : LCR quotidien, deadlines, KPI capital (legacy), counterparty RWA — modes <em>replace</em> / <em>append</em>.</li>
+      <li><strong>Risk Appetite</strong> : seuils red/amber par entité — pilote toutes les couleurs de statut des rapports.</li>
     </ul>
   </section>
 
@@ -291,8 +328,8 @@ dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code><
   <section id="persistence">
     <h2><span class="num">8</span>Persistance &amp; réinitialisation</h2>
     <ul>
-      <li><strong>Mode local</strong> : les données vivent dans <code>localStorage</code> sous la clé <code>regReportData</code>. Vider le cache (ou « Reset » dans Admin) revient au seed de <code>constants.ts</code>.</li>
-      <li><strong>Mode API</strong> : voir la partie back-end ci-dessous.</li>
+      <li><strong>Mode API (nominal)</strong> : tout vit dans SQL Server, schéma 100 % relationnel — chaque valeur a sa colonne. Les évolutions de schéma sont appliquées automatiquement au démarrage de l'API (migrateur intégré, table <code>__SchemaMigrations</code> — voir <code>docs/UPGRADES.md</code>). Backup complet : <code>BACKUP DATABASE RegReport</code> (couvre aussi les documents de la Library).</li>
+      <li><strong>Mode local (démo)</strong> : sans API, les données vivent dans <code>localStorage</code> (clé <code>regReportData</code>) ; « Reset » dans Admin revient au seed de <code>constants.ts</code>.</li>
     </ul>
   </section>
 
