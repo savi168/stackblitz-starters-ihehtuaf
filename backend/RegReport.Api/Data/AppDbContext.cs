@@ -220,6 +220,11 @@ public class AppDbContext : DbContext
         {
             e.ToTable("BridgeAdjustments");
             e.HasKey(x => x.Id);
+            // Short columns so the composite index stays far below the
+            // 1700-byte nonclustered-key limit (dates are ISO strings).
+            e.Property(x => x.Entity).HasMaxLength(200);
+            e.Property(x => x.FromDate).HasMaxLength(32);
+            e.Property(x => x.ToDate).HasMaxLength(32);
             e.HasIndex(x => new { x.Entity, x.FromDate, x.ToDate });
         });
 
