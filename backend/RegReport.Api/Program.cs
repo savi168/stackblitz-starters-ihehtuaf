@@ -76,13 +76,19 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+}
 
-    // Quick start: create the schema from the model and seed demo data.
-    // For production, replace this with EF Core migrations (see README.md).
-    using var scope = app.Services.CreateScope();
+// Schema lifecycle, every environment: EnsureCreated builds the full schema
+// on an EMPTY database; SchemaMigrator then applies the additive, idempotent
+// upgrade steps on an existing one (new tables/columns of later releases) —
+// existing data is never dropped, so releases upgrade themselves without a
+// manual SSMS session. Demo data is only seeded in Development.
+using (var scope = app.Services.CreateScope())
+{
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
-    DbSeeder.Seed(db);
+    SchemaMigrator.Apply(db, app.Logger);
+    if (app.Environment.IsDevelopment()) DbSeeder.Seed(db);
 }
 
 app.UseCors(CorsPolicy);

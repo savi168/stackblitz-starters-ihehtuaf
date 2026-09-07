@@ -5,10 +5,9 @@ import { calculateKpis, formatDate, formatNumber } from '../utils';
 import { Card, PageHeader, BackButton, Select, TabButton, SectionHeader } from '../components';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import { PALETTE } from '../theme';
+import { KLER_SOVEREIGN_TYPES } from '../services/klerImport';
 
-type ReportEntity = 'Liechtenstein' | 'Bank' | 'Hong Kong';
-
-const LcrReportCard: FC<{ entity: ReportEntity; date: string }> = ({ entity, date }) => {
+const LcrReportCard: FC<{ entity: string; date: string }> = ({ entity, date }) => {
     const { data, getKpisForDate } = useData();
 
     const currentLcr = useMemo(() => getKpisForDate(entity, date), [entity, date, getKpisForDate]);
@@ -66,14 +65,18 @@ const LcrReportCard: FC<{ entity: ReportEntity; date: string }> = ({ entity, dat
     );
 };
 
-const LargeExposuresReportCard: FC<{ entity: ReportEntity; date: string }> = ({ entity, date }) => {
+const LargeExposuresReportCard: FC<{ entity: string; date: string }> = ({ entity, date }) => {
     const { data } = useData();
 
     const exposureData = useMemo(() => {
         return data.largeExposures
             .filter(le => le.entity === entity && le.date === date)
-            .map(le => ({ ...le, utilization: (le.exposureValue / le.limit) * 100 }))
-            .sort((a, b) => b.utilization - a.utilization);
+            .map(le => ({
+                ...le,
+                utilization: le.limit > 0 ? (le.exposureValue / le.limit) * 100 : 0,
+                exempt: KLER_SOVEREIGN_TYPES.has((le.counterpartyType || '').toUpperCase()),
+            }))
+            .sort((a, b) => (Number(a.exempt) - Number(b.exempt)) || b.utilization - a.utilization);
     }, [data.largeExposures, entity, date]);
 
     if (exposureData.length === 0) {
@@ -106,6 +109,7 @@ const LargeExposuresReportCard: FC<{ entity: ReportEntity; date: string }> = ({ 
                     <thead>
                         <tr className="border-b border-efg-line">
                             <th className="pb-2 text-xs uppercase tracking-widest text-brand-text-secondary font-medium">Counterparty</th>
+                            <th className="pb-2 text-xs uppercase tracking-widest text-brand-text-secondary font-medium">Type</th>
                             <th className="pb-2 text-xs uppercase tracking-widest text-brand-text-secondary font-medium text-right">Exposure</th>
                             <th className="pb-2 text-xs uppercase tracking-widest text-brand-text-secondary font-medium text-right">Limit</th>
                             <th className="pb-2 text-xs uppercase tracking-widest text-brand-text-secondary font-medium pl-4">Utilization</th>
@@ -115,10 +119,15 @@ const LargeExposuresReportCard: FC<{ entity: ReportEntity; date: string }> = ({ 
                         {exposureData.map(le => (
                             <tr key={le.counterparty} className="border-b border-efg-line last:border-0">
                                 <td className="py-3 font-medium text-brand-text-primary">{le.counterparty}</td>
+                                <td className="py-3 text-brand-text-secondary text-xs">{le.counterpartyType || '—'}</td>
                                 <td className="py-3 text-right font-mono text-brand-text-secondary">{formatNumber(le.exposureValue)}</td>
-                                <td className="py-3 text-right font-mono text-brand-text-secondary">{formatNumber(le.limit)}</td>
+                                <td className="py-3 text-right font-mono text-brand-text-secondary">{le.exempt ? '—' : formatNumber(le.limit)}</td>
                                 <td className="py-3 pl-4 w-36">
-                                    <UtilizationBar value={le.utilization} />
+                                    {le.exempt ? (
+                                        <span className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-semibold bg-brand-secondary/10 text-brand-secondary">exempted</span>
+                                    ) : (
+                                        <UtilizationBar value={le.utilization} />
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -131,17 +140,27 @@ const LargeExposuresReportCard: FC<{ entity: ReportEntity; date: string }> = ({ 
 
 export const DailyReportsPage: FC = () => {
     const { data } = useData();
-    const [selectedEntity, setSelectedEntity] = useState<ReportEntity>('Liechtenstein');
+    const [entitySel, setEntitySel] = useState('');
     const [selectedDate, setSelectedDate] = useState('');
 
-    const entities: ReportEntity[] = ['Liechtenstein', 'Bank', 'Hong Kong'];
+    // Only entities that actually carry daily data (LCR history or large
+    // exposures) — no hardcoded list.
+    const entities = useMemo(() => {
+        const set = new Set<string>();
+        data.kpisHistory.forEach(k => set.add(k.entity));
+        data.largeExposures.forEach(le => set.add(le.entity));
+        return Array.from(set).sort();
+    }, [data.kpisHistory, data.largeExposures]);
+    const selectedEntity = entities.includes(entitySel) ? entitySel : entities[0] || '';
+
+    const hasLargeExposures = useMemo(
+        () => data.largeExposures.some(le => le.entity === selectedEntity),
+        [data.largeExposures, selectedEntity]);
 
     const availableDates = useMemo(() => {
         const allDates = new Set<string>();
         data.kpisHistory.filter(k => k.entity === selectedEntity).forEach(k => allDates.add(k.date));
-        if (selectedEntity !== 'Bank') {
-            data.largeExposures.filter(le => le.entity === selectedEntity).forEach(le => allDates.add(le.date));
-        }
+        data.largeExposures.filter(le => le.entity === selectedEntity).forEach(le => allDates.add(le.date));
         return Array.from(allDates).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
     }, [data.kpisHistory, data.largeExposures, selectedEntity]);
 
@@ -164,8 +183,11 @@ export const DailyReportsPage: FC = () => {
                         <p className="text-xs font-semibold uppercase tracking-widest text-brand-text-secondary mb-2">Entity</p>
                         <div className="bg-brand-bg-body p-1 rounded-md flex items-center gap-2 flex-wrap">
                             {entities.map(entity => (
-                                <TabButton key={entity} label={entity} isActive={selectedEntity === entity} onClick={() => setSelectedEntity(entity)} isSubTab />
+                                <TabButton key={entity} label={entity} isActive={selectedEntity === entity} onClick={() => setEntitySel(entity)} isSubTab />
                             ))}
+                            {entities.length === 0 && (
+                                <p className="text-sm text-brand-text-secondary px-2 py-1">No entity has daily data yet.</p>
+                            )}
                         </div>
                     </div>
                     <div className="md:w-48">
@@ -183,7 +205,7 @@ export const DailyReportsPage: FC = () => {
             {selectedDate ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in">
                     <LcrReportCard entity={selectedEntity} date={selectedDate} />
-                    {(selectedEntity === 'Liechtenstein' || selectedEntity === 'Hong Kong') && (
+                    {hasLargeExposures && (
                         <LargeExposuresReportCard entity={selectedEntity} date={selectedDate} />
                     )}
                 </div>
