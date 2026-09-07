@@ -1023,13 +1023,25 @@ export const CapitalWorkbenchPage: React.FC = () => {
         setParsed(parseWorkbook(buffer, file.name, data.importMapping));
         setImportFile(file); // archived on confirm, with the chosen entity
       } catch (regErr) {
-        // Not a FINMA/SNB return: try the internal finance extracts
-        // (balance sheet / P&L monthly / equity statement).
-        const { parseFinWorkbook } = await import('../services/finStatementImport');
-        const finDate = effectiveDate || new Date().toISOString().slice(0, 10);
-        const fin = parseFinWorkbook(buffer, file.name, finDate);
-        applyFinImport(fin);
-        void archiveSource(file, entity, finDate, 'finExtract');
+        // Not a FINMA/SNB return: try the K-LER large-exposure template, then
+        // the internal finance extracts (balance sheet / P&L / equity).
+        let isKler = false;
+        try {
+          const { parseKlerWorkbook } = await import('../services/klerImport');
+          const kler = parseKlerWorkbook(buffer, file.name);
+          isKler = true;
+          applyKlerImport(kler);
+          void archiveSource(file, entity, kler.date, 'kler');
+        } catch (klerErr) {
+          // A real K-LER file that failed mid-parse must surface its error;
+          // a non-K-LER file falls through to the finance extracts.
+          if (isKler || !(klerErr instanceof Error && /Not a K-LER/.test(klerErr.message))) throw klerErr;
+          const { parseFinWorkbook } = await import('../services/finStatementImport');
+          const finDate = effectiveDate || new Date().toISOString().slice(0, 10);
+          const fin = parseFinWorkbook(buffer, file.name, finDate);
+          applyFinImport(fin);
+          void archiveSource(file, entity, finDate, 'finExtract');
+        }
       }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
@@ -1037,6 +1049,25 @@ export const CapitalWorkbenchPage: React.FC = () => {
       setImporting(false);
       if (fileInput.current) fileInput.current.value = '';
     }
+  };
+
+  // K-LER large-exposure template: replaces the large exposures of the
+  // current entity for the file's reporting date.
+  const applyKlerImport = (kler: import('../services/klerImport').ParsedKler) => {
+    const t1m = kler.tier1Kchf !== null ? kler.tier1Kchf / 1000 : null;
+    if (!window.confirm(
+      `"${kler.fileName}" recognized as FINMA K-LER (${kler.rows.length} counterparties, ${kler.date}` +
+      (t1m ? `, Tier 1 ${t1m.toFixed(0)} mCHF` : '') +
+      (kler.skipped.length ? `; ${kler.skipped.length} group-business row(s) skipped` : '') +
+      `).\nReplace the large exposures of ${entity} — ${kler.date}?`)) return;
+    setData(prev => ({
+      ...prev,
+      largeExposures: [
+        ...(prev.largeExposures || []).filter(l => !(l.entity === entity && l.date === kler.date)),
+        ...kler.rows.map(r => ({ ...r, entity })),
+      ],
+    }));
+    setNotice(`${kler.rows.length} large exposure(s) imported for ${entity} — ${kler.date} (K-LER${t1m ? `, Tier 1 ${t1m.toFixed(0)} mCHF` : ''}). They feed the Large Exposures report tab and the overview tile.`);
   };
 
   // Import parsed internal finance statements (BS / P&L monthly / equity) for

@@ -2002,8 +2002,13 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
       const n = name.trim().toLowerCase();
       return sovNames.has(n) || /sovereign|government|gouvernement|confederation|conféd|treasury|central bank|banque centrale|\bsnb\b|\bbns\b|\becb\b|\bbce\b|\bfed\b|\bboe\b/.test(n);
     };
+    // K-LER imports carry the exact FINMA type — sovereign family excluded
+    // precisely; name keywords only as fallback for keyed data.
+    const SOVISH = new Set(['SOV', 'SOB', 'SOO', 'CAN', 'MUN', 'FPS']);
+    const isSovRec = (l: { counterparty: string; counterpartyType?: string }) =>
+      l.counterpartyType ? SOVISH.has(l.counterpartyType.toUpperCase()) : isSov(l.counterparty);
     const topExpoRec = leDate
-      ? [...les.filter(l => l.date === leDate && !isSov(l.counterparty))].sort((a, b) => b.exposureValue - a.exposureValue)[0]
+      ? [...les.filter(l => l.date === leDate && !isSovRec(l))].sort((a, b) => b.exposureValue - a.exposureValue)[0]
       : undefined;
     const topExpo = topExpoRec && tier1
       ? { name: topExpoRec.counterparty, pct: (topExpoRec.exposureValue / tier1) * 100 }
@@ -2328,8 +2333,8 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
         <div className="overflow-x-auto">
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="bg-brand-bg-body"><tr>
-              {['Counterparty', 'Exposure', '% of Tier 1', 'Record limit', 'Utilisation', 'Status'].map((h, i) =>
-                <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 && i < 5 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+              {['Counterparty', 'Type', 'Exposure', '% of Tier 1', 'Record limit', 'Utilisation', 'Status'].map((h, i) =>
+                <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 1 && i < 6 ? 'text-right' : 'text-left'}`}>{h}</th>)}
             </tr></thead>
             <tbody>
               {rows.map(r => {
@@ -2338,6 +2343,7 @@ const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity,
                 return (
                   <tr key={r.counterparty} className="border-t border-efg-line">
                     <td className="px-3 py-1.5">{r.counterparty}</td>
+                    <td className="px-3 py-1.5 text-brand-text-secondary">{r.counterpartyType || '—'}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{fmt(r.exposureValue, 0)}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${breach ? 'text-status-red font-semibold' : large ? 'text-status-amber font-semibold' : ''}`}>{fmtPct(r.pctT1, 1)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{r.limit > 0 ? fmt(r.limit, 0) : '—'}</td>

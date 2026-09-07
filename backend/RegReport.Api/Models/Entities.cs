@@ -285,6 +285,8 @@ public class LargeExposure
     public string Counterparty { get; set; } = "";
     public double ExposureValue { get; set; }
     public double Limit { get; set; }
+    // FINMA K-LER counterparty type (SOV, SOB, BFN, NFC…), when imported.
+    public string? CounterpartyType { get; set; }
 }
 
 public class TeamMember

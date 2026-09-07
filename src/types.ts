@@ -137,6 +137,9 @@ export interface LargeExposure {
   counterparty: string;
   exposureValue: number; // in millions
   limit: number; // in millions
+  /** FINMA K-LER counterparty type (SOV, SOB, BFN, NFC…) when imported from
+   * the LER template — drives the sovereign filter of the overview tile. */
+  counterpartyType?: string;
 }
 
 export interface TeamMember {
