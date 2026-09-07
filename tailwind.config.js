@@ -1,32 +1,36 @@
 /** @type {import('tailwindcss').Config} */
 // Palette mirrors src/theme.ts (EFG-inspired private-banking style). The
-// semantic brand-* token names are kept so existing classNames recolor in place.
+// semantic brand-* token names are kept so existing classNames recolor in
+// place — every token resolves to a CSS variable (RGB triplet defined in
+// src/index.css for :root and .dark), which is what makes the dark mode a
+// pure CSS switch: no per-page class changes.
 export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
-        'brand-primary': '#8C3A38',        // Deep maroon red (emphasis)
-        'brand-primary-dark': '#6E2A28',   // Darker red (hover)
-        'brand-secondary': '#52616A',      // Slate
-        'brand-secondary-dark': '#3A4248', // Dark slate
-        'brand-accent': '#A9B8BE',         // Light blue-grey (mist)
-        'brand-text-primary': '#2B3338',   // Charcoal
-        'brand-text-secondary': '#6B7780', // Slate grey
-        'brand-bg-body': '#F4F5F4',        // Cool off-white
+        'brand-primary': 'rgb(var(--brand-primary) / <alpha-value>)',        // deep maroon red (emphasis)
+        'brand-primary-dark': 'rgb(var(--brand-primary-dark) / <alpha-value>)',
+        'brand-secondary': 'rgb(var(--brand-secondary) / <alpha-value>)',    // slate
+        'brand-secondary-dark': 'rgb(var(--brand-secondary-dark) / <alpha-value>)',
+        'brand-accent': 'rgb(var(--brand-accent) / <alpha-value>)',          // mist
+        'brand-text-primary': 'rgb(var(--brand-text-primary) / <alpha-value>)',
+        'brand-text-secondary': 'rgb(var(--brand-text-secondary) / <alpha-value>)',
+        'brand-bg-body': 'rgb(var(--brand-bg-body) / <alpha-value>)',
         // Extended EFG-style tokens
-        'efg-steel': '#7E8C9A',
-        'efg-sand': '#C9C7BB',
-        'efg-line': '#E4E6E4',
-        'status-green': '#3F7A5E',
-        'status-amber': '#B8862E',
-        'status-red': '#A33A33',
+        'efg-steel': 'rgb(var(--efg-steel) / <alpha-value>)',
+        'efg-sand': 'rgb(var(--efg-sand) / <alpha-value>)',
+        'efg-line': 'rgb(var(--efg-line) / <alpha-value>)',
+        'status-green': 'rgb(var(--status-green) / <alpha-value>)',
+        'status-amber': 'rgb(var(--status-amber) / <alpha-value>)',
+        'status-red': 'rgb(var(--status-red) / <alpha-value>)',
       },
       boxShadow: {
         card: '0 1px 2px 0 rgb(43 51 56 / 0.04), 0 1px 3px 0 rgb(43 51 56 / 0.06)',

@@ -3,22 +3,31 @@
  * a muted, sophisticated set of slate / steel / sand tones with a single deep
  * red used sparingly for emphasis.
  *
- * These hex values are the single source of truth for chart colors. The same
- * tokens are mirrored (by name) in tailwind.config.js for use in classNames.
+ * The text/grid tokens (ink, muted, line, bg) resolve from the CSS variables
+ * defined in src/index.css at render time, so charts follow the light/dark
+ * theme automatically. The series colors stay fixed — they are chosen to read
+ * on both light and dark surfaces.
  */
+
+const cssVar = (name: string, fallback: string): string => {
+  if (typeof document === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v ? `rgb(${v})` : fallback;
+};
+
 export const PALETTE = {
-  ink: '#2B3338',        // primary text — charcoal
-  muted: '#6B7780',      // secondary text — slate grey
-  red: '#8C3A38',        // primary emphasis — deep maroon red
-  redBright: '#B23A35',  // brighter red for highlights / hover
+  get ink() { return cssVar('--pal-ink', '#2B3338'); },       // primary text — charcoal
+  get muted() { return cssVar('--pal-muted', '#6B7780'); },   // secondary text — slate grey
+  red: '#B23A35',        // primary emphasis — maroon red (readable on both themes)
+  redBright: '#C25650',  // brighter red for highlights / hover
   slate: '#52616A',      // primary chart color — dark slate
-  slateDark: '#3A4248',  // darker slate (totals)
+  slateDark: '#7E8C9A',  // series variant (was near-black; steel reads on dark too)
   steel: '#7E8C9A',      // secondary chart color — blue-grey
   mist: '#A9B8BE',       // tertiary chart color — light blue-grey
   sand: '#C9C7BB',       // quaternary chart color — warm light grey
-  line: '#E4E6E4',       // grid / hairline rules
-  bg: '#F4F5F4',         // page background — cool off-white
-} as const;
+  get line() { return cssVar('--pal-line', '#E4E6E4'); },     // grid / hairline rules
+  get bg() { return cssVar('--pal-bg', '#F4F5F4'); },         // page background
+};
 
 /** Ordered categorical palette for multi-series charts (pies, multi-line, stacks). */
 export const CHART_COLORS = [
@@ -32,7 +41,7 @@ export const CHART_COLORS = [
 
 /** Semantic colors for status thresholds (kept distinct from the brand palette). */
 export const STATUS_COLORS = {
-  green: '#3F7A5E',
-  amber: '#B8862E',
-  red: '#A33A33',
-} as const;
+  get green() { return cssVar('--status-green', '#3F7A5E'); },
+  get amber() { return cssVar('--status-amber', '#B8862E'); },
+  get red() { return cssVar('--status-red', '#A33A33'); },
+};

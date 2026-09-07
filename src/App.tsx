@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
 import { ErrorBoundary } from './components';
@@ -81,6 +81,21 @@ const NavBar: React.FC = () => {
 // --- APP ROUTER ---
 
 const App: React.FC = () => {
+  // Dark mode: a class on <html> flips the CSS variables (see index.css).
+  // The class is applied inside the initializer so the very first render —
+  // charts included — already reads the right theme tokens.
+  const [dark, setDark] = useState(() => {
+    let saved = false;
+    try { saved = localStorage.getItem('theme') === 'dark'; } catch { /* no storage */ }
+    document.documentElement.classList.toggle('dark', saved);
+    return saved;
+  });
+  const toggleTheme = () => {
+    const next = !dark;
+    document.documentElement.classList.toggle('dark', next);
+    try { localStorage.setItem('theme', next ? 'dark' : 'light'); } catch { /* no storage */ }
+    setDark(next);
+  };
   return (
     <DataProvider>
       <HashRouter>
@@ -95,7 +110,13 @@ const App: React.FC = () => {
                   Regulatory Reporting
                 </span>
               </Link>
-              <NavBar />
+              <div className="flex items-center gap-2">
+                <NavBar />
+                <button onClick={toggleTheme} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+                  className="text-base leading-none px-2 py-1 rounded-md border border-transparent hover:border-efg-line transition-colors">
+                  {dark ? '☀️' : '🌙'}
+                </button>
+              </div>
             </nav>
           </header>
           <main className="flex-1">

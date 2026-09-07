@@ -24,6 +24,9 @@ export const exportSectionPdf = async ({ root, title, entity, date, compare, fil
   const scale = Math.min(4, Math.max(3, window.devicePixelRatio || 1));
 
   const onclone = (clonedDoc: Document) => {
+    // PDF packs are always exported in the light theme, whatever the screen
+    // shows — dropping the class flips every CSS variable back to light.
+    clonedDoc.documentElement.classList.remove('dark');
     const reset = clonedDoc.createElement('style');
     reset.textContent =
       '*,*::before,*::after{animation:none!important;' +

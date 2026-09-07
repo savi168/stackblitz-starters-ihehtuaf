@@ -18,9 +18,84 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* ---------------------------------------------------------------------------
+ * Theme tokens (RGB triplets, consumed by tailwind.config.js and src/theme.ts).
+ * Light = the original EFG palette; .dark redefines the same tokens, which is
+ * the whole dark mode — no per-page class changes.
+ * ------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --brand-primary: 140 58 56;
+  --brand-primary-dark: 110 42 40;
+  --brand-secondary: 82 97 106;
+  --brand-secondary-dark: 58 66 72;
+  --brand-accent: 169 184 190;
+  --brand-text-primary: 43 51 56;
+  --brand-text-secondary: 107 119 128;
+  --brand-bg-body: 244 245 244;
+  --efg-steel: 126 140 154;
+  --efg-sand: 201 199 187;
+  --efg-line: 228 230 228;
+  --status-green: 63 122 94;
+  --status-amber: 184 134 46;
+  --status-red: 163 58 51;
+  /* Chart palette (src/theme.ts reads these at render time) */
+  --pal-ink: 43 51 56;
+  --pal-muted: 107 119 128;
+  --pal-line: 228 230 228;
+  --pal-bg: 244 245 244;
+}
+.dark {
+  color-scheme: dark;
+  --brand-primary: 190 92 88;
+  --brand-primary-dark: 158 70 67;
+  --brand-secondary: 143 161 172;
+  --brand-secondary-dark: 169 184 190;
+  --brand-accent: 122 138 146;
+  --brand-text-primary: 226 231 233;
+  --brand-text-secondary: 148 160 168;
+  --brand-bg-body: 18 22 25;
+  --efg-steel: 126 140 154;
+  --efg-sand: 122 118 106;
+  --efg-line: 50 57 62;
+  --status-green: 106 168 138;
+  --status-amber: 211 162 74;
+  --status-red: 205 100 94;
+  --pal-ink: 226 231 233;
+  --pal-muted: 148 160 168;
+  --pal-line: 55 62 67;
+  --pal-bg: 18 22 25;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Dark skin for the raw Tailwind grays/white used across the pages (surfaces
+ * and hairlines) — targeted overrides beat the utilities by specificity. */
+.dark .bg-white { background-color: #1C2125; }
+.dark .bg-gray-50 { background-color: #21272C; }
+.dark .bg-gray-100 { background-color: #262D33; }
+.dark .bg-gray-200 { background-color: #2C343B; }
+.dark .hover\:bg-gray-50:hover { background-color: #262D33; }
+.dark .hover\:bg-gray-100:hover { background-color: #2C343B; }
+.dark .hover\:bg-gray-200:hover { background-color: #333C44; }
+.dark .hover\:bg-gray-300:hover { background-color: #3A444D; }
+.dark .border-gray-200 { border-color: #333A40; }
+.dark .border-gray-300 { border-color: #3E464D; }
+.dark .text-gray-300 { color: #566068; }
+.dark .text-gray-400 { color: #6B7780; }
+.dark .text-gray-500 { color: #8B979F; }
+.dark .text-gray-600 { color: #9DA9B0; }
+.dark .text-gray-700 { color: #C3CCD1; }
+.dark .hover\:text-gray-600:hover { color: #AEB9BF; }
+.dark .hover\:text-gray-700:hover { color: #C3CCD1; }
+.dark .shadow-card { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 0 rgb(0 0 0 / 0.35); }
+/* Native form controls + the styled file-input buttons */
+.dark input, .dark select, .dark textarea { color-scheme: dark; }
+.dark input[type="file"]::file-selector-button {
+  background-color: #262D33; border-color: #3E464D; color: #C3CCD1;
+}
 
 @layer base {
   body {
