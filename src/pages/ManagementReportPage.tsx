@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, ComposedChart, LabelList, Legend, Line, LineChart,
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -269,13 +269,43 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
   const effFrom = compareDate || (beforeAsOf.length > 0 ? beforeAsOf[beforeAsOf.length - 1].date : '');
   const effTo = asOf;
 
+  // YTD P&L flow from the monthly P&L statements — the economically correct
+  // P&L bar for the bridge (the CASABIS interim-P&L stock moves with year-end
+  // reclassifications; the statements carry the real result creation).
+  const pnlYtdAt = useCallback((dt: string): number | null => {
+    const year = dt.slice(0, 4);
+    const all = (data.finStatements || [])
+      .filter(s => s.kind === 'pnl' && s.entity === entity && s.date.slice(0, 4) === year && s.date <= dt);
+    if (all.length === 0) return null;
+    const gaaps = Array.from(new Set(all.map(gaapOf)));
+    const g = gaaps.includes(DEFAULT_GAAP) ? DEFAULT_GAAP : gaaps.sort()[0];
+    return all.filter(s => gaapOf(s) === g).reduce((sum, s) => sum + computeFinSummary(s).keyFigure, 0);
+  }, [data.finStatements, entity]);
+
+  const pnlFlow = useMemo(() => {
+    if (!effFrom || !effTo) return null;
+    const endYtd = pnlYtdAt(effTo);
+    if (endYtd === null) return null;
+    if (effFrom.slice(0, 4) === effTo.slice(0, 4)) {
+      const startYtd = pnlYtdAt(effFrom);
+      return startYtd === null ? null : Math.round((endYtd - startYtd) * 100) / 100;
+    }
+    // Cross-year compare: what the new year earned up to the reference, plus
+    // what the old year still earned after the compared period (usually 0 —
+    // the compared period is typically December).
+    const startYtd = pnlYtdAt(effFrom);
+    const startYearEnd = pnlYtdAt(`${effFrom.slice(0, 4)}-12-31`);
+    const tail = startYtd !== null && startYearEnd !== null ? startYearEnd - startYtd : 0;
+    return Math.round((endYtd + tail) * 100) / 100;
+  }, [effFrom, effTo, pnlYtdAt]);
+
   const bridge = useMemo(() => {
     if (!effFrom || !effTo || effFrom === effTo) return null;
     const a = getKpisForDate(entity, effFrom);
     const b = getKpisForDate(entity, effTo);
     if (!a || !b) return null;
-    return calculateCet1RatioEvolutionData(a, b);
-  }, [entity, effFrom, effTo, getKpisForDate]);
+    return calculateCet1RatioEvolutionData(a, b, pnlFlow !== null ? { pnlFlow } : undefined);
+  }, [entity, effFrom, effTo, getKpisForDate, pnlFlow]);
 
   // Manual bridge lines (acquisitions, disposals, debt redemptions…) for this
   // entity + period pair. Shown as their own bars; their sum is carved out of
@@ -438,7 +468,14 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
           </div>
         </div>
         {bridgeWithManual ? (
-          <CapitalEvolutionChart data={bridgeWithManual} />
+          <>
+            <CapitalEvolutionChart data={bridgeWithManual} />
+            <p className="text-[11px] text-brand-text-secondary mt-1">
+              {pnlFlow !== null
+                ? `P&L & non-cash bar = YTD P&L flow from the monthly P&L statements over the period (${fmt(pnlFlow, 1)} mCHF) — year-end interim-P&L reclassifications stay in "Other".`
+                : 'P&L & non-cash bar = change in the interim-P&L stock of the two capital reports (no monthly P&L statements found for these periods — import them in the Workbench for the true YTD flow).'}
+            </p>
+          </>
         ) : (
           <p className="text-sm text-brand-text-secondary py-8 text-center">
             Select two different periods with CET1 breakdown data (the movement detail needs the composition — available for imported or workbench-entered reports).

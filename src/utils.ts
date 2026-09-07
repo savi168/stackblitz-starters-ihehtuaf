@@ -152,7 +152,14 @@ export const getTypeBadge = (type: Deadline['type']) => {
 
 type WaterfallDataPoint = { name: string; value: number };
 
-export const calculateCet1RatioEvolutionData = (startData: CalculatedKpis, endData: CalculatedKpis) => {
+export const calculateCet1RatioEvolutionData = (
+    startData: CalculatedKpis, endData: CalculatedKpis,
+    /** pnlFlow: the real P&L earned between the two periods (e.g. YTD flow
+     * from the monthly P&L statements). When provided it replaces the
+     * interim-P&L stock delta of the breakdowns — which moves with year-end
+     * reclassifications — and the residual lands in "Other". */
+    opts?: { pnlFlow?: number }
+) => {
     // A missing/zero dividend is a valid state (e.g. a mid-year CASABIS with
     // no futureDividends line) — it must not suppress the whole bridge; the
     // computation below already defaults it to 0.
@@ -165,12 +172,13 @@ export const calculateCet1RatioEvolutionData = (startData: CalculatedKpis, endDa
     const { cet1CapitalBreakdown: endB, rwaTotal: endRwa } = endData;
 
     // --- Calculate capital deltas ---
-    const pnlDelta = endB.pnl - (startB.pnl || 0);
+    const pnlDelta = opts?.pnlFlow ?? (endB.pnl - (startB.pnl || 0));
     const dividendDelta = -(endB.dividend || 0);
     const buybackDelta = -(endB.shareBuyback - startB.shareBuyback);
-    
-    // Other capital movements (equity changes, other deductions)
-    const otherCapitalDelta = (endData.cet1Capital - endB.pnl) - (startData.cet1Capital - startB.pnl) - buybackDelta - dividendDelta;
+
+    // Other capital movements (equity changes, other deductions) — the
+    // residual so the four deltas always sum to the total capital change.
+    const otherCapitalDelta = (endData.cet1Capital - startData.cet1Capital) - pnlDelta - buybackDelta - dividendDelta;
 
 
     // --- Calculate ratio impacts (bps) ---
