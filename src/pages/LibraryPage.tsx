@@ -232,6 +232,37 @@ export const LibraryPage: React.FC = () => {
     } catch (e) { setError(String((e as Error).message || e)); }
   };
 
+  // Drag & drop: drag a file row onto a folder to move it; drop files from
+  // the OS explorer onto a folder to upload straight into it.
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [dropFolder, setDropFolder] = useState<string | null>(null);
+  const dropProps = (target: string) => (!isAdmin ? {} : {
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = dragId !== null ? 'move' : 'copy';
+      setDropFolder(target);
+    },
+    onDragLeave: () => setDropFolder(cur => (cur === target ? null : cur)),
+    onDrop: async (e: React.DragEvent) => {
+      e.preventDefault();
+      setDropFolder(null);
+      try {
+        const osFiles = Array.from(e.dataTransfer.files || []);
+        if (osFiles.length > 0) {
+          setBusy(true);
+          for (const f of osFiles) await uploadDocument(apiBaseUrl!, f, { folder: target });
+        } else {
+          const id = Number(e.dataTransfer.getData('text/plain')) || dragId;
+          if (id) await updateDocument(apiBaseUrl!, id, { folder: target });
+        }
+        refresh();
+      } catch (err) { setError(String((err as Error).message || err)); }
+      finally { setBusy(false); setDragId(null); }
+    },
+  });
+  const dropHighlight = (target: string) =>
+    dropFolder === target ? ' bg-brand-secondary/10 ring-1 ring-brand-secondary rounded' : '';
+
   // Built-in docs open inside the app (md fetched and rendered).
   const openBuiltIn = async (title: string, path: string) => {
     try {
@@ -308,7 +339,11 @@ export const LibraryPage: React.FC = () => {
   };
 
   const fileRow = (d: DocMeta, indent: number) => (
-    <div key={d.id} className="flex items-center gap-2 py-1 border-t border-efg-line/50 text-sm"
+    <div key={d.id}
+      draggable={isAdmin}
+      onDragStart={e => { setDragId(d.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(d.id)); }}
+      onDragEnd={() => { setDragId(null); setDropFolder(null); }}
+      className={`flex items-center gap-2 py-1 border-t border-efg-line/50 text-sm ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === d.id ? 'opacity-40' : ''}`}
       style={{ paddingLeft: `${indent * 1.25 + 1.5}rem` }}>
       <span>{fileIcon(d)}</span>
       <button
@@ -398,6 +433,12 @@ export const LibraryPage: React.FC = () => {
               </p>
             ) : (
               <div className="border border-efg-line rounded-lg px-3 py-1">
+                {dragId !== null && (
+                  <div {...dropProps('')}
+                    className={`flex items-center gap-2 py-1.5 text-sm text-brand-text-secondary border border-dashed border-gray-300 rounded my-1${dropHighlight('')}`}>
+                    <span className="pl-2">📂 Drop here to move to the root ( / )</span>
+                  </div>
+                )}
                 {filtered.filter(d => !d.folder).map(d => fileRow(d, 0))}
                 {folders.map(f => {
                   if (hiddenBy(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')) return null;
@@ -405,8 +446,8 @@ export const LibraryPage: React.FC = () => {
                   const inFolder = filtered.filter(d => d.folder === f);
                   return (
                     <React.Fragment key={f}>
-                      <div onClick={() => toggle(f)}
-                        className="group flex items-center gap-2 py-1.5 border-t border-efg-line/50 cursor-pointer hover:bg-brand-bg-body/50 text-sm font-semibold"
+                      <div onClick={() => toggle(f)} {...dropProps(f)}
+                        className={`group flex items-center gap-2 py-1.5 border-t border-efg-line/50 cursor-pointer hover:bg-brand-bg-body/50 text-sm font-semibold${dropHighlight(f)}`}
                         style={{ paddingLeft: `${depth * 1.25}rem` }}>
                         <span>{!q && collapsed.has(f) ? '▸' : '▾'}</span>
                         <span>📁 {f.split('/').pop()}</span>
@@ -434,7 +475,8 @@ export const LibraryPage: React.FC = () => {
             )}
             <p className="text-[11px] text-brand-text-secondary mt-3">
               Folders: ＋ New folder (or ＋ sub on a folder row) creates any depth of subfolders — a folder becomes permanent
-              once it holds at least one file; 📂 moves a file to another folder; ⬆ here preselects a folder for the next upload.
+              once it holds at least one file. Move files by drag &amp; drop onto a folder (or the root drop zone), or with the 📂 button;
+              dropping files from the Windows explorer onto a folder uploads them straight into it; ⬆ here preselects a folder for the next upload.
               Files are stored inside the RegReport SQL database (varbinary) — a database backup includes every document,
               nothing leaves the local environment, and anyone can re-download the original at any time.
               Workbench source files (working papers, CASABIS/LCR_G/NSFR_G) uploaded from the Workbench page land here too,
