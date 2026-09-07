@@ -7,6 +7,11 @@ export const centralData: CentralData = {
         { id: 3, name: "Charlie Petit", role: "IT Specialist", email: "charlie.petit@example.com", phone: "555-0103" },
         { id: 4, name: "Diana Lefevre", role: "Data Scientist", email: "diana.lefevre@example.com", phone: "555-0104" }
     ],
+    contacts: [
+        { id: 1, name: "Marc Keller", role: "Head of Trade Finance", department: "Group Treasury", email: "marc.keller@example.com", phone: "555-0201", topics: "garantie bancaire, letter of credit, collateral", notes: "First contact for any bank guarantee issuance; backup: treasury desk.", procedure: "Bank guarantee issuance" },
+        { id: 2, name: "Sophie Brunner", role: "Senior Auditor", department: "External Audit", company: "BigFour SA", email: "s.brunner@example.com", topics: "audit, year-end, PBC list", notes: "Coordinates the regulatory audit sample requests." },
+        { id: 3, name: "Li Wei", role: "Custody Operations", department: "Operations", company: "Custodian Bank", email: "li.wei@example.com", phone: "555-0203", topics: "custody, settlement, corporate actions" }
+    ],
     projects: [
         { id: 1, name: "Q4 Regulatory Filing Automation", description: "Automate the generation and submission of key regulatory reports for the fourth quarter.", key: "QREG", color: "#0d5c63" },
         { id: 2, name: "Risk Appetite Framework Review", description: "Annual review and update of the firm-wide risk appetite statements and thresholds.", key: "RISK", color: "#0ea5e9" }

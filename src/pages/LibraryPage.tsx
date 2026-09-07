@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, PageHeader, SectionHeader } from '../components';
 import {
@@ -207,7 +208,9 @@ export const LibraryPage: React.FC = () => {
   const { mode, apiBaseUrl, isAdmin } = useData();
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  // ?q= pre-fills the search — used by the contact directory's procedure links.
+  const [urlParams] = useSearchParams();
+  const [search, setSearch] = useState(() => urlParams.get('q') || '');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [upFolder, setUpFolder] = useState('Regulations');
   const [upTitle, setUpTitle] = useState('');

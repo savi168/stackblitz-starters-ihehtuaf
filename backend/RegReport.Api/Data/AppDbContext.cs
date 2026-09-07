@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<CounterpartyRwa> CounterpartyRwa => Set<CounterpartyRwa>();
     public DbSet<LargeExposure> LargeExposures => Set<LargeExposure>();
     public DbSet<TeamMember> Team => Set<TeamMember>();
+    public DbSet<Contact> Contacts => Set<Contact>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectTask> ProjectTasks => Set<ProjectTask>();
     public DbSet<ProjStatus> ProjStatuses => Set<ProjStatus>();
@@ -96,6 +97,13 @@ public class AppDbContext : DbContext
 
         b.Entity<TeamMember>(e =>
         {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+        });
+
+        b.Entity<Contact>(e =>
+        {
+            e.ToTable("Contacts");
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever();
         });

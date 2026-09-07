@@ -156,6 +156,25 @@ export interface TeamMember {
     phone?: string;
 }
 
+/** Directory contact outside the team (auditors, custody, legal, IT…):
+ * searchable by topic so "garantie bancaire" surfaces who to call, with an
+ * optional pointer to the related procedure in the Library. */
+export interface Contact {
+    id: number;
+    name: string;
+    role?: string;
+    department?: string;
+    /** Company / entity when external (e.g. custodian bank, law firm). */
+    company?: string;
+    email?: string;
+    phone?: string;
+    /** Comma-separated keywords this person handles ("garantie bancaire, LC"). */
+    topics?: string;
+    notes?: string;
+    /** Library search term (document title or folder) for the procedure. */
+    procedure?: string;
+}
+
 export interface Project {
     id: number;
     name: string;
@@ -544,6 +563,7 @@ export interface CentralData {
   counterpartyRwa: CounterpartyRwa[];
   largeExposures: LargeExposure[];
   team: TeamMember[];
+  contacts?: Contact[];
   projects: Project[];
   projectTasks: ProjectTask[];
   projStatuses?: ProjStatus[];

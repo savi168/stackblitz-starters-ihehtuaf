@@ -302,6 +302,22 @@ public class TeamMember
     public string? Phone { get; set; }
 }
 
+// Directory contact outside the team, searchable by topic ("garantie
+// bancaire" -> who to call), with an optional Library procedure pointer.
+public class Contact
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string? Role { get; set; }
+    public string? Department { get; set; }
+    public string? Company { get; set; }
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? Topics { get; set; }
+    public string? Notes { get; set; }
+    public string? Procedure { get; set; }
+}
+
 public class Project
 {
     public int Id { get; set; }
@@ -693,6 +709,7 @@ public class CentralData
     public List<CounterpartyRwa> CounterpartyRwa { get; set; } = new();
     public List<LargeExposure> LargeExposures { get; set; } = new();
     public List<TeamMember> Team { get; set; } = new();
+    public List<Contact> Contacts { get; set; } = new();
     public List<Project> Projects { get; set; } = new();
     public List<ProjectTask> ProjectTasks { get; set; } = new();
     public List<ProjStatus> ProjStatuses { get; set; } = new();

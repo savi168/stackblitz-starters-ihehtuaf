@@ -26,6 +26,7 @@ public static class CentralDataStore
             CounterpartyRwa = await db.CounterpartyRwa.AsNoTracking().ToListAsync(),
             LargeExposures = await db.LargeExposures.AsNoTracking().ToListAsync(),
             Team = await db.Team.AsNoTracking().ToListAsync(),
+            Contacts = await db.Contacts.AsNoTracking().ToListAsync(),
             Projects = await db.Projects.AsNoTracking().ToListAsync(),
             ProjectTasks = await db.ProjectTasks.AsNoTracking().ToListAsync(),
             ProjStatuses = await db.ProjStatuses.AsNoTracking().ToListAsync(),
@@ -68,6 +69,7 @@ public static class CentralDataStore
         db.CounterpartyRwa.RemoveRange(db.CounterpartyRwa);
         db.LargeExposures.RemoveRange(db.LargeExposures);
         db.Team.RemoveRange(db.Team);
+        db.Contacts.RemoveRange(db.Contacts);
         db.ProjActivities.RemoveRange(db.ProjActivities);
         db.ProjComments.RemoveRange(db.ProjComments);
         db.ProjStatuses.RemoveRange(db.ProjStatuses);
@@ -134,6 +136,7 @@ public static class CentralDataStore
         db.CounterpartyRwa.AddRange(data.CounterpartyRwa);
         db.LargeExposures.AddRange(data.LargeExposures);
         db.Team.AddRange(data.Team);
+        db.Contacts.AddRange(data.Contacts);
         db.Projects.AddRange(data.Projects);
         db.ProjectTasks.AddRange(data.ProjectTasks);
         db.ProjStatuses.AddRange(data.ProjStatuses);

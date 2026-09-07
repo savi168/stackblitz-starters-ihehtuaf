@@ -226,6 +226,21 @@ BEGIN
     CREATE INDEX IX_ProjActivities_TaskId ON [ProjActivities] ([TaskId]);
 END
 "),
+
+        ("006_contacts_directory", @"
+IF OBJECT_ID('Contacts') IS NULL
+CREATE TABLE [Contacts] (
+    [Id] int NOT NULL CONSTRAINT PK_Contacts PRIMARY KEY,
+    [Name] nvarchar(200) NOT NULL,
+    [Role] nvarchar(200) NULL,
+    [Department] nvarchar(200) NULL,
+    [Company] nvarchar(200) NULL,
+    [Email] nvarchar(320) NULL,
+    [Phone] nvarchar(64) NULL,
+    [Topics] nvarchar(max) NULL,
+    [Notes] nvarchar(max) NULL,
+    [Procedure] nvarchar(400) NULL);
+"),
     };
 
     public static void Apply(AppDbContext db, ILogger logger)
