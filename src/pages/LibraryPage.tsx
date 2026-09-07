@@ -366,7 +366,14 @@ export const LibraryPage: React.FC = () => {
   const fileRow = (d: DocMeta, indent: number) => (
     <div key={d.id}
       draggable={isAdmin}
-      onDragStart={e => { setDragId(d.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(d.id)); }}
+      onDragStart={e => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(d.id));
+        // Defer the state change: re-rendering the dragged row during
+        // dragstart makes the browser cancel the drag (ghost/cursor vanish).
+        const id = d.id;
+        setTimeout(() => setDragId(id), 0);
+      }}
       onDragEnd={() => { setDragId(null); setDropFolder(null); clearExpandTimer(); }}
       {...dropProps(d.folder)}
       className={`flex items-center gap-2 py-1 border-t border-efg-line/50 text-sm ${dragId === d.id ? 'opacity-40' : ''}${dropFolder === d.folder && dragId !== null && dragId !== d.id ? ' bg-brand-secondary/5' : ''}`}
