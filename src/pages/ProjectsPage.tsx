@@ -15,7 +15,7 @@ export const ProjectsPage: React.FC = () => {
 
     const projects = useMemo(() => {
         const rows = data.projects.map(p => {
-            const tasks = data.projectTasks.filter(t => t.projectId === p.id && t.parentId === undefined);
+            const tasks = data.projectTasks.filter(t => t.projectId === p.id && t.parentId == null);
             const statuses = statusesOf(data, p.id);
             const done = tasks.filter(t => isDoneTask(t, statuses)).length;
             return { p, total: tasks.length, done };

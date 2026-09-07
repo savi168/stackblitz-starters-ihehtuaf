@@ -88,7 +88,7 @@ export const ProjectDetailPage: React.FC = () => {
   const project = useMemo(() => data.projects.find(p => p.id === pid), [data.projects, pid]);
   const statuses = useMemo(() => statusesOf(data, pid), [data, pid]);
   const allTasks = useMemo(() => data.projectTasks.filter(t => t.projectId === pid), [data.projectTasks, pid]);
-  const topTasks = useMemo(() => allTasks.filter(t => t.parentId === undefined), [allTasks]);
+  const topTasks = useMemo(() => allTasks.filter(t => t.parentId == null), [allTasks]);
   const projectKey = project ? projectKeyOf(project) : 'PRJ';
 
   // Every mutation runs on a migrated snapshot, so handlers can rely on
@@ -141,7 +141,7 @@ export const ProjectDetailPage: React.FC = () => {
       if (!task) return prev;
       const sts = statusesOf(prev, pid);
       const column = prev.projectTasks
-        .filter(t => t.projectId === pid && t.parentId === undefined && t.statusId === toStatusId && t.id !== taskId)
+        .filter(t => t.projectId === pid && t.parentId == null && t.statusId === toStatusId && t.id !== taskId)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       const at = beforeTaskId !== undefined ? column.findIndex(t => t.id === beforeTaskId) : -1;
       const ordered = at >= 0
@@ -172,7 +172,7 @@ export const ProjectDetailPage: React.FC = () => {
       const sts = statusesOf(prev, pid);
       const id = alloc();
       const proj = prev.projectTasks.filter(t => t.projectId === pid);
-      const inCol = proj.filter(t => t.statusId === statusId && t.parentId === undefined);
+      const inCol = proj.filter(t => t.statusId === statusId && t.parentId == null);
       return {
         ...prev,
         projectTasks: [...prev.projectTasks, {
@@ -193,7 +193,7 @@ export const ProjectDetailPage: React.FC = () => {
     mutate((prev, alloc) => {
       const trimmed = title.trim();
       const parent = prev.projectTasks.find(t => t.id === parentId);
-      if (!trimmed || !parent || parent.parentId !== undefined) return prev;
+      if (!trimmed || !parent || parent.parentId != null) return prev;
       const id = alloc();
       const proj = prev.projectTasks.filter(t => t.projectId === pid);
       const siblings = proj.filter(t => t.parentId === parentId);
@@ -217,9 +217,9 @@ export const ProjectDetailPage: React.FC = () => {
   const detachSubtask = (taskId: number) =>
     mutate((prev, alloc) => {
       const task = prev.projectTasks.find(t => t.id === taskId);
-      if (!task || task.parentId === undefined) return prev;
+      if (!task || task.parentId == null) return prev;
       const inCol = prev.projectTasks.filter(t =>
-        t.projectId === pid && t.parentId === undefined && t.statusId === task.statusId);
+        t.projectId === pid && t.parentId == null && t.statusId === task.statusId);
       return {
         ...prev,
         projectTasks: prev.projectTasks.map(t => t.id === taskId
@@ -402,7 +402,7 @@ export const ProjectDetailPage: React.FC = () => {
       {openTask && (
         <TaskPanel
           task={openTask} statuses={statuses} projectKey={projectKey} projectName={project.name}
-          parent={openTask.parentId !== undefined ? allTasks.find(t => t.id === openTask.parentId) || null : null}
+          parent={openTask.parentId != null ? allTasks.find(t => t.id === openTask.parentId) || null : null}
           subtasks={allTasks.filter(t => t.parentId === openTask.id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
           comments={(data.projComments || []).filter(c => c.taskId === openTask.id)}
           activities={(data.projActivities || []).filter(a => a.taskId === openTask.id)}
@@ -434,7 +434,7 @@ const BoardView: React.FC<{
   const [adding, setAdding] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState('');
 
-  const top = tasks.filter(t => t.parentId === undefined);
+  const top = tasks.filter(t => t.parentId == null);
   const columnTasks = (statusId: number) =>
     top.filter(t => t.statusId === statusId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const commentCount = (taskId: number) => comments.filter(c => c.taskId === taskId).length;
@@ -548,7 +548,7 @@ const ListView: React.FC<{
   const [fPriority, setFPriority] = useState('');
   const [sort, setSort] = useState<{ by: 'number' | 'title' | 'priority' | 'due'; dir: 1 | -1 }>({ by: 'number', dir: 1 });
 
-  const top = tasks.filter(t => t.parentId === undefined);
+  const top = tasks.filter(t => t.parentId == null);
   const assignees = Array.from(new Set(top.map(t => t.assignee).filter(Boolean))).sort();
 
   const rows = top
@@ -668,7 +668,7 @@ const TimelineView: React.FC<{
   const scroller = useRef<HTMLDivElement>(null);
   const dayWidth = ZOOMS.find(z => z.key === zoom)!.width;
 
-  const top = tasks.filter(t => t.parentId === undefined);
+  const top = tasks.filter(t => t.parentId == null);
   const scheduled = useMemo(
     () => top.map(toDated).filter((t): t is Dated => t !== null).sort((a, b) => a.start.getTime() - b.start.getTime()),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -864,7 +864,7 @@ const TaskPanel: React.FC<{
           ) : (
             <span className="text-[12px] font-semibold text-brand-text-secondary">{projectKey}-{task.number}</span>
           )}
-          {task.parentId !== undefined && <span className="text-[10px] uppercase tracking-wider bg-brand-bg-body rounded px-1.5 py-0.5 text-brand-text-secondary shrink-0">subtask · {projectKey}-{task.number}</span>}
+          {task.parentId != null && <span className="text-[10px] uppercase tracking-wider bg-brand-bg-body rounded px-1.5 py-0.5 text-brand-text-secondary shrink-0">subtask · {projectKey}-{task.number}</span>}
           <div className="flex-1" />
           <button onClick={() => onDelete(task.id)} className="text-[12px] font-semibold text-status-red/70 hover:text-status-red">Delete</button>
           <button onClick={onClose} className="text-brand-text-secondary hover:text-brand-text-primary text-lg leading-none px-1">×</button>
@@ -911,7 +911,7 @@ const TaskPanel: React.FC<{
               rows={4} placeholder="Add a description…" className={inputCls} />
           ))}
 
-          {task.parentId === undefined && (
+          {task.parentId == null && (
             <div>
               <p className="text-[10px] uppercase tracking-wider text-brand-text-secondary mb-1.5">
                 Subtasks {subtasks.length > 0 && `— ${subtasks.filter(s => isDoneTask(s, statuses)).length}/${subtasks.length} done`}

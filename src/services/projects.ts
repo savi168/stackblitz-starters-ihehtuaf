@@ -76,7 +76,7 @@ export const ensureProjectSetup = (data: AppData, projectId: number): AppData =>
   const statuses = (data.projStatuses || []).filter(s => s.projectId === projectId);
   const tasks = data.projectTasks.filter(t => t.projectId === projectId);
   const needStatuses = statuses.length === 0;
-  const needTasks = tasks.some(t => t.statusId === undefined || t.number === undefined);
+  const needTasks = tasks.some(t => t.statusId == null || t.number == null);
   const project = data.projects.find(p => p.id === projectId);
   const needKey = project && !project.key;
   if (!needStatuses && !needTasks && !needKey) return data;
@@ -110,8 +110,8 @@ export const ensureProjectSetup = (data: AppData, projectId: number): AppData =>
       ...next,
       projectTasks: next.projectTasks.map(t => {
         if (t.projectId !== projectId) return t;
-        if (t.statusId !== undefined && t.number !== undefined) return t;
-        const col = t.statusId !== undefined
+        if (t.statusId != null && t.number != null) return t;
+        const col = t.statusId != null
           ? cols.find(c => c.id === t.statusId) || first
           : byName.get((LEGACY_MAP[t.status?.toLowerCase() || ''] || t.status || '').toLowerCase()) || first;
         const order = t.order ?? (perCol.set(col.id, (perCol.get(col.id) ?? -1) + 1), perCol.get(col.id)!);
@@ -132,7 +132,7 @@ export const statusesOf = (data: AppData, projectId: number): ProjStatus[] =>
   (data.projStatuses || []).filter(s => s.projectId === projectId).sort((a, b) => a.order - b.order);
 
 export const isDoneTask = (t: ProjectTask, statuses: ProjStatus[]): boolean =>
-  !!statuses.find(s => s.id === t.statusId)?.isDone || (t.statusId === undefined && t.status === 'Done');
+  !!statuses.find(s => s.id === t.statusId)?.isDone || (t.statusId == null && t.status === 'Done');
 
 /** Keeps the legacy tri-state field roughly in sync so old views/CSV stay meaningful. */
 export const legacyStatusFor = (statusId: number | undefined, statuses: ProjStatus[]): 'To Do' | 'In Progress' | 'Done' => {
