@@ -163,6 +163,8 @@ export const activityLabel = (a: ProjActivity): string => {
     case 'comment': return 'commented';
     case 'subtask': return `added subtask "${a.to ?? ''}"`;
     case 'detached': return `detached subtask "${a.to ?? ''}"`;
+    case 'attachment': return `attached "${a.to ?? ''}"`;
+    case 'attachment_removed': return `removed the file "${a.to ?? ''}"`;
     default: return a.type;
   }
 };

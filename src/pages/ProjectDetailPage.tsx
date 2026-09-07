@@ -5,6 +5,9 @@ import { CentralData as AppData, ProjActivity, ProjStatus, ProjectTask, TaskPrio
 import { Card, PageHeader, BackButton } from '../components';
 import { DocumentsPanel } from './LibraryPage';
 import {
+  DocMeta, deleteDocument, downloadDocument, fmtSize, listDocuments, uploadDocument,
+} from '../services/documents';
+import {
   PRIORITIES, activityLabel, daysUntil, ensureProjectSetup, fmtShortDate, initials, isDoneTask,
   legacyStatusFor, makeActivity, makeComment, nowIso, personColor, priorityMeta, projIdAlloc,
   projectKeyOf, statusesOf,
@@ -254,6 +257,14 @@ export const ProjectDetailPage: React.FC = () => {
   const deleteComment = (commentId: number) =>
     mutate(prev => ({ ...prev, projComments: (prev.projComments || []).filter(c => c.id !== commentId) }));
 
+  /** Attachments live in the document library; only the add/remove trace goes
+   * into the task's activity log. */
+  const logAttachment = (taskId: number, type: 'attachment' | 'attachment_removed', name: string) =>
+    mutate((prev, alloc) => ({
+      ...prev,
+      projActivities: [...(prev.projActivities || []), makeActivity(alloc, taskId, actor, type, undefined, name)],
+    }));
+
   // ---- Column mutations ----------------------------------------------------
 
   const addColumn = () => {
@@ -390,7 +401,8 @@ export const ProjectDetailPage: React.FC = () => {
 
       {openTask && (
         <TaskPanel
-          task={openTask} statuses={statuses} projectKey={projectKey}
+          task={openTask} statuses={statuses} projectKey={projectKey} projectName={project.name}
+          parent={openTask.parentId !== undefined ? allTasks.find(t => t.id === openTask.parentId) || null : null}
           subtasks={allTasks.filter(t => t.parentId === openTask.id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
           comments={(data.projComments || []).filter(c => c.taskId === openTask.id)}
           activities={(data.projActivities || []).filter(a => a.taskId === openTask.id)}
@@ -399,6 +411,7 @@ export const ProjectDetailPage: React.FC = () => {
           onPatch={patchTask} onDelete={deleteTask}
           onAddSubtask={addSubtask} onDetach={detachSubtask}
           onAddComment={addComment} onDeleteComment={deleteComment}
+          onLogAttachment={logAttachment}
         />
       )}
     </div>
@@ -804,7 +817,8 @@ const TimelineView: React.FC<{
 // --- Task panel -------------------------------------------------------------
 
 const TaskPanel: React.FC<{
-  task: ProjectTask; statuses: ProjStatus[]; projectKey: string;
+  task: ProjectTask; statuses: ProjStatus[]; projectKey: string; projectName: string;
+  parent: ProjectTask | null;
   subtasks: ProjectTask[]; comments: Array<{ id: number; taskId: number; author: string; body: string; createdAt: string }>;
   activities: ProjActivity[]; team: string[]; actor: string;
   onClose: () => void; onOpen: (id: number) => void;
@@ -814,8 +828,9 @@ const TaskPanel: React.FC<{
   onDetach: (id: number) => void;
   onAddComment: (taskId: number, body: string) => void;
   onDeleteComment: (id: number) => void;
-}> = ({ task, statuses, projectKey, subtasks, comments, activities, team, actor,
-  onClose, onOpen, onPatch, onDelete, onAddSubtask, onDetach, onAddComment, onDeleteComment }) => {
+  onLogAttachment: (taskId: number, type: 'attachment' | 'attachment_removed', name: string) => void;
+}> = ({ task, statuses, projectKey, projectName, parent, subtasks, comments, activities, team, actor,
+  onClose, onOpen, onPatch, onDelete, onAddSubtask, onDetach, onAddComment, onDeleteComment, onLogAttachment }) => {
   const [title, setTitle] = useState(task.title);
   const [desc, setDesc] = useState(task.description || '');
   const [newSub, setNewSub] = useState('');
@@ -840,8 +855,16 @@ const TaskPanel: React.FC<{
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
       <aside className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-white z-50 shadow-2xl overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-efg-line px-5 py-3 flex items-center gap-3 z-10">
-          <span className="text-[12px] font-semibold text-brand-text-secondary">{projectKey}-{task.number}</span>
-          {task.parentId !== undefined && <span className="text-[10px] uppercase tracking-wider bg-brand-bg-body rounded px-1.5 py-0.5 text-brand-text-secondary">subtask</span>}
+          {parent ? (
+            <button onClick={() => onOpen(parent.id)} title={`Back to ${projectKey}-${parent.number}`}
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-brand-secondary hover:text-brand-primary min-w-0">
+              <span>‹</span>
+              <span className="truncate max-w-[180px]">{projectKey}-{parent.number} {parent.title}</span>
+            </button>
+          ) : (
+            <span className="text-[12px] font-semibold text-brand-text-secondary">{projectKey}-{task.number}</span>
+          )}
+          {task.parentId !== undefined && <span className="text-[10px] uppercase tracking-wider bg-brand-bg-body rounded px-1.5 py-0.5 text-brand-text-secondary shrink-0">subtask · {projectKey}-{task.number}</span>}
           <div className="flex-1" />
           <button onClick={() => onDelete(task.id)} className="text-[12px] font-semibold text-status-red/70 hover:text-status-red">Delete</button>
           <button onClick={onClose} className="text-brand-text-secondary hover:text-brand-text-primary text-lg leading-none px-1">×</button>
@@ -913,6 +936,11 @@ const TaskPanel: React.FC<{
             </div>
           )}
 
+          <TaskFiles
+            folder={`Projects/${projectName}/${projectKey}-${task.number}`}
+            onLog={(type, name) => onLogAttachment(task.id, type, name)}
+          />
+
           <div>
             <p className="text-[10px] uppercase tracking-wider text-brand-text-secondary mb-1.5">Comments ({comments.length})</p>
             <div className="space-y-2.5">
@@ -959,5 +987,102 @@ const TaskPanel: React.FC<{
         </div>
       </aside>
     </>
+  );
+};
+
+// --- Task attachments -------------------------------------------------------
+
+/**
+ * Files attached to one task (or subtask), stored in the document library
+ * under Projects/<project>/<KEY-n> — they also show up in the Library page
+ * and in the project's Files tab, with uploader and timestamp as the audit
+ * trail; adds/removals are traced in the task's activity log. Re-uploading a
+ * changed file adds a new entry next to the old one (both stay downloadable),
+ * so delete the outdated one only when it should really disappear.
+ */
+const TaskFiles: React.FC<{
+  folder: string;
+  onLog: (type: 'attachment' | 'attachment_removed', name: string) => void;
+}> = ({ folder, onLog }) => {
+  const { mode, apiBaseUrl, isAdmin } = useData();
+  const [docs, setDocs] = useState<DocMeta[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = React.useCallback(() => {
+    if (mode !== 'api') return;
+    listDocuments(apiBaseUrl!)
+      .then(all => setDocs(all.filter(d => d.folder === folder)))
+      .catch(e => setError(String((e as Error).message || e)));
+  }, [mode, apiBaseUrl, folder]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (mode !== 'api') {
+    return (
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-brand-text-secondary mb-1.5">Attachments</p>
+        <p className="text-[12px] text-brand-text-secondary">Connect the API backend to attach files (stored in the database, docs/SQL_DOCUMENTS.sql).</p>
+      </div>
+    );
+  }
+
+  const onUpload = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true); setError(null);
+    try {
+      await uploadDocument(apiBaseUrl!, f, { folder });
+      onLog('attachment', f.name);
+      refresh();
+    } catch (e) { setError(String((e as Error).message || e)); }
+    finally { setBusy(false); }
+  };
+
+  const onDelete = async (d: DocMeta) => {
+    if (!window.confirm(`Delete "${d.fileName}"?`)) return;
+    try {
+      await deleteDocument(apiBaseUrl!, d.id);
+      onLog('attachment_removed', d.fileName);
+      refresh();
+    } catch (e) { setError(String((e as Error).message || e)); }
+  };
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-brand-text-secondary mb-1.5">Attachments ({docs.length})</p>
+      {error && <p className="text-[11px] text-status-red mb-1.5">{error}</p>}
+      <div className="space-y-1">
+        {docs
+          .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+          .map(d => (
+            <div key={d.id} className="flex items-center gap-2 rounded-md border border-efg-line px-2.5 py-1.5">
+              <button
+                onClick={() => downloadDocument(apiBaseUrl!, d).catch(e => setError(String((e as Error).message || e)))}
+                className="text-sm text-brand-secondary hover:text-brand-primary underline text-left truncate flex-1"
+                title={`Download ${d.fileName}`}>
+                {d.fileName}
+              </button>
+              <span className="text-[11px] text-brand-text-secondary whitespace-nowrap">{fmtSize(d.sizeBytes)}</span>
+              <span className="text-[11px] text-brand-text-secondary whitespace-nowrap hidden sm:inline"
+                title={`Uploaded by ${d.uploadedBy} on ${d.uploadedAt}`}>
+                {d.uploadedBy.split('\\').pop()} · {d.uploadedAt.slice(0, 10)}
+              </span>
+              {isAdmin && (
+                <button onClick={() => onDelete(d)} title="Delete file"
+                  className="text-status-red/60 hover:text-status-red text-[12px]">✕</button>
+              )}
+            </div>
+          ))}
+      </div>
+      {isAdmin && (
+        <label className={`mt-1.5 flex items-center gap-2 rounded-md border border-dashed border-gray-300 px-2.5 py-2 text-[12px] text-brand-text-secondary cursor-pointer hover:border-brand-secondary hover:text-brand-secondary transition-colors ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
+          <input type="file" className="hidden" disabled={busy}
+            onChange={e => { onUpload(e.target.files?.[0]); e.target.value = ''; }} />
+          {busy ? 'Uploading…' : '+ Attach a file (stored in the database — modified versions add a new entry)'}
+        </label>
+      )}
+      <p className="text-[10px] text-brand-text-secondary mt-1">
+        Also visible in Library → {folder}
+      </p>
+    </div>
   );
 };
