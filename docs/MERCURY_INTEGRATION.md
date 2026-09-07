@@ -252,3 +252,10 @@ laissé en CHF) est ventilé selon les parts de bilan par devise
 management report en dérive les montants en devise locale (proxy, marqués *)
 et le split FX vs business. Les lignes `<CCY> (LC)` mesurées, si elles sont
 alimentées par ailleurs, gardent la priorité sur le proxy.
+
+Avec la case **auto-apply on every CASABIS import** cochée, le proxy est
+recalculé et écrit automatiquement à chaque import CASABIS (RWA crédit du
+fichier importé × parts mémorisées × taux MERCURY du mois) — aucun CSV,
+aucun clic supplémentaire ; un échec (MERCURY indisponible, taux manquant)
+n'empêche jamais l'import lui-même et est signalé dans le message de
+confirmation.

@@ -1148,11 +1148,12 @@ export const CapitalWorkbenchPage: React.FC = () => {
   // Multi-period memo upsert shared by the movements-YTD and RWA-by-currency
   // CSVs: writes memo line items on the existing report of each date, then
   // re-projects the KPI history for every touched period.
-  const applyMemoItemsByDate = useCallback((byDate: Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>) => {
+  const applyMemoItemsByDate = useCallback((byDate: Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>, forEntity?: string) => {
     setData(prev => {
+      const target = forEntity || entity;
       const reports = [...(prev.capitalReports || [])];
       for (const [d, items] of byDate) {
-        const idx = reports.findIndex(r => r.entity === entity && r.date === d);
+        const idx = reports.findIndex(r => r.entity === target && r.date === d);
         if (idx < 0) continue; // validated by the caller
         const lineItems = [...reports[idx].lineItems];
         for (const it of items) {
@@ -1165,7 +1166,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
       }
       let next = { ...prev, capitalReports: reports };
       for (const d of byDate.keys()) {
-        next = { ...next, kpisHistory: projectToKpiHistory(next, entity, d) };
+        next = { ...next, kpisHistory: projectToKpiHistory(next, target, d) };
       }
       return next;
     });
@@ -1269,45 +1270,78 @@ export const CapitalWorkbenchPage: React.FC = () => {
   const [proxyBusy, setProxyBusy] = useState(false);
   const shareSum = PROXY_CCYS.reduce((a, c) => a + (Number((proxyShares[c] || '').replace(',', '.')) || 0), 0);
 
+  const fetchMercuryRates = async (): Promise<Array<{ reportingDate: string; ccy: string; rate: number }>> => {
+    if (!apiBaseUrl) throw new Error('Central mode required — the FX proxy reads MERCURY through the API.');
+    const res = await fetch(`${apiBaseUrl}/production/mercury/fx-rates`, { credentials: 'include' });
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 300);
+      throw new Error(`MERCURY FX rates: ${res.status} ${res.statusText}${body ? ` — ${body}` : ''}` +
+        (res.status === 404 ? ' (has the API been rebuilt & restarted since the last update?)' : ''));
+    }
+    return res.json();
+  };
+
+  const proxyRowsFor = (
+    reports: CapitalReport[],
+    rates: Array<{ reportingDate: string; ccy: string; rate: number }>,
+    override?: number,
+  ): { rows: ProxyRow[]; warnings: string[] } => {
+    const rateOf = (month: string, ccy: string): number | undefined => {
+      const hits = rates.filter(r => r.ccy === ccy && String(r.reportingDate).slice(0, 7) === month);
+      return hits.length > 0 ? hits[hits.length - 1].rate : undefined;
+    };
+    const warnings: string[] = [];
+    const rows: ProxyRow[] = [...reports].sort((a, b) => a.date.localeCompare(b.date)).map(r => {
+      const s = computeCapitalSummary(r);
+      const detected = r.lineItems
+        .filter(i => i.section === 'rwa' && /non.?counterparty/i.test(i.label))
+        .reduce((a, i) => a + i.amount, 0);
+      const nonCpty = override ?? detected;
+      const alloc = Math.max(0, s.creditRwa - nonCpty);
+      const month = r.date.slice(0, 7);
+      const per: ProxyRow['per'] = {};
+      for (const c of PROXY_CCYS) {
+        const share = (Number((proxyShares[c] || '').replace(',', '.')) || 0) / 100;
+        const chf = alloc * share + (c === 'CHF' ? nonCpty : 0);
+        const rate = c === 'CHF' || c === 'OTH' ? undefined : rateOf(month, c);
+        if (rate === undefined && c !== 'CHF' && c !== 'OTH') warnings.push(`${r.date}: no MERCURY rate for ${c}.`);
+        per[c] = { chf, ...(rate !== undefined ? { rate } : {}) };
+      }
+      return { date: r.date, creditRwa: s.creditRwa, nonCpty, nonCptyDetected: detected !== 0 && override === undefined, alloc, per };
+    });
+    return { rows, warnings: Array.from(new Set(warnings)) };
+  };
+
+  const proxyItemsByDate = (rows: ProxyRow[]): Map<string, Array<{ section: CapitalSection; label: string; amount: number }>> => {
+    const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
+    for (const row of rows) {
+      const items: Array<{ section: CapitalSection; label: string; amount: number }> = [];
+      for (const c of PROXY_CCYS) {
+        const p = row.per[c];
+        if (!p || (p.chf === 0 && c !== 'CHF')) continue;
+        items.push({ section: 'rwa', label: c, amount: Math.round(p.chf * 10) / 10 });
+        if (p.rate !== undefined) items.push({ section: 'rwa', label: `FX ${c}`, amount: p.rate });
+      }
+      byDate.set(row.date, items);
+    }
+    return byDate;
+  };
+
+  const parseNonCptyOverride = (): number | undefined => {
+    const override = nonCptyOverride.trim() === '' ? undefined : Number(nonCptyOverride.replace(',', '.'));
+    if (override !== undefined && isNaN(override)) throw new Error(`Non-counterparty override "${nonCptyOverride}" is not a number.`);
+    return override;
+  };
+
   const buildFxProxy = async () => {
     setImportError(null);
     setProxyBusy(true);
     try {
-      if (!apiBaseUrl) throw new Error('Central mode required — the FX proxy reads MERCURY through the API.');
       if (Math.abs(shareSum - 100) > 0.5) throw new Error(`Currency shares sum to ${shareSum.toFixed(1)}% — they must total 100%.`);
-      const res = await fetch(`${apiBaseUrl}/production/mercury/fx-rates`, { credentials: 'include' });
-      if (!res.ok) throw new Error(`MERCURY FX rates: ${res.status} ${res.statusText} — ${(await res.text()).slice(0, 300)}`);
-      const rates: Array<{ reportingDate: string; ccy: string; rate: number }> = await res.json();
-      const rateOf = (month: string, ccy: string): number | undefined => {
-        const hits = rates.filter(r => r.ccy === ccy && String(r.reportingDate).slice(0, 7) === month);
-        return hits.length > 0 ? hits[hits.length - 1].rate : undefined;
-      };
-      const reports = (data.capitalReports || [])
-        .filter(r => r.entity === entity && !r.isProjection)
-        .sort((a, b) => a.date.localeCompare(b.date));
+      const reports = (data.capitalReports || []).filter(r => r.entity === entity && !r.isProjection);
       if (reports.length === 0) throw new Error(`No capital report for ${entity} — import the CASABIS first.`);
-      const override = nonCptyOverride.trim() === '' ? undefined : Number(nonCptyOverride.replace(',', '.'));
-      if (override !== undefined && isNaN(override)) throw new Error(`Non-counterparty override "${nonCptyOverride}" is not a number.`);
-      const warnings: string[] = [];
-      const rows: ProxyRow[] = reports.map(r => {
-        const s = computeCapitalSummary(r);
-        const detected = r.lineItems
-          .filter(i => i.section === 'rwa' && /non.?counterparty/i.test(i.label))
-          .reduce((a, i) => a + i.amount, 0);
-        const nonCpty = override ?? detected;
-        const alloc = Math.max(0, s.creditRwa - nonCpty);
-        const month = r.date.slice(0, 7);
-        const per: ProxyRow['per'] = {};
-        for (const c of PROXY_CCYS) {
-          const share = (Number((proxyShares[c] || '').replace(',', '.')) || 0) / 100;
-          const chf = alloc * share + (c === 'CHF' ? nonCpty : 0);
-          const rate = c === 'CHF' || c === 'OTH' ? undefined : rateOf(month, c);
-          if (rate === undefined && c !== 'CHF' && c !== 'OTH') warnings.push(`${r.date}: no MERCURY rate for ${c}.`);
-          per[c] = { chf, ...(rate !== undefined ? { rate } : {}) };
-        }
-        return { date: r.date, creditRwa: s.creditRwa, nonCpty, nonCptyDetected: detected !== 0 && override === undefined, alloc, per };
-      });
-      setProxyPreview({ rows, warnings: Array.from(new Set(warnings)) });
+      const rates = await fetchMercuryRates();
+      setProxyPreview(proxyRowsFor(reports, rates, parseNonCptyOverride()));
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
       setProxyPreview(null);
@@ -1323,20 +1357,33 @@ export const CapitalWorkbenchPage: React.FC = () => {
       `Write the RWA-by-currency proxy for ${entity} across ${rows.length} period(s)?\n` +
       `Existing "<CCY>" / "FX <CCY>" memo rows are updated ("(LC)" rows are left untouched and win over the proxy).`
     )) return;
-    const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
-    for (const row of rows) {
-      const items: Array<{ section: CapitalSection; label: string; amount: number }> = [];
-      for (const c of PROXY_CCYS) {
-        const p = row.per[c];
-        if (!p || (p.chf === 0 && c !== 'CHF')) continue;
-        items.push({ section: 'rwa', label: c, amount: Math.round(p.chf * 10) / 10 });
-        if (p.rate !== undefined) items.push({ section: 'rwa', label: `FX ${c}`, amount: p.rate });
-      }
-      byDate.set(row.date, items);
-    }
-    applyMemoItemsByDate(byDate);
+    applyMemoItemsByDate(proxyItemsByDate(rows));
     setProxyPreview(null);
     setNotice(`RWA-by-currency FX proxy written for ${entity} across ${rows.length} period(s) — the report table and FX-vs-business split update automatically.`);
+  };
+
+  // Auto mode: re-derive the proxy on every CASABIS import (no CSV, no click)
+  // using the stored shares + the report's own credit RWA and MERCURY rates.
+  const [autoProxy, setAutoProxy] = useState<boolean>(() => {
+    try { return localStorage.getItem('regreport.rwaCcyAutoProxy') === '1'; } catch { return false; }
+  });
+  const toggleAutoProxy = (v: boolean) => {
+    setAutoProxy(v);
+    try { localStorage.setItem('regreport.rwaCcyAutoProxy', v ? '1' : '0'); } catch { /* ignore */ }
+  };
+
+  /** Applies the FX proxy to one freshly imported report; returns a note for
+   * the import notice (never throws — the import itself already succeeded). */
+  const autoApplyFxProxy = async (report: CapitalReport): Promise<string> => {
+    try {
+      if (Math.abs(shareSum - 100) > 0.5) return ` FX proxy skipped: currency shares sum to ${shareSum.toFixed(1)}%.`;
+      const rates = await fetchMercuryRates();
+      const { rows, warnings } = proxyRowsFor([report], rates, parseNonCptyOverride());
+      applyMemoItemsByDate(proxyItemsByDate(rows), report.entity);
+      return ` RWA-by-currency FX proxy applied.${warnings.length ? ` ⚠ ${warnings.join(' · ')}` : ''}`;
+    } catch (err) {
+      return ` FX proxy skipped: ${err instanceof Error ? err.message : String(err)}`;
+    }
   };
 
   const confirmImport = async (targetEntity: string) => {
@@ -1369,7 +1416,10 @@ export const CapitalWorkbenchPage: React.FC = () => {
         ];
         return { entity: targetEntity, date: parsed.date };
       });
-      setNotice(`Capital adequacy imported for ${targetEntity} — ${parsed.date} (${parsed.lineItems.length} line items). KPI history updated.${archivedNote}`);
+      // Auto FX proxy: derive the RWA-by-currency memo rows straight from the
+      // imported credit RWA + MERCURY month-end rates (no CSV, no extra click).
+      const proxyNote = autoProxy ? await autoApplyFxProxy(newReport) : '';
+      setNotice(`Capital adequacy imported for ${targetEntity} — ${parsed.date} (${parsed.lineItems.length} line items). KPI history updated.${archivedNote}${proxyNote}`);
     } else if (parsed.kind === 'lcr') {
       applyChange(draft => {
         draft.lcrReports = [
@@ -1596,6 +1646,12 @@ export const CapitalWorkbenchPage: React.FC = () => {
               className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors disabled:opacity-50">
               {proxyBusy ? 'Loading rates…' : '⇄ Load MERCURY rates & preview'}
             </button>
+            <label className="flex items-center gap-1.5 text-[12px] text-brand-text-primary pb-2 cursor-pointer"
+              title="On every CASABIS import, derive and write the currency memo rows automatically from the imported credit RWA, the shares above and the MERCURY month-end rates — no CSV, no extra click.">
+              <input type="checkbox" checked={autoProxy} onChange={e => toggleAutoProxy(e.target.checked)}
+                className="accent-brand-secondary" />
+              auto-apply on every CASABIS import
+            </label>
           </div>
           {proxyPreview && (
             <div className="mt-3">
