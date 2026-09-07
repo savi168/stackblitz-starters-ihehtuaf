@@ -860,11 +860,15 @@ const NsfrView: React.FC<{
 };
 
 export const CapitalWorkbenchPage: React.FC = () => {
-  const { data, setData, allEntities } = useData();
+  const { data, setData, allEntities, mode, apiBaseUrl } = useData();
   const [entity, setEntity] = useState(allEntities[0] || 'Group');
   const [date, setDate] = useState('');
   const [tab, setTab] = useState<WorkTab>('equity');
   const [parsed, setParsed] = useState<ParsedImport | null>(null);
+  // Original Excel kept until the import is confirmed, so it can be archived
+  // in the document library (re-downloadable per entity/period/type).
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [docsTick, setDocsTick] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -993,6 +997,22 @@ export const CapitalWorkbenchPage: React.FC = () => {
     setNotice(`Manual capital template created for ${entity} — ${d}. Fill in the components; CET1 is computed live.`);
   };
 
+  // Archives the imported Excel itself into the document library (Documents
+  // table), tagged entity + period + type — the data import stays untouched
+  // if the archive fails (e.g. API offline).
+  const archiveSource = async (file: File, targetEntity: string, dateStr: string, kind: string): Promise<boolean> => {
+    if (mode !== 'api') return false;
+    try {
+      const { uploadDocument } = await import('../services/documents');
+      await uploadDocument(apiBaseUrl!, file, {
+        folder: `Workbench/${targetEntity}/${dateStr}`,
+        entity: targetEntity, date: dateStr, kind, title: file.name,
+      });
+      setDocsTick(t => t + 1); // refresh the Source files panel
+      return true;
+    } catch { return false; }
+  };
+
   const handleFile = async (file: File) => {
     setImportError(null);
     setImporting(true);
@@ -1001,12 +1021,15 @@ export const CapitalWorkbenchPage: React.FC = () => {
       const buffer = await file.arrayBuffer();
       try {
         setParsed(parseWorkbook(buffer, file.name, data.importMapping));
+        setImportFile(file); // archived on confirm, with the chosen entity
       } catch (regErr) {
         // Not a FINMA/SNB return: try the internal finance extracts
         // (balance sheet / P&L monthly / equity statement).
         const { parseFinWorkbook } = await import('../services/finStatementImport');
-        const fin = parseFinWorkbook(buffer, file.name, effectiveDate || new Date().toISOString().slice(0, 10));
+        const finDate = effectiveDate || new Date().toISOString().slice(0, 10);
+        const fin = parseFinWorkbook(buffer, file.name, finDate);
         applyFinImport(fin);
+        void archiveSource(file, entity, finDate, 'finExtract');
       }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err));
@@ -1181,8 +1204,18 @@ export const CapitalWorkbenchPage: React.FC = () => {
     }
   };
 
-  const confirmImport = (targetEntity: string) => {
+  const confirmImport = async (targetEntity: string) => {
     if (!parsed) return;
+    // Archive the original return in the library first (non-blocking for the
+    // data import): CASABIS → casabis, LCR_G → lcr, NSFR_G → nsfr.
+    const kindMap = { capital: 'casabis', lcr: 'lcr', nsfr: 'nsfr' } as const;
+    const archived = importFile
+      ? await archiveSource(importFile, targetEntity, parsed.date, kindMap[parsed.kind])
+      : false;
+    const archivedNote = archived
+      ? ` Source file archived (Library → Workbench/${targetEntity}/${parsed.date}).`
+      : '';
+    setImportFile(null);
     if (parsed.kind === 'capital') {
       const newReport: CapitalReport = {
         id: newItemId(),
@@ -1201,7 +1234,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
         ];
         return { entity: targetEntity, date: parsed.date };
       });
-      setNotice(`Capital adequacy imported for ${targetEntity} — ${parsed.date} (${parsed.lineItems.length} line items). KPI history updated.`);
+      setNotice(`Capital adequacy imported for ${targetEntity} — ${parsed.date} (${parsed.lineItems.length} line items). KPI history updated.${archivedNote}`);
     } else if (parsed.kind === 'lcr') {
       applyChange(draft => {
         draft.lcrReports = [
@@ -1210,7 +1243,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
         ];
         return { entity: targetEntity, date: parsed.date };
       });
-      setNotice(`LCR imported for ${targetEntity} — ${parsed.date} (${parsed.reports.length} currencies). KPI history updated.`);
+      setNotice(`LCR imported for ${targetEntity} — ${parsed.date} (${parsed.reports.length} currencies). KPI history updated.${archivedNote}`);
     } else {
       const newNsfr: NsfrReport = {
         id: newItemId(),
@@ -1230,7 +1263,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
         ];
         return { entity: targetEntity, date: parsed.date };
       });
-      setNotice(`NSFR imported for ${targetEntity} — ${parsed.date} (ASF ${parsed.totalAsf.toFixed(0)} / RSF ${parsed.totalRsf.toFixed(0)} mCHF, ratio ${parsed.nsfrRatio}%). KPI history updated.`);
+      setNotice(`NSFR imported for ${targetEntity} — ${parsed.date} (ASF ${parsed.totalAsf.toFixed(0)} / RSF ${parsed.totalRsf.toFixed(0)} mCHF, ratio ${parsed.nsfrRatio}%). KPI history updated.${archivedNote}`);
     }
     setEntity(targetEntity);
     setDate(parsed.date);
@@ -1586,7 +1619,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
       <Card>
         <SectionHeader title="Source files"
           suffix={`${entity}${effectiveDate ? ` — ${effectiveDate}` : ''} · working papers & imported returns, stored in the database for re-download (also visible in the Library under Workbench/)`} />
-        <DocumentsPanel
+        <DocumentsPanel key={docsTick}
           folder={`Workbench/${entity}${effectiveDate ? `/${effectiveDate}` : ''}`}
           entity={entity} date={effectiveDate || undefined} withKind />
       </Card>
@@ -1596,7 +1629,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
           parsed={parsed}
           entities={allEntities.length > 0 ? allEntities : ['Group']}
           onConfirm={confirmImport}
-          onCancel={() => setParsed(null)}
+          onCancel={() => { setParsed(null); setImportFile(null); }}
         />
       )}
 

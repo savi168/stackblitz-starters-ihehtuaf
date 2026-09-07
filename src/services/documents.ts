@@ -23,6 +23,7 @@ export const DOC_KINDS: Array<[string, string]> = [
   ['casabis', 'CASABIS'],
   ['lcr', 'LCR_G'],
   ['nsfr', 'NSFR_G'],
+  ['finExtract', 'Finance extract'],
   ['other', 'Other'],
 ];
 export const kindLabel = (k?: string | null): string =>
