@@ -307,6 +307,21 @@ public class Project
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
+    public string? Key { get; set; }        // short uppercase key, e.g. BASL
+    public string? Color { get; set; }
+    public bool? Archived { get; set; }
+    public string? CreatedAt { get; set; }
+}
+
+// Kanban column, per project (ported from the "Pilote" tool).
+public class ProjStatus
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+    public string Name { get; set; } = "";
+    public string Color { get; set; } = "#94a3b8";
+    public int Order { get; set; }
+    public bool? IsDone { get; set; }
 }
 
 public class ProjectTask
@@ -315,8 +330,39 @@ public class ProjectTask
     public int ProjectId { get; set; }
     public string Title { get; set; } = "";
     public string Assignee { get; set; } = "";
-    public string Status { get; set; } = "To Do";   // To Do | In Progress | Done
+    public string Status { get; set; } = "To Do";   // legacy tri-state; StatusId wins
     public string? ItTicket { get; set; }
+    public int? Number { get; set; }                // sequential within the project
+    public int? StatusId { get; set; }              // ProjStatus id
+    public string? Description { get; set; }
+    public string? Priority { get; set; }           // LOW | MEDIUM | HIGH | URGENT
+    public int? ParentId { get; set; }              // one level of subtasks only
+    public string? StartDate { get; set; }          // YYYY-MM-DD
+    public string? DueDate { get; set; }
+    public double? Order { get; set; }              // position within the column
+    public string? CreatedAt { get; set; }
+    public string? UpdatedAt { get; set; }
+}
+
+public class ProjComment
+{
+    public int Id { get; set; }
+    public int TaskId { get; set; }
+    public string Author { get; set; } = "";
+    public string Body { get; set; } = "";
+    public string CreatedAt { get; set; } = "";
+}
+
+// Task activity log: who changed what, and when.
+public class ProjActivity
+{
+    public int Id { get; set; }
+    public int TaskId { get; set; }
+    public string? Actor { get; set; }
+    public string Type { get; set; } = "";
+    public string? From { get; set; }
+    public string? To { get; set; }
+    public string CreatedAt { get; set; } = "";
 }
 
 // ---- Capital adequacy detail (relational: one report per entity+date) ----
@@ -649,6 +695,9 @@ public class CentralData
     public List<TeamMember> Team { get; set; } = new();
     public List<Project> Projects { get; set; } = new();
     public List<ProjectTask> ProjectTasks { get; set; } = new();
+    public List<ProjStatus> ProjStatuses { get; set; } = new();
+    public List<ProjComment> ProjComments { get; set; } = new();
+    public List<ProjActivity> ProjActivities { get; set; } = new();
     public Dictionary<string, List<DiagnosisResult>>? DiagnosisResults { get; set; }
     public List<CapitalReport> CapitalReports { get; set; } = new();
     public List<LcrReport> LcrReports { get; set; } = new();

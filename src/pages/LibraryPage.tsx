@@ -107,8 +107,10 @@ export const DocumentsPanel: React.FC<{
   /** Period tag for uploads; list filter unless showAllDates. */
   date?: string;
   withKind?: boolean;
+  /** Filter the list to documents inside `folder` (Projects file tabs). */
+  folderFilter?: boolean;
   onChanged?: () => void;
-}> = ({ folder, entity, date, withKind }) => {
+}> = ({ folder, entity, date, withKind, folderFilter }) => {
   const { mode, apiBaseUrl, isAdmin } = useData();
   const [docs, setDocs] = useState<DocMeta[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +129,7 @@ export const DocumentsPanel: React.FC<{
   }
 
   const shown = docs
+    .filter(d => !folderFilter || d.folder === folder || d.folder.startsWith(`${folder}/`))
     .filter(d => !entity || d.entity === entity)
     .filter(d => allDates || !date || d.date === date)
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.uploadedAt.localeCompare(a.uploadedAt));

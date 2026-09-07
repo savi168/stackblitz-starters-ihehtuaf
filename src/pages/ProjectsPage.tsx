@@ -1,67 +1,124 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Project } from '../types';
 import { Card, PageHeader, BackButton, Modal, SectionHeader } from '../components';
+import {
+  DEFAULT_STATUSES, PROJECT_COLORS, deriveKey, isDoneTask, nowIso, projIdAlloc, statusesOf,
+} from '../services/projects';
 
 export const ProjectsPage: React.FC = () => {
-    const { data, setData } = useData();
+    const { data, setData, isAdmin } = useData();
     const [isCreating, setIsCreating] = useState(false);
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectDesc, setNewProjectDesc] = useState('');
+    const [showArchived, setShowArchived] = useState(false);
+
+    const projects = useMemo(() => {
+        const rows = data.projects.map(p => {
+            const tasks = data.projectTasks.filter(t => t.projectId === p.id && t.parentId === undefined);
+            const statuses = statusesOf(data, p.id);
+            const done = tasks.filter(t => isDoneTask(t, statuses)).length;
+            return { p, total: tasks.length, done };
+        });
+        return {
+            active: rows.filter(r => !r.p.archived),
+            archived: rows.filter(r => r.p.archived),
+        };
+    }, [data]);
 
     const handleCreateProject = (e: React.FormEvent) => {
         e.preventDefault();
         if (!newProjectName.trim()) return;
         setData(prev => {
-            const newProject: Project = {
-                id: Date.now(),
-                name: newProjectName,
-                description: newProjectDesc
+            const alloc = projIdAlloc(prev);
+            const id = alloc();
+            const key = deriveKey(newProjectName, prev.projects);
+            const color = PROJECT_COLORS[prev.projects.length % PROJECT_COLORS.length];
+            return {
+                ...prev,
+                projects: [...prev.projects, {
+                    id, name: newProjectName.trim(), description: newProjectDesc.trim(),
+                    key, color, createdAt: nowIso(),
+                }],
+                projStatuses: [
+                    ...(prev.projStatuses || []),
+                    ...DEFAULT_STATUSES.map((s, i) => ({
+                        id: alloc(), projectId: id, name: s.name, color: s.color, order: i, isDone: s.isDone,
+                    })),
+                ],
             };
-            return { ...prev, projects: [...prev.projects, newProject] };
         });
         setIsCreating(false);
         setNewProjectName('');
         setNewProjectDesc('');
     };
 
+    const ProjectCard: React.FC<{ p: (typeof projects.active)[number] }> = ({ p: row }) => (
+        <Link
+            to={`/projects/${row.p.id}`}
+            className="group flex flex-col gap-2 p-4 rounded-lg border border-efg-line hover:border-brand-secondary hover:shadow-card transition-all bg-white"
+        >
+            <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: row.p.color || '#64748b' }} />
+                <h3 className="font-semibold text-brand-text-primary group-hover:text-brand-primary transition-colors truncate">{row.p.name}</h3>
+                {row.p.key && <span className="text-[11px] font-medium text-brand-text-secondary bg-brand-bg-body rounded px-1.5 py-0.5">{row.p.key}</span>}
+            </div>
+            {row.p.description && (
+                <p className="text-sm text-brand-text-secondary line-clamp-2">{row.p.description}</p>
+            )}
+            <div className="mt-auto pt-1">
+                <div className="flex items-center justify-between text-[11px] text-brand-text-secondary mb-1">
+                    <span>{row.total} task{row.total === 1 ? '' : 's'}</span>
+                    <span>{row.total > 0 ? `${row.done}/${row.total} done` : '—'}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-brand-bg-body overflow-hidden">
+                    <div className="h-full rounded-full bg-brand-secondary transition-all"
+                        style={{ width: row.total > 0 ? `${(row.done / row.total) * 100}%` : 0 }} />
+                </div>
+            </div>
+        </Link>
+    );
+
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader title="Projects" subtitle="Manage and track ongoing regulatory improvement projects" />
+            <PageHeader title="Projects" subtitle="Kanban boards, task lists, timelines and files for the team's regulatory projects" />
 
             <Card>
                 <div className="flex justify-between items-center mb-6">
                     <SectionHeader title="All Projects" className="mb-0 pb-0 border-0 flex-1" />
-                    <button
-                        onClick={() => setIsCreating(true)}
-                        className="flex items-center gap-2 text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors"
-                    >
-                        <span>+ New Project</span>
-                    </button>
-                </div>
-                <div className="border-t border-efg-line pt-4 space-y-2">
-                    {data.projects.length === 0 ? (
-                        <p className="text-sm text-brand-text-secondary py-6 text-center">No projects yet. Create one to get started.</p>
-                    ) : data.projects.map(project => (
-                        <Link
-                            to={`/projects/${project.id}`}
-                            key={project.id}
-                            className="group flex items-center justify-between p-4 rounded-md hover:bg-brand-bg-body border border-transparent hover:border-efg-line transition-all"
+                    {isAdmin && (
+                        <button
+                            onClick={() => setIsCreating(true)}
+                            className="flex items-center gap-2 text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors"
                         >
-                            <div>
-                                <h3 className="font-semibold text-brand-text-primary group-hover:text-brand-primary transition-colors">{project.name}</h3>
-                                {project.description && (
-                                    <p className="text-sm text-brand-text-secondary mt-0.5">{project.description}</p>
-                                )}
-                            </div>
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-brand-text-secondary opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                        </Link>
-                    ))}
+                            <span>+ New Project</span>
+                        </button>
+                    )}
                 </div>
+                <div className="border-t border-efg-line pt-4">
+                    {projects.active.length === 0 ? (
+                        <p className="text-sm text-brand-text-secondary py-6 text-center">No projects yet. Create one to get started.</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                            {projects.active.map(row => <ProjectCard key={row.p.id} p={row} />)}
+                        </div>
+                    )}
+                </div>
+
+                {projects.archived.length > 0 && (
+                    <div className="mt-6">
+                        <button onClick={() => setShowArchived(v => !v)}
+                            className="text-[12px] font-semibold text-brand-text-secondary hover:text-brand-text-primary">
+                            {showArchived ? '▾' : '▸'} Archived ({projects.archived.length})
+                        </button>
+                        {showArchived && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3 opacity-70">
+                                {projects.archived.map(row => <ProjectCard key={row.p.id} p={row} />)}
+                            </div>
+                        )}
+                    </div>
+                )}
             </Card>
 
             <Modal isOpen={isCreating} onClose={() => setIsCreating(false)} title="New Project">
@@ -77,6 +134,11 @@ export const ProjectsPage: React.FC = () => {
                             required
                             placeholder="e.g. FINMA Basel IV Implementation"
                         />
+                        {newProjectName.trim() && (
+                            <p className="text-[11px] text-brand-text-secondary mt-1">
+                                Key: <strong>{deriveKey(newProjectName, data.projects)}</strong> — tasks will be numbered {deriveKey(newProjectName, data.projects)}-1, -2…
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label htmlFor="projectDesc" className="block text-sm font-medium text-brand-text-secondary mb-1">Description</label>
@@ -89,6 +151,9 @@ export const ProjectsPage: React.FC = () => {
                             placeholder="Brief summary of the project scope…"
                         />
                     </div>
+                    <p className="text-[11px] text-brand-text-secondary">
+                        The project starts with the standard columns ({DEFAULT_STATUSES.map(s => s.name).join(' · ')}) — rename or add columns from the board.
+                    </p>
                     <div className="flex justify-end gap-3 pt-2">
                         <button type="button" onClick={() => setIsCreating(false)} className="text-sm font-semibold text-brand-text-secondary bg-brand-bg-body hover:bg-efg-line py-2 px-4 rounded-md transition-colors">
                             Cancel

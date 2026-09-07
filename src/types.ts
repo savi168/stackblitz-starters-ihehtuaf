@@ -160,15 +160,69 @@ export interface Project {
     id: number;
     name: string;
     description: string;
+    /** Short uppercase key (e.g. BASL) prefixing task numbers: BASL-12. */
+    key?: string;
+    color?: string;
+    archived?: boolean;
+    createdAt?: string;
 }
+
+/** Kanban column, per project (ported from the "Pilote" tool). */
+export interface ProjStatus {
+    id: number;
+    projectId: number;
+    name: string;
+    color: string;
+    order: number;
+    /** Column meaning "finished" — drives progress counters and muted bars. */
+    isDone?: boolean;
+}
+
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 export interface ProjectTask {
     id: number;
     projectId: number;
     title: string;
     assignee: string;
+    /** Legacy tri-state, kept for backward compatibility; statusId wins. */
     status: 'To Do' | 'In Progress' | 'Done';
     itTicket?: string;
+    /** Sequential number within the project (key-12). */
+    number?: number;
+    /** Kanban column (ProjStatus id). */
+    statusId?: number;
+    description?: string;
+    priority?: TaskPriority;
+    /** Parent task — one level only: a subtask cannot have subtasks. */
+    parentId?: number;
+    startDate?: string; // YYYY-MM-DD
+    dueDate?: string;   // YYYY-MM-DD
+    /** Position within the column (float, allows insertion between cards). */
+    order?: number;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+export interface ProjComment {
+    id: number;
+    taskId: number;
+    author: string;
+    body: string;
+    createdAt: string;
+}
+
+/** Task activity log: who changed what, and when.
+ * type: created | status | assignee | priority | dates | title | description
+ *       | comment | subtask | detached | deleted */
+export interface ProjActivity {
+    id: number;
+    taskId: number;
+    actor?: string;
+    type: string;
+    from?: string;
+    to?: string;
+    createdAt: string;
 }
 
 export interface DiagnosisResult {
@@ -492,6 +546,9 @@ export interface CentralData {
   team: TeamMember[];
   projects: Project[];
   projectTasks: ProjectTask[];
+  projStatuses?: ProjStatus[];
+  projComments?: ProjComment[];
+  projActivities?: ProjActivity[];
   diagnosisResults?: Record<string, DiagnosisResult[]>; // Key: entity|date
   // Optional so data saved before these existed still loads.
   capitalReports?: CapitalReport[];

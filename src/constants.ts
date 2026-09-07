@@ -8,17 +8,35 @@ export const centralData: CentralData = {
         { id: 4, name: "Diana Lefevre", role: "Data Scientist", email: "diana.lefevre@example.com", phone: "555-0104" }
     ],
     projects: [
-        { id: 1, name: "Q4 Regulatory Filing Automation", description: "Automate the generation and submission of key regulatory reports for the fourth quarter." },
-        { id: 2, name: "Risk Appetite Framework Review", description: "Annual review and update of the firm-wide risk appetite statements and thresholds." }
+        { id: 1, name: "Q4 Regulatory Filing Automation", description: "Automate the generation and submission of key regulatory reports for the fourth quarter.", key: "QREG", color: "#0d5c63" },
+        { id: 2, name: "Risk Appetite Framework Review", description: "Annual review and update of the firm-wide risk appetite statements and thresholds.", key: "RISK", color: "#0ea5e9" }
+    ],
+    projStatuses: [
+        { id: 901, projectId: 1, name: "To do", color: "#94a3b8", order: 0 },
+        { id: 902, projectId: 1, name: "In progress", color: "#3b82f6", order: 1 },
+        { id: 903, projectId: 1, name: "In review", color: "#a855f7", order: 2 },
+        { id: 904, projectId: 1, name: "Done", color: "#22c55e", order: 3, isDone: true },
+        { id: 911, projectId: 2, name: "To do", color: "#94a3b8", order: 0 },
+        { id: 912, projectId: 2, name: "In progress", color: "#3b82f6", order: 1 },
+        { id: 913, projectId: 2, name: "In review", color: "#a855f7", order: 2 },
+        { id: 914, projectId: 2, name: "Done", color: "#22c55e", order: 3, isDone: true }
     ],
     projectTasks: [
-        { id: 101, projectId: 1, title: "Gather LCR data requirements", assignee: "Bob Durand", status: "Done", itTicket: "IT-5821" },
-        { id: 102, projectId: 1, title: "Develop data extraction script", assignee: "Charlie Petit", status: "In Progress", itTicket: "IT-5822" },
-        { id: 103, projectId: 1, title: "Validate CET1 calculation logic", assignee: "Bob Durand", status: "In Progress", itTicket: "" },
-        { id: 104, projectId: 1, title: "Draft final report for review", assignee: "Alice Martin", status: "To Do", itTicket: "" },
-        { id: 201, projectId: 2, title: "Interview business heads for feedback", assignee: "Alice Martin", status: "Done", itTicket: "" },
-        { id: 202, projectId: 2, title: "Analyze historical threshold breaches", assignee: "Diana Lefevre", status: "In Progress", itTicket: "IT-5910" },
-        { id: 203, projectId: 2, title: "Propose new NSFR thresholds", assignee: "Bob Durand", status: "To Do", itTicket: "" }
+        { id: 101, projectId: 1, title: "Gather LCR data requirements", assignee: "Bob Durand", status: "Done", itTicket: "IT-5821", number: 1, statusId: 904, priority: "MEDIUM", order: 0, startDate: "2026-08-03", dueDate: "2026-08-21" },
+        { id: 102, projectId: 1, title: "Develop data extraction script", assignee: "Charlie Petit", status: "In Progress", itTicket: "IT-5822", number: 2, statusId: 902, priority: "HIGH", order: 0, startDate: "2026-08-24", dueDate: "2026-09-18" },
+        { id: 103, projectId: 1, title: "Validate CET1 calculation logic", assignee: "Bob Durand", status: "In Progress", itTicket: "", number: 3, statusId: 902, priority: "URGENT", order: 1, startDate: "2026-09-01", dueDate: "2026-09-10" },
+        { id: 104, projectId: 1, title: "Draft final report for review", assignee: "Alice Martin", status: "To Do", itTicket: "", number: 4, statusId: 901, priority: "MEDIUM", order: 0, startDate: "2026-09-21", dueDate: "2026-10-09" },
+        { id: 105, projectId: 1, title: "Map MERCURY load ids to LCR lines", assignee: "Charlie Petit", status: "In Progress", itTicket: "", number: 5, statusId: 902, priority: "MEDIUM", parentId: 102, order: 0, startDate: "2026-08-24", dueDate: "2026-09-04" },
+        { id: 201, projectId: 2, title: "Interview business heads for feedback", assignee: "Alice Martin", status: "Done", itTicket: "", number: 1, statusId: 914, priority: "MEDIUM", order: 0, startDate: "2026-08-10", dueDate: "2026-08-28" },
+        { id: 202, projectId: 2, title: "Analyze historical threshold breaches", assignee: "Diana Lefevre", status: "In Progress", itTicket: "IT-5910", number: 2, statusId: 912, priority: "HIGH", order: 0, startDate: "2026-08-31", dueDate: "2026-09-25" },
+        { id: 203, projectId: 2, title: "Propose new NSFR thresholds", assignee: "Bob Durand", status: "To Do", itTicket: "", number: 3, statusId: 911, priority: "LOW", order: 0, dueDate: "2026-10-16" }
+    ],
+    projComments: [
+        { id: 951, taskId: 102, author: "Bob Durand", body: "Remember to exclude the intraday loads — only end-of-day snapshots feed the LCR.", createdAt: "2026-09-01T09:12:00Z" }
+    ],
+    projActivities: [
+        { id: 961, taskId: 102, actor: "Alice Martin", type: "created", createdAt: "2026-08-20T08:00:00Z" },
+        { id: 962, taskId: 102, actor: "Bob Durand", type: "comment", createdAt: "2026-09-01T09:12:00Z" }
     ],
     deadlines: [
         { 

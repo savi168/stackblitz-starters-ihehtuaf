@@ -28,6 +28,9 @@ public static class CentralDataStore
             Team = await db.Team.AsNoTracking().ToListAsync(),
             Projects = await db.Projects.AsNoTracking().ToListAsync(),
             ProjectTasks = await db.ProjectTasks.AsNoTracking().ToListAsync(),
+            ProjStatuses = await db.ProjStatuses.AsNoTracking().ToListAsync(),
+            ProjComments = await db.ProjComments.AsNoTracking().ToListAsync(),
+            ProjActivities = await db.ProjActivities.AsNoTracking().ToListAsync(),
             CapitalReports = await db.CapitalReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
             LcrReports = await db.LcrReports.AsNoTracking().ToListAsync(),
             NsfrReports = await db.NsfrReports.AsNoTracking().Include(r => r.LineItems).ToListAsync(),
@@ -65,6 +68,9 @@ public static class CentralDataStore
         db.CounterpartyRwa.RemoveRange(db.CounterpartyRwa);
         db.LargeExposures.RemoveRange(db.LargeExposures);
         db.Team.RemoveRange(db.Team);
+        db.ProjActivities.RemoveRange(db.ProjActivities);
+        db.ProjComments.RemoveRange(db.ProjComments);
+        db.ProjStatuses.RemoveRange(db.ProjStatuses);
         db.ProjectTasks.RemoveRange(db.ProjectTasks);
         db.Projects.RemoveRange(db.Projects);
         db.CapitalLineItems.RemoveRange(db.CapitalLineItems);
@@ -130,6 +136,9 @@ public static class CentralDataStore
         db.Team.AddRange(data.Team);
         db.Projects.AddRange(data.Projects);
         db.ProjectTasks.AddRange(data.ProjectTasks);
+        db.ProjStatuses.AddRange(data.ProjStatuses);
+        db.ProjComments.AddRange(data.ProjComments);
+        db.ProjActivities.AddRange(data.ProjActivities);
         db.CapitalReports.AddRange(data.CapitalReports);
         db.LcrReports.AddRange(data.LcrReports);
         db.NsfrReports.AddRange(data.NsfrReports);

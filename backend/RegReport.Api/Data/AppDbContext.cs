@@ -18,6 +18,9 @@ public class AppDbContext : DbContext
     public DbSet<TeamMember> Team => Set<TeamMember>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectTask> ProjectTasks => Set<ProjectTask>();
+    public DbSet<ProjStatus> ProjStatuses => Set<ProjStatus>();
+    public DbSet<ProjComment> ProjComments => Set<ProjComment>();
+    public DbSet<ProjActivity> ProjActivities => Set<ProjActivity>();
     public DbSet<CapitalReport> CapitalReports => Set<CapitalReport>();
     public DbSet<CapitalLineItem> CapitalLineItems => Set<CapitalLineItem>();
     public DbSet<LcrReport> LcrReports => Set<LcrReport>();
@@ -107,6 +110,35 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Order).HasColumnName("SortOrder"); // ORDER is reserved
+            e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<ProjStatus>(e =>
+        {
+            e.ToTable("ProjStatuses");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Order).HasColumnName("SortOrder");
+            e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<ProjComment>(e =>
+        {
+            e.ToTable("ProjComments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.HasIndex(x => x.TaskId);
+        });
+
+        b.Entity<ProjActivity>(e =>
+        {
+            e.ToTable("ProjActivities");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.From).HasColumnName("FromValue"); // FROM is reserved
+            e.Property(x => x.To).HasColumnName("ToValue");
+            e.HasIndex(x => x.TaskId);
         });
 
         b.Entity<CapitalReport>(e =>
