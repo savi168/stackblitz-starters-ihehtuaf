@@ -39,12 +39,10 @@ export const HubPage: React.FC = () => {
         { title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'Regulatory', link: '/deadlines' },
         { title: 'Management Report', desc: 'Capital adequacy, LCR & NSFR pack: bridges between any periods, monthly detail, projections.', tag: 'Reporting', link: '/report' },
         { title: 'Scenarios & Projections', desc: 'What-if simulation: acquisitions, disposals, HQLA trades — impact on CET1, LCR, NSFR.', tag: 'Simulation', link: '/scenarios' },
-        { title: 'KPI Analysis', desc: 'Analysis, historical trends, and risk appetite in one place.', tag: 'Analysis', link: '/details' },
         { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns (CASABIS, LCR_G, NSFR_G) or enter components per entity.', tag: 'Data Entry', link: '/capital', adminOnly: true },
         { title: 'Daily Reports', desc: 'Daily / weekly LCR and large exposure reports for key entities.', tag: 'Monitoring', link: '/daily-reports' },
         { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects' },
         { title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'People', link: '/team' },
-        { title: 'Business Case', desc: 'ROI, operational benefits and justification for the tool.', tag: 'Strategy', link: '/business-case' },
         { title: 'Backend Cockpit', desc: 'Connection status, live tables, schema and API map; reboot and insert data.', tag: 'Backend', link: '/cockpit', adminOnly: true },
         { title: 'Data Management', desc: 'Add / modify deadlines, import / export CSV and JSON.', tag: 'Admin', link: '/datamanagement', adminOnly: true },
     ].filter(card => !card.adminOnly || isAdmin);

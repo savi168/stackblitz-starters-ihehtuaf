@@ -8,7 +8,6 @@ import { ErrorBoundary } from './components';
 const NAV_ITEMS = [
   { to: '/report', label: 'Report' },
   { to: '/scenarios', label: 'Scenarios' },
-  { to: '/details', label: 'KPI Analysis' },
   { to: '/capital', label: 'Workbench', adminOnly: true },
   { to: '/production', label: 'Production', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
@@ -22,14 +21,12 @@ const NAV_ITEMS = [
 // Each page (and its heavy chart/PDF dependencies) is split into its own chunk
 // so the initial load only ships the code needed for the landing page.
 const HubPage = lazy(() => import('./pages/HubPage').then(m => ({ default: m.HubPage })));
-const KpiDetailsPage = lazy(() => import('./pages/KpiDetailsPage').then(m => ({ default: m.KpiDetailsPage })));
 const DeadlinesPage = lazy(() => import('./pages/DeadlinesPage').then(m => ({ default: m.DeadlinesPage })));
 const DataManagementPage = lazy(() => import('./pages/DataManagementPage').then(m => ({ default: m.DataManagementPage })));
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then(m => ({ default: m.ProjectsPage })));
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const TeamPage = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })));
-const BusinessCasePage = lazy(() => import('./pages/BusinessCasePage').then(m => ({ default: m.BusinessCasePage })));
 const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
 const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
@@ -104,14 +101,12 @@ const App: React.FC = () => {
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   <Route path="/" element={<HubPage />} />
-                  <Route path="/details" element={<KpiDetailsPage />} />
                   <Route path="/daily-reports" element={<DailyReportsPage />} />
                   <Route path="/deadlines" element={<DeadlinesPage />} />
                   <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
                   <Route path="/team" element={<TeamPage />} />
-                  <Route path="/business-case" element={<BusinessCasePage />} />
                   <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
                   <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
                   <Route path="/report" element={<ManagementReportPage />} />
