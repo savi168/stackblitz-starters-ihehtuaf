@@ -15,3 +15,8 @@ appsettings.*.local.json
 
 # Release artifacts produced by scripts/release.ps1
 releases/
+
+# Offline kit: the npm cache IS committed (vendor/npm-cache) so the front
+# builds without internet; only its logs and the (huge) NuGet mirror are not.
+vendor/npm-cache/_logs/
+vendor/nuget/

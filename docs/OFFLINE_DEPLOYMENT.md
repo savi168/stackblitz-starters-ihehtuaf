@@ -25,8 +25,40 @@ dans la page Deadlines — il pointe vers votre SharePoint interne, pas vers int
 - **Backend** : `dotnet publish -c Release` (restaure les NuGet au build) →
   le dossier publié tourne sans internet. Pour éviter même l'installation du
   runtime .NET : `dotnet publish -c Release -r win-x64 --self-contained true`.
-- Si le poste de build est lui aussi fermé : monter un miroir interne
-  (Artifactory/Nexus, offline cache npm + NuGet) — pratique standard en banque.
+## Et même le BUILD est possible hors ligne (kit vendoré)
+
+Les bibliothèques sont **téléchargées dans le repo** pour que le build et le
+dev ne dépendent plus d'internet :
+
+- **Front — déjà dans le repo** : `vendor/npm-cache/` (≈50 MB, committé)
+  contient les archives de toutes les dépendances (SheetJS/xlsx, React,
+  recharts, jsPDF, Vite, Tailwind, TypeScript…), verrouillées par
+  `package-lock.json`. Installation **sans internet** :
+  ```powershell
+  npm ci --offline --cache vendor/npm-cache
+  npm run build
+  ```
+  (vérifié : installation + build passent intégralement depuis le cache.)
+- **Backend — à générer une fois avec internet** :
+  ```powershell
+  .\scripts\make-offline-kit.ps1
+  ```
+  → miroir de tous les packages NuGet (y compris le runtime self-contained
+  win-x64) dans `vendor/nuget/` — gitignoré car volumineux : à garder sur un
+  partage réseau ou copié avec le repo. Ensuite, sans internet :
+  ```powershell
+  dotnet restore backend/RegReport.Api/RegReport.Api.csproj -r win-x64 --packages vendor/nuget
+  dotnet publish backend/RegReport.Api/RegReport.Api.csproj -c Release -r win-x64 --self-contained --no-restore
+  ```
+- **Outillage de base** (une seule fois dans l'environnement fermé) : les
+  installeurs Node.js LTS et SDK .NET 8 (`.msi`/`.exe`) s'installent hors
+  ligne — à garder de côté avec le kit.
+- **Mise à jour d'une dépendance** (rare) : relancer `make-offline-kit.ps1`
+  sur un poste connecté et recommitter `vendor/npm-cache`.
+
+Si le poste de build est fermé en permanence, le miroir interne
+(Artifactory/Nexus) reste la pratique standard en banque — le kit vendoré
+ci-dessus en est la version « sans infrastructure ».
 
 ## Releases : un zip par version (`scripts/release.ps1`)
 
