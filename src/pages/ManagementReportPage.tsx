@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Bar, BarChart, CartesianGrid, LabelList, Legend, Line, LineChart,
+  Bar, BarChart, CartesianGrid, ComposedChart, LabelList, Legend, Line, LineChart,
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
@@ -1846,13 +1846,297 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
 
 // --- Page ------------------------------------------------------------------------------
 
-type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr' | 'financials';
+// --- Leverage tab ---------------------------------------------------------------
+
+const LeverageTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
+  const { data } = useData();
+  const fullSeries = useCapitalSeries(entity);
+  // Ratio from the report when present, else Tier 1 / exposure.
+  const points = useMemo(() => fullSeries
+    .filter(p => p.date <= asOf || p.isProjection)
+    .map(p => {
+      const exposure = p.leverageExposure ?? null;
+      const ratio = p.leverageRatio ?? (exposure && exposure > 0 && p.tier1 > 0 ? (p.tier1 / exposure) * 100 : null);
+      return { ...p, exposure, ratio };
+    })
+    .filter(p => p.ratio !== null || p.exposure !== null), [fullSeries, asOf]);
+
+  const latest = [...points].filter(p => !p.isProjection).pop() ?? points[points.length - 1];
+  const thr = data.riskAppetite?.[entity]?.leverage;
+  const lastN = points.slice(-8);
+  const chart = lastN.map(p => ({
+    name: monthLabel(p.date) + (p.isProjection ? ' (P)' : ''),
+    ratio: p.ratio ?? 0,
+    exposure: (p.exposure ?? 0) / 1000,
+  }));
+  const headroom = (p: { tier1: number; exposure: number | null }) =>
+    p.exposure && p.exposure > 0 ? p.tier1 - 0.03 * p.exposure : null;
+
+  const audit = [{
+    what: 'Leverage ratio (Tier 1 / total exposure measure)',
+    object: 'capitalReports.keyMetrics (+ kpisHistory fallback: tier1, exposure)',
+    filter: `[entity=${entity}, date ≤ ${asOf} + projections]`,
+    endpoint: `GET /api/capital-reports?entity=${entity} · GET /api/kpis?entity=${entity}`,
+    sql: `SELECT Date, Tier1Capital, LeverageExposure, LeverageRatio\nFROM CapitalReports WHERE Entity = '${entity}' AND (Date <= '${asOf}' OR IsProjection = 1);\n-- fallback: SELECT Date, Tier1, Exposure FROM KpiHistory WHERE Entity = '${entity}'`,
+    notes: [
+      'Leverage ratio = Tier 1 capital / total leverage exposure measure (Basel III, minimum 3%).',
+      'Headroom = Tier 1 − 3% × exposure, in mCHF (capital cushion above the minimum).',
+      'Risk-appetite thresholds (amber/red) come from the Risk appetite settings per entity.',
+    ],
+  }];
+
+  if (points.length === 0) {
+    return <p className="text-brand-text-secondary py-10 text-center">No leverage data for {entity} yet — the CASABIS import (Workbench) fills Tier 1 and the leverage exposure.</p>;
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Leverage ratio', value: fmtPct(latest?.ratio, 2), sub: 'minimum 3.0%' },
+          { label: 'Tier 1 capital', value: `${fmt(latest?.tier1 ?? null, 0)} m`, sub: 'CHF' },
+          { label: 'Leverage exposure', value: `${fmt(latest?.exposure ?? null, 0)} m`, sub: 'total exposure measure' },
+          { label: 'Headroom vs 3%', value: latest ? `${fmt(headroom(latest), 0)} m` : '—', sub: 'Tier 1 − 3% × exposure' },
+        ].map(c => (
+          <Card key={c.label}>
+            <p className="text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary">{c.label}</p>
+            <p className="text-2xl font-semibold mt-1">{c.value}</p>
+            <p className="text-[11px] text-brand-text-secondary mt-1">{c.sub}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <AuditedHeader title="Leverage ratio evolution" suffix="ratio % (line) vs exposure CHF bn (bars)" queries={audit} />
+        <ResponsiveContainer width="100%" height={300}>
+          <ComposedChart data={chart} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis yAxisId="exp" tick={{ fontSize: 11 }} label={{ value: 'CHF bn', angle: -90, position: 'insideLeft', fontSize: 11 }} />
+            <YAxis yAxisId="ratio" orientation="right" tick={{ fontSize: 11 }} domain={[0, (max: number) => Math.max(5, Math.ceil(max + 1))]} unit="%" />
+            <Tooltip formatter={(v: number, n: string) => n === 'Leverage ratio' ? `${v.toFixed(2)}%` : `${v.toFixed(1)} bn`} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar yAxisId="exp" dataKey="exposure" name="Leverage exposure" fill={PALETTE.mist} radius={[3, 3, 0, 0]} />
+            <Line yAxisId="ratio" type="monotone" dataKey="ratio" name="Leverage ratio" stroke={PALETTE.red} strokeWidth={2.5} dot={{ r: 3 }} />
+            <ReferenceLine yAxisId="ratio" y={3} stroke={STATUS_COLORS.red} strokeDasharray="4 4" label={{ value: 'min 3%', fontSize: 10, fill: STATUS_COLORS.red, position: 'insideBottomRight' }} />
+            {thr?.amber !== undefined && <ReferenceLine yAxisId="ratio" y={thr.amber} stroke={STATUS_COLORS.amber} strokeDasharray="4 4" label={{ value: `amber ${thr.amber}%`, fontSize: 10, fill: STATUS_COLORS.amber, position: 'insideTopRight' }} />}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </Card>
+
+      <Card>
+        <AuditedHeader title="Leverage components by period" suffix="mCHF" queries={audit} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-brand-bg-body"><tr>
+              {['Period', 'Tier 1', 'Exposure measure', 'Leverage ratio', 'Headroom vs 3%', ''].map((h, i) =>
+                <th key={i} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 && i < 5 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {points.map(p => {
+                const hr = headroom(p);
+                const belowMin = p.ratio !== null && p.ratio < 3;
+                const belowAmber = !belowMin && p.ratio !== null && thr?.amber !== undefined && p.ratio < thr.amber;
+                return (
+                  <tr key={p.date} className={`border-t border-efg-line ${p.date === asOf ? 'bg-brand-secondary/5 font-semibold' : ''}`}>
+                    <td className="px-3 py-1.5">{monthLabel(p.date)}{p.isProjection ? ' (P)' : ''}{p.source === 'kpi' ? ' †' : ''}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{fmt(p.tier1, 0)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{fmt(p.exposure, 0)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${belowMin ? 'text-status-red font-semibold' : belowAmber ? 'text-status-amber font-semibold' : ''}`}>{fmtPct(p.ratio, 2)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${hr !== null && hr < 0 ? 'text-status-red font-semibold' : ''}`}>{fmt(hr, 0)}</td>
+                    <td className="px-3 py-1.5 text-[11px] text-brand-text-secondary">
+                      {belowMin ? '⚠ below 3% minimum' : belowAmber ? '⚠ below risk appetite (amber)' : ''}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-brand-text-secondary mt-2">
+          (P) = projection · † = KPI-history row without a detailed Workbench report.
+          Exposure = total leverage exposure measure (on-balance sheet, derivatives, SFT and off-balance sheet, per the CASABIS return).
+        </p>
+      </Card>
+    </div>
+  );
+};
+
+// --- Large exposures tab --------------------------------------------------------
+
+const LargeExposuresTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }) => {
+  const { data } = useData();
+  const les = useMemo(() => (data.largeExposures || []).filter(l => l.entity === entity), [data.largeExposures, entity]);
+  const dates = useMemo(() => Array.from(new Set(les.map(l => l.date))).sort(), [les]);
+  const [dateSel, setDateSel] = useState('');
+  const leDate = (dateSel && dates.includes(dateSel) ? dateSel : '') || [...dates].filter(d => d <= asOf).pop() || dates[dates.length - 1] || '';
+
+  const capSeries = useCapitalSeries(entity);
+  const tier1At = (d: string): number | null =>
+    [...capSeries].filter(p => p.date <= d && !p.isProjection && p.tier1 > 0).pop()?.tier1 ?? null;
+  const tier1 = tier1At(leDate);
+
+  const rows = useMemo(() => les
+    .filter(l => l.date === leDate)
+    .map(l => ({
+      ...l,
+      pctT1: tier1 ? (l.exposureValue / tier1) * 100 : null,
+      pctLimit: l.limit > 0 ? (l.exposureValue / l.limit) * 100 : null,
+    }))
+    .sort((a, b) => b.exposureValue - a.exposureValue), [les, leDate, tier1]);
+
+  const nLarge = rows.filter(r => (r.pctT1 ?? 0) >= 10).length;
+  const nBreach = rows.filter(r => (r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100)).length;
+  const maxPct = rows.reduce<number | null>((m, r) => (r.pctT1 !== null && (m === null || r.pctT1 > m) ? r.pctT1 : m), null);
+  const top = rows.slice(0, 10);
+  const chart = top.map(r => ({ name: r.counterparty, pct: r.pctT1 ?? 0 }));
+
+  const history = useMemo(() => dates.map(d => {
+    const t1 = tier1At(d);
+    const rs = les.filter(l => l.date === d);
+    const pcts = rs.map(r => (t1 ? (r.exposureValue / t1) * 100 : 0));
+    return {
+      date: d, n: rs.length,
+      nLarge: pcts.filter(p => p >= 10).length,
+      max: pcts.length ? Math.max(...pcts) : 0,
+      breaches: rs.filter((r, i) => pcts[i] > 25 || (r.limit > 0 && r.exposureValue > r.limit)).length,
+    };
+  }), [dates, les, capSeries]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const audit = [{
+    what: 'Large exposures vs Tier 1 (10% reporting / 25% limit)',
+    object: 'largeExposures + Tier 1 from capitalReports/kpisHistory',
+    filter: `[entity=${entity}, date=${leDate}]`,
+    endpoint: `GET /api/large-exposures?entity=${entity}`,
+    sql: `SELECT Counterparty, ExposureValue, Limit\nFROM LargeExposures WHERE Entity = '${entity}' AND Date = '${leDate}'\nORDER BY ExposureValue DESC`,
+    notes: [
+      'Large exposure = exposure ≥ 10% of Tier 1 capital (reportable); regulatory limit = 25% of Tier 1.',
+      `% of Tier 1 uses Tier 1 = ${fmt(tier1, 0)} m at the closest capital period ≤ the exposure date.`,
+      'The per-row Limit column is the stored limit of the record (e.g. adjusted limit for banks); Utilisation = exposure / limit.',
+    ],
+  }];
+
+  if (les.length === 0) {
+    return <p className="text-brand-text-secondary py-10 text-center">No large-exposure data for {entity} yet — feed the largeExposures dataset (Data Management import or API).</p>;
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 flex-1">
+          {[
+            { label: 'Counterparties reported', value: String(rows.length), sub: monthLabel(leDate) },
+            { label: 'Large exposures (≥10% T1)', value: String(nLarge), sub: 'reportable to FINMA' },
+            { label: 'Largest exposure', value: fmtPct(maxPct, 1), sub: 'of Tier 1 (limit 25%)' },
+            { label: 'Limit breaches', value: String(nBreach), sub: '> 25% T1 or > record limit', alert: nBreach > 0 },
+          ].map(c => (
+            <Card key={c.label}>
+              <p className="text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary">{c.label}</p>
+              <p className={`text-2xl font-semibold mt-1 ${c.alert ? 'text-status-red' : ''}`}>{c.value}</p>
+              <p className="text-[11px] text-brand-text-secondary mt-1">{c.sub}</p>
+            </Card>
+          ))}
+        </div>
+        {dates.length > 1 && (
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Exposure date</label>
+            <select value={leDate} onChange={e => setDateSel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white">
+              {dates.map(d => <option key={d} value={d}>{monthLabel(d)}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <Card>
+        <AuditedHeader title="Top exposures vs Tier 1" suffix="% of Tier 1 — 10% reporting threshold, 25% regulatory limit" queries={audit} />
+        <ResponsiveContainer width="100%" height={Math.max(220, 36 * chart.length + 60)}>
+          <BarChart data={chart} layout="vertical" margin={{ top: 10, right: 40, left: 10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 11 }} unit="%" domain={[0, (max: number) => Math.max(30, Math.ceil(max + 2))]} />
+            <YAxis type="category" dataKey="name" width={190} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v: number) => `${v.toFixed(1)}% of Tier 1`} />
+            <Bar dataKey="pct" name="% of Tier 1" radius={[0, 3, 3, 0]}
+              fill={PALETTE.slate}>
+              <LabelList dataKey="pct" position="right" formatter={(v: number) => `${v.toFixed(1)}%`} style={{ fontSize: 10 }} />
+            </Bar>
+            <ReferenceLine x={10} stroke={STATUS_COLORS.amber} strokeDasharray="4 4" label={{ value: '10%', fontSize: 10, fill: STATUS_COLORS.amber, position: 'top' }} />
+            <ReferenceLine x={25} stroke={STATUS_COLORS.red} strokeDasharray="4 4" label={{ value: '25% limit', fontSize: 10, fill: STATUS_COLORS.red, position: 'top' }} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+
+      <Card>
+        <AuditedHeader title={`Large exposure register — ${monthLabel(leDate)}`} suffix="mCHF" queries={audit} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="bg-brand-bg-body"><tr>
+              {['Counterparty', 'Exposure', '% of Tier 1', 'Record limit', 'Utilisation', 'Status'].map((h, i) =>
+                <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 && i < 5 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {rows.map(r => {
+                const breach = (r.pctT1 !== null && r.pctT1 > 25) || (r.pctLimit !== null && r.pctLimit > 100);
+                const large = !breach && (r.pctT1 ?? 0) >= 10;
+                return (
+                  <tr key={r.counterparty} className="border-t border-efg-line">
+                    <td className="px-3 py-1.5">{r.counterparty}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{fmt(r.exposureValue, 0)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${breach ? 'text-status-red font-semibold' : large ? 'text-status-amber font-semibold' : ''}`}>{fmtPct(r.pctT1, 1)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{r.limit > 0 ? fmt(r.limit, 0) : '—'}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.pctLimit !== null && r.pctLimit > 100 ? 'text-status-red font-semibold' : ''}`}>{fmtPct(r.pctLimit, 0)}</td>
+                    <td className="px-3 py-1.5">
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${
+                        breach ? 'bg-status-red/10 text-status-red border-status-red/30'
+                        : large ? 'bg-status-amber/10 text-status-amber border-status-amber/30'
+                        : 'bg-status-green/10 text-status-green border-status-green/30'}`}>
+                        {breach ? 'breach' : large ? 'large (≥10%)' : 'ok'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {history.length > 1 && (
+        <Card>
+          <AuditedHeader title="History" suffix="count and concentration per reporting date" queries={audit} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead className="bg-brand-bg-body"><tr>
+                {['Date', 'Counterparties', 'Large (≥10% T1)', 'Largest % of T1', 'Breaches'].map((h, i) =>
+                  <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${i > 0 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.date} className={`border-t border-efg-line ${h.date === leDate ? 'bg-brand-secondary/5 font-semibold' : ''}`}>
+                    <td className="px-3 py-1.5">{monthLabel(h.date)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{h.n}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{h.nLarge}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{fmtPct(h.max, 1)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${h.breaches > 0 ? 'text-status-red font-semibold' : ''}`}>{h.breaches}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+type ReportTab = 'overview' | 'capital' | 'lcr' | 'nsfr' | 'leverage' | 'largeExposures' | 'financials';
 
 const TAB_TITLES: Record<ReportTab, string> = {
   overview: 'Overview',
   capital: 'Capital Adequacy',
   lcr: 'Liquidity Coverage Ratio',
   nsfr: 'Net Stable Funding Ratio',
+  leverage: 'Leverage Ratio',
+  largeExposures: 'Large Exposures',
   financials: 'Financial Statements',
 };
 
@@ -1939,6 +2223,8 @@ export const ManagementReportPage: React.FC = () => {
           <TabButton label="Capital Adequacy" isActive={tab === 'capital'} onClick={() => setTab('capital')} />
           <TabButton label="LCR" isActive={tab === 'lcr'} onClick={() => setTab('lcr')} />
           <TabButton label="NSFR" isActive={tab === 'nsfr'} onClick={() => setTab('nsfr')} />
+          <TabButton label="Leverage" isActive={tab === 'leverage'} onClick={() => setTab('leverage')} />
+          <TabButton label="Large Exposures" isActive={tab === 'largeExposures'} onClick={() => setTab('largeExposures')} />
           <TabButton label="Financial Statements" isActive={tab === 'financials'} onClick={() => setTab('financials')} />
         </nav>
       </div>
@@ -1948,6 +2234,8 @@ export const ManagementReportPage: React.FC = () => {
         {tab === 'capital' && <CapitalTab entity={entity} asOf={asOf} />}
         {tab === 'lcr' && <LcrTab entity={entity} asOf={asOf} />}
         {tab === 'nsfr' && <NsfrTab entity={entity} asOf={asOf} />}
+        {tab === 'leverage' && <LeverageTab entity={entity} asOf={asOf} />}
+        {tab === 'largeExposures' && <LargeExposuresTab entity={entity} asOf={asOf} />}
         {tab === 'financials' && <FinancialsTab entity={entity} asOf={asOf} />}
       </div>
     </div>
