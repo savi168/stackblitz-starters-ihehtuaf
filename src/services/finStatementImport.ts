@@ -23,6 +23,10 @@ export interface ParsedFin {
   fileName: string;
   /** Statements without id/entity (assigned at import). */
   statements: Array<Omit<FinStatement, 'id' | 'entity'>>;
+  /** Self-checks that failed (e.g. P&L additive net ≠ reported IFRS row —
+   * typically a new subtotal line in the file being summed twice). The import
+   * still proceeds; the UI must surface these prominently. */
+  warnings?: string[];
 }
 
 type Sheet = XLSX.WorkSheet;
@@ -112,7 +116,7 @@ const parseBalanceSheet = (ws: Sheet, fileName: string): Omit<FinStatement, 'id'
 
 // --- P&L monthly (one statement per month column) -------------------------------
 
-const parsePnl = (ws: Sheet, fileName: string): Array<Omit<FinStatement, 'id' | 'entity'>> => {
+const parsePnl = (ws: Sheet, fileName: string): { statements: Array<Omit<FinStatement, 'id' | 'entity'>>; warnings: string[] } => {
   const range = sheetRange(ws);
   // Month columns: the header row whose cells are full month names; the year
   // row is the closest numeric-year row above it in the same columns.
@@ -192,7 +196,23 @@ const parsePnl = (ws: Sheet, fileName: string): Array<Omit<FinStatement, 'id' | 
     }
   }
   if (statements.length === 0) throw new Error('P&L: no monthly columns with data found.');
-  return statements;
+
+  // Self-check: the additive net must reconcile with the file's own reported
+  // total (the memo "IFRS (reported) Net profit after tax" row). A deviation
+  // means the file layout changed — typically a NEW subtotal line summed on
+  // top of its components. The import proceeds; the caller shows the warning.
+  const warnings: string[] = [];
+  for (const s of statements) {
+    const net = s.lineItems.filter(i => !i.memo).reduce((a, i) => a + i.amount, 0);
+    const control = s.lineItems.find(i => /net profit after tax/i.test(i.label));
+    if (control && Math.abs(net - control.amount) > 0.5) {
+      warnings.push(
+        `${s.date}: computed net ${net.toFixed(1)} ≠ reported IFRS row ${control.amount.toFixed(1)} — ` +
+        `the file layout probably changed (a new subtotal line counted on top of its components?). ` +
+        `Check the new/renamed rows before trusting this month.`);
+    }
+  }
+  return { statements, warnings };
 };
 
 // --- Statement of changes in equity ---------------------------------------------
@@ -242,7 +262,8 @@ export const parseFinWorkbook = (buffer: ArrayBuffer, fileName: string, fallback
       return { kind: 'fin', fileName, statements: [parseBalanceSheet(ws, fileName)] };
     }
     if (findCell(ws, v => v.startsWith('underlying profitability'))) {
-      return { kind: 'fin', fileName, statements: parsePnl(ws, fileName) };
+      const pnl = parsePnl(ws, fileName);
+      return { kind: 'fin', fileName, statements: pnl.statements, warnings: pnl.warnings };
     }
     if (findCell(ws, v => v.startsWith('equity from analysis'))) {
       return { kind: 'fin', fileName, statements: [parseEquity(ws, fileName, fallbackDate)] };

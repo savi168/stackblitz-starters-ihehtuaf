@@ -1043,7 +1043,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
   // the CURRENT entity: upsert by entity+date+kind+gaap, after choosing the
   // accounting framework. Statements previously imported from a file with the
   // same name are purged first (clean re-import).
-  const applyFinImport = (fin: { fileName: string; statements: Array<Omit<FinStatement, 'id' | 'entity'>> }) => {
+  const applyFinImport = (fin: { fileName: string; statements: Array<Omit<FinStatement, 'id' | 'entity'>>; warnings?: string[] }) => {
     const raw = window.prompt(
       `"${fin.fileName}" recognized as internal finance extract (${fin.statements.length} statement(s) for ${entity}).\n` +
       `Accounting framework? (${GAAP_OPTIONS.join(' / ')})`,
@@ -1066,7 +1066,11 @@ export const CapitalWorkbenchPage: React.FC = () => {
       }
       return { ...prev, finStatements: fs };
     });
-    setNotice(`${fin.statements.length} statement(s) imported for ${entity} (${gaap}) from ${fin.fileName} — they feed the Financials tab and the CET1 movement details.`);
+    const warn = (fin.warnings || []).length > 0
+      ? ` ⚠ SELF-CHECK FAILED on ${fin.warnings!.length} month(s): ${fin.warnings![0]}${fin.warnings!.length > 1 ? ` (+${fin.warnings!.length - 1} more)` : ''}`
+      : '';
+    if (warn) setImportError(`Imported with warnings —${warn}`);
+    setNotice(`${fin.statements.length} statement(s) imported for ${entity} (${gaap}) from ${fin.fileName} — they feed the Financials tab and the CET1 movement details.${warn}`);
   };
 
   // Bulk line-items CSV (memoranda, CET1 detail, RWA by currency…): upserts
