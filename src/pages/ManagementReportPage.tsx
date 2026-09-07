@@ -1980,12 +1980,66 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
     if (!cur && !lcrCur && !nsfrCur) return null;
     // Most recent underlying date actually shown on the card.
     const shownDate = [latestCap, lcrCur?.date, nsfrCur?.date].filter(Boolean).sort().pop();
-    return { entity, date: shownDate, cur, prev, lcrCur, lcrPrev, nsfrCur, nsfrPrev };
+
+    // Tier 1 (mCHF) at the shown capital date — denominator of the LE tile.
+    const tier1 = (() => {
+      if (!latestCap) return null;
+      const rep = capSeries.find(r => r.date === latestCap);
+      if (rep) return computeCapitalSummary(rep).tier1;
+      const k = data.kpisHistory.find(x => x.entity === entity && x.date === latestCap);
+      return k ? k.tier1 : null;
+    })();
+
+    // Top NON-sovereign counterparty of the latest large-exposure date ≤ as-of,
+    // in % of Tier 1. Sovereigns filtered by the CounterpartyRwa industry tags
+    // plus name keywords (government, confederation, central banks…).
+    const les = (data.largeExposures || []).filter(l => l.entity === entity && l.date <= asOf);
+    const leDate = Array.from(new Set(les.map(l => l.date))).sort().pop();
+    const sovNames = new Set((data.counterpartyRwa || [])
+      .filter(c => c.entity === entity && c.industry === 'Sovereign')
+      .map(c => c.counterpartyName.trim().toLowerCase()));
+    const isSov = (name: string) => {
+      const n = name.trim().toLowerCase();
+      return sovNames.has(n) || /sovereign|government|gouvernement|confederation|conféd|treasury|central bank|banque centrale|\bsnb\b|\bbns\b|\becb\b|\bbce\b|\bfed\b|\bboe\b/.test(n);
+    };
+    const topExpoRec = leDate
+      ? [...les.filter(l => l.date === leDate && !isSov(l.counterparty))].sort((a, b) => b.exposureValue - a.exposureValue)[0]
+      : undefined;
+    const topExpo = topExpoRec && tier1
+      ? { name: topExpoRec.counterparty, pct: (topExpoRec.exposureValue / tier1) * 100 }
+      : null;
+
+    // Balance sheet aggregates from the latest imported statement ≤ as-of.
+    const bs = [...(data.finStatements || [])
+      .filter(s => s.entity === entity && s.kind === 'balanceSheet' && s.date <= asOf)]
+      .sort((a, b) => a.date.localeCompare(b.date)).pop();
+    const bsSections = bs ? computeFinSummary(bs).sections : null;
+
+    // YTD P&L: the as-of year's imported monthly P&L statements (one GAAP).
+    const pnls = (data.finStatements || []).filter(s =>
+      s.entity === entity && s.kind === 'pnl' && s.date.slice(0, 4) === asOf.slice(0, 4) && s.date <= asOf);
+    let ytdPnl: number | null = null, ytdMonths = 0;
+    if (pnls.length > 0) {
+      const gaaps = Array.from(new Set(pnls.map(gaapOf)));
+      const g = gaaps.includes(DEFAULT_GAAP) ? DEFAULT_GAAP : gaaps.sort()[0];
+      const sel = pnls.filter(s => gaapOf(s) === g);
+      ytdPnl = sel.reduce((a, s) => a + computeFinSummary(s).keyFigure, 0);
+      ytdMonths = sel.length;
+    }
+
+    return {
+      entity, date: shownDate, cur, prev, lcrCur, lcrPrev, nsfrCur, nsfrPrev,
+      topExpo, totalAssets: bsSections?.assets ?? null, totalEquity: bsSections?.equity ?? null,
+      bsDate: bs?.date, ytdPnl, ytdMonths,
+    };
   }).filter(Boolean) as Array<{
     entity: string; date?: string;
     cur: { cet1Ratio: number | null; totalRatio: number | null; leverage: number | null } | null;
     prev: { cet1Ratio: number | null; totalRatio: number | null; leverage: number | null } | null;
     lcrCur?: LcrReport; lcrPrev?: LcrReport; nsfrCur?: NsfrReport; nsfrPrev?: NsfrReport;
+    topExpo: { name: string; pct: number } | null;
+    totalAssets: number | null; totalEquity: number | null; bsDate?: string;
+    ytdPnl: number | null; ytdMonths: number;
   }>, [allEntities, data, asOf]);
 
   const delta = (cur?: number | null, prev?: number | null) =>
@@ -2011,6 +2065,29 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
             </button>
             <button onClick={() => onDrill(r.entity, 'nsfr')} className="text-left hover:bg-brand-bg-body transition-colors">
               <KpiTile label="NSFR" value={r.nsfrCur ? fmtPct(r.nsfrCur.nsfrRatio, 0) : '—'} delta={r.nsfrCur && r.nsfrPrev ? delta(r.nsfrCur.nsfrRatio, r.nsfrPrev.nsfrRatio) : undefined} deltaGood={r.nsfrCur && r.nsfrPrev ? r.nsfrCur.nsfrRatio >= r.nsfrPrev.nsfrRatio : null} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 border border-efg-line rounded-lg overflow-hidden divide-x divide-efg-line mb-3">
+            <button onClick={() => onDrill(r.entity, 'largeExposures')} className="text-left hover:bg-brand-bg-body transition-colors">
+              <KpiTile label="Top expo (non-sov)"
+                value={r.topExpo ? fmtPct(r.topExpo.pct, 1) : '—'}
+                sub={r.topExpo ? `${r.topExpo.name.length > 22 ? r.topExpo.name.slice(0, 21) + '…' : r.topExpo.name} · of Tier 1` : 'of Tier 1'} />
+            </button>
+            <button onClick={() => onDrill(r.entity, 'financials')} className="text-left hover:bg-brand-bg-body transition-colors">
+              <KpiTile label="Total assets"
+                value={r.totalAssets != null ? fmt(r.totalAssets, 0) : '—'}
+                sub={`CHF mn${r.bsDate ? ` · ${monthLabel(r.bsDate)}` : ''}`} />
+            </button>
+            <button onClick={() => onDrill(r.entity, 'financials')} className="text-left hover:bg-brand-bg-body transition-colors">
+              <KpiTile label="Total equity"
+                value={r.totalEquity != null ? fmt(r.totalEquity, 0) : '—'}
+                sub={`CHF mn${r.bsDate ? ` · ${monthLabel(r.bsDate)}` : ''}`} />
+            </button>
+            <button onClick={() => onDrill(r.entity, 'financials')} className="text-left hover:bg-brand-bg-body transition-colors">
+              <KpiTile label="YTD P&L"
+                value={r.ytdPnl != null ? fmt(r.ytdPnl, 1) : '—'}
+                sub={r.ytdPnl != null ? `CHF mn · ${r.ytdMonths} month(s)` : 'import monthly P&L'}
+                deltaGood={r.ytdPnl != null ? r.ytdPnl >= 0 : null} />
             </button>
           </div>
           <p className="text-[11px] text-brand-text-secondary">Click a metric to open the detailed view.</p>
