@@ -1206,8 +1206,10 @@ export const CapitalWorkbenchPage: React.FC = () => {
     }
   };
 
-  // RWA by currency CSV: date;currency;rwa_chf(;rwa_lc) — closing balances per
-  // period; becomes the "USD" / "USD (LC)" memo rows of each report.
+  // RWA by currency CSV: date;currency;rwa_chf(;rwa_lc;fx_rate) — closing
+  // balances per period; becomes the "USD" / "USD (LC)" / "FX USD" memo rows
+  // of each report. fx_rate (CHF per 1 unit) enables the FX-vs-business
+  // proxy split when the local-currency amount is not available.
   const handleRwaCcyCsv = async (file: File) => {
     setImportError(null);
     try {
@@ -1220,7 +1222,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
       }
       if (!window.confirm(
         `Import RWA by currency for ${entity}: ${rows.length} row(s) across ${dates.length} period(s)?\n` +
-        `Existing "<CCY>" / "<CCY> (LC)" memo rows are updated.` +
+        `Existing "<CCY>" / "<CCY> (LC)" / "FX <CCY>" memo rows are updated.` +
         (warnings.length ? `\n\n⚠ ${warnings.length} line(s) skipped:\n${warnings.slice(0, 5).join('\n')}` : '')
       )) return;
       const byDate = new Map<string, Array<{ section: CapitalSection; label: string; amount: number }>>();
@@ -1228,6 +1230,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
         const list = byDate.get(r.date) || [];
         list.push({ section: 'rwa', label: r.currency, amount: r.rwaChf });
         if (r.rwaLc !== undefined) list.push({ section: 'rwa', label: `${r.currency} (LC)`, amount: r.rwaLc });
+        if (r.fxRate !== undefined) list.push({ section: 'rwa', label: `FX ${r.currency}`, amount: r.fxRate });
         byDate.set(r.date, list);
       }
       applyMemoItemsByDate(byDate);
@@ -1448,7 +1451,7 @@ export const CapitalWorkbenchPage: React.FC = () => {
           </button>
           <button
             onClick={() => rwaCcyCsvInput.current?.click()}
-            title="All periods in one file: date;currency;rwa_chf(;rwa_lc) — closing balances; becomes the currency memo rows of each report"
+            title="All periods in one file: date;currency;rwa_chf(;rwa_lc;fx_rate) — closing balances; becomes the currency memo rows of each report. fx_rate (CHF per 1 unit) = proxy when the local-currency RWA is not available"
             className="text-[13px] font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-4 rounded-md transition-colors"
           >
             ⬆ RWA by currency (CSV, all periods)

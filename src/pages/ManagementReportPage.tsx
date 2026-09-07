@@ -48,6 +48,9 @@ interface CapitalPoint {
   rwaCcy?: Record<string, number>;
   /** RWA by currency in original currency: memo rows labelled "USD (LC)" etc. */
   rwaCcyLc?: Record<string, number>;
+  /** Month-end FX rates (CHF per 1 unit): memo rows labelled "FX USD" etc. —
+   * proxy for the local-currency amount when "USD (LC)" is not fed. */
+  rwaCcyFx?: Record<string, number>;
   /** Equity/deduction memo balances by label — feeds extra movement rows. */
   memoBalances?: Record<string, number>;
 }
@@ -80,13 +83,16 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
       // RWA-by-currency memo rows: "USD" = CHF equivalent, "USD (LC)" = original currency.
       const rwaCcy: Record<string, number> = {};
       const rwaCcyLc: Record<string, number> = {};
+      const rwaCcyFx: Record<string, number> = {};
       // Equity/deduction memo balances (share buyback, acquisitions, shares sold…).
       const memoBalances: Record<string, number> = {};
       for (const i of r.lineItems) {
         const label = i.label.trim();
         if (i.section === 'rwa' && i.memo) {
           const lc = label.match(/^([A-Z]{3})\s*\(LC\)$/i);
+          const fx = label.match(/^FX\s+([A-Z]{3})$/i);
           if (lc) rwaCcyLc[lc[1].toUpperCase()] = (rwaCcyLc[lc[1].toUpperCase()] || 0) + i.amount;
+          else if (fx && i.amount > 0) rwaCcyFx[fx[1].toUpperCase()] = i.amount;
           else if (/^[A-Z]{3}$/.test(label)) rwaCcy[label] = (rwaCcy[label] || 0) + i.amount;
         }
         // "[1.1.1.x] …" rows are the raw line-by-line import capture, not user
@@ -110,6 +116,7 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
         comments: r.comments,
         rwaCcy: Object.keys(rwaCcy).length > 0 ? rwaCcy : undefined,
         rwaCcyLc: Object.keys(rwaCcyLc).length > 0 ? rwaCcyLc : undefined,
+        rwaCcyFx: Object.keys(rwaCcyFx).length > 0 ? rwaCcyFx : undefined,
         memoBalances: Object.keys(memoBalances).length > 0 ? memoBalances : undefined,
       });
     }
@@ -121,6 +128,21 @@ const useCapitalSeries = (entity: string): CapitalPoint[] => {
     }
     return Array.from(points.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [data.kpisHistory, data.capitalReports, entity]);
+};
+
+/**
+ * Effective local-currency amount and FX rate for the by-currency
+ * decomposition: measured "<CCY> (LC)" memo rows win; otherwise the provided
+ * "FX <CCY>" month-end rate acts as a PROXY (LC = CHF equivalent / rate).
+ */
+const ccyLcOf = (p: CapitalPoint, c: string): { lc: number; rate: number; proxy: boolean } | null => {
+  const chf = p.rwaCcy?.[c];
+  if (chf === undefined) return null;
+  const lc = p.rwaCcyLc?.[c];
+  if (lc !== undefined && lc !== 0) return { lc, rate: chf / lc, proxy: false };
+  const fx = p.rwaCcyFx?.[c];
+  if (fx && fx > 0) return { lc: chf / fx, rate: fx, proxy: true };
+  return null;
 };
 
 // --- Small building blocks --------------------------------------------------------
@@ -796,11 +818,9 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
     (m.a.rwaCcy?.[ccy] === undefined && m.b.rwaCcy?.[ccy] === undefined)
       ? null : (m.b.rwaCcy?.[ccy] ?? 0) - (m.a.rwaCcy?.[ccy] ?? 0);
   const ccyParts = (ccy: string, m: Move): { fx: number; business: number } | null => {
-    const chfA = m.a.rwaCcy?.[ccy], chfB = m.b.rwaCcy?.[ccy];
-    const lcA = m.a.rwaCcyLc?.[ccy], lcB = m.b.rwaCcyLc?.[ccy];
-    if (chfA === undefined || chfB === undefined || !lcA || !lcB) return null;
-    const rateA = chfA / lcA, rateB = chfB / lcB;
-    return { fx: lcA * (rateB - rateA), business: (lcB - lcA) * rateB };
+    const a = ccyLcOf(m.a, ccy), b = ccyLcOf(m.b, ccy);
+    if (!a || !b) return null;
+    return { fx: a.lc * (b.rate - a.rate), business: (b.lc - a.lc) * b.rate };
   };
   const allCcyDeltaSum = (m: Move): number =>
     [...currencies, 'CHF'].reduce((a, c) => a + (ccyDelta(c)(m) ?? 0), 0);
@@ -891,7 +911,7 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
           notes: [
             'Each month = delta vs the previous available period; empty column = no data for that month. YTD = last period of the year vs December of the previous year.',
             'Line sources, in priority order: (1) imported finance extracts — P&L monthly (Underlying P&L, Amortisation of software ×−1, Life Insurance → Non-underlying), equity statement (share-based plan, AT1 dividend, CTA + FX on net investments, acquisition, shares repurchased / sold), CASABIS (Deferred tax on losses = DTA deduction ×−1, dividend accrual); (2) "CET1 movements YTD" CSV memo balances (same labels, January reset); (3) CASABIS-derived P&L / dividend fallbacks.',
-            'RWA rows derive from the reports (credit/market/operational); the by-currency blocks read the "<CCY>" / "<CCY> (LC)" memo rows (FX impact = LC_prev × Δrate; business = ΔLC × rate).',
+            'RWA rows derive from the reports (credit/market/operational); the by-currency blocks read the "<CCY>" / "<CCY> (LC)" memo rows (FX impact = LC_prev × Δrate; business = ΔLC × rate). Without "(LC)" rows, a "FX <CCY>" memo rate (CHF per 1 unit) is used as proxy: LC = CHF equivalent / rate.',
             '"Equity movement excl. CTA and Share buy-back" = ΔCET1 − all other capital lines (residual, so the block sums to the total).',
             'Gross CET1 Generation = (Underlying + CTA) / closing RWA; Net = Gross + Dividend / closing RWA — provisional rules, adjust as agreed.',
             'YTD CET1 Δ column: capital lines = YTD amount / closing RWA; RWA lines = ratio impact at constant capital.',
@@ -959,7 +979,8 @@ const Cet1MovementTable: React.FC<{ series: CapitalPoint[]; entity: string }> = 
         Detail lines are fed with the Workbench <strong>"CET1 movements YTD" CSV</strong> (one file, all periods:
         date;label;ytd_amount) using exactly these labels — the table derives the month-to-month deltas (reset in
         January) and the YTD. The by-currency blocks are fed with the <strong>"RWA by currency" CSV</strong>
-        (date;currency;rwa_chf;rwa_lc). <em>Share buy-back</em>: memo row labelled "Share buy-back" (cumulative,
+        (date;currency;rwa_chf;rwa_lc;fx_rate — the rate is the FX proxy when the local-currency amount is not
+        available). <em>Share buy-back</em>: memo row labelled "Share buy-back" (cumulative,
         negative). Any other memo label appears in the memorandum section below.
       </p>
     </Card>
@@ -981,42 +1002,40 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
     return Array.from(set).sort();
   }, [withCcy]);
 
-  const rate = (p: CapitalPoint, c: string): number | null => {
-    const chf = p.rwaCcy?.[c]; const lc = p.rwaCcyLc?.[c];
-    return chf !== undefined && lc !== undefined && lc !== 0 ? chf / lc : null;
-  };
-
-  // FX vs business decomposition between the two latest periods with data.
+  // FX vs business decomposition between the two latest periods with data —
+  // measured LC amounts, or the "FX <CCY>" rate proxy (see ccyLcOf).
   const growth = useMemo(() => {
     if (withCcy.length < 2) return null;
     const a = withCcy[withCcy.length - 2], b = withCcy[withCcy.length - 1];
     const rows = currencies.map(c => {
-      const lcA = a.rwaCcyLc?.[c], lcB = b.rwaCcyLc?.[c];
-      const rA = rate(a, c), rB = rate(b, c);
-      if (lcA === undefined || lcB === undefined || rA === null || rB === null) return null;
+      const ia = ccyLcOf(a, c), ib = ccyLcOf(b, c);
+      if (!ia || !ib) return null;
       return {
         currency: c,
-        fxImpact: lcA * (rB - rA),          // rate move on the opening balance
-        business: (lcB - lcA) * rB,          // volume move at the closing rate
+        fxImpact: ia.lc * (ib.rate - ia.rate), // rate move on the opening balance
+        business: (ib.lc - ia.lc) * ib.rate,   // volume move at the closing rate
         total: (b.rwaCcy?.[c] ?? 0) - (a.rwaCcy?.[c] ?? 0),
+        proxy: ia.proxy || ib.proxy,
       };
-    }).filter(Boolean) as Array<{ currency: string; fxImpact: number; business: number; total: number }>;
+    }).filter(Boolean) as Array<{ currency: string; fxImpact: number; business: number; total: number; proxy: boolean }>;
     return rows.length > 0 ? { from: a.date, to: b.date, rows } : null;
   }, [withCcy, currencies]);
 
-  const hasLc = withCcy.some(p => p.rwaCcyLc);
+  const hasLc = withCcy.some(p => currencies.some(c => ccyLcOf(p, c) !== null));
+  const hasProxy = withCcy.some(p => currencies.some(c => ccyLcOf(p, c)?.proxy));
 
   return (
     <Card>
       <AuditedHeader title="RWA by currency" suffix="memorandum — CHF mn / original currency" queries={[{
         what: 'RWA by currency + FX decomposition',
         object: 'capitalReports.lineItems (RWA section, memo)',
-        filter: `[entity=${entity}, label = 'USD' (CHF eq.) / 'USD (LC)' (original ccy)]`,
+        filter: `[entity=${entity}, label = 'USD' (CHF eq.) / 'USD (LC)' (original ccy) / 'FX USD' (month-end rate)]`,
         endpoint: `GET /api/capital-reports?entity=${entity}`,
         sql: `SELECT r.Date, i.Label, i.Amount FROM CapitalLineItems i\nJOIN CapitalReports r ON r.Id = i.CapitalReportId\nWHERE r.Entity = '${entity}' AND i.Section = 'rwa' AND i.Memo = 1`,
         notes: [
-          'Only memo rows whose label is exactly a 3-letter code ("USD") or "USD (LC)" are used — anything else is ignored.',
+          'Only memo rows whose label is exactly a 3-letter code ("USD"), "USD (LC)" or "FX USD" are used — anything else is ignored.',
           'Implied FX rate = CHF equivalent / local-currency amount.',
+          'FX proxy (* in the table): when no "(LC)" row exists, the "FX <CCY>" memo rate (CHF per 1 unit, from the CSV fx_rate column) derives LC = CHF equivalent / rate — the FX-vs-business split then relies entirely on the provided rates.',
           'FX impact = LC(prev) × (rate(cur) − rate(prev)); business growth = ΔLC × rate(cur) — between the two latest periods with data.',
           '"Total RWA (all risks)" row comes from the capital aggregates (not from the memo rows).',
         ],
@@ -1025,7 +1044,8 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
         <p className="text-sm text-brand-text-secondary py-4">
           No currency memoranda yet. In the <strong>Workbench → RWA</strong> tab, add <em>memo</em> rows labelled with the
           3-letter currency code (<code>USD</code> = CHF equivalent) and optionally <code>USD (LC)</code> = amount in
-          original currency — the table, implied FX rates and the FX-vs-business growth split appear automatically.
+          original currency or <code>FX USD</code> = month-end rate (CHF per 1 unit, FX proxy) — the table, FX rates
+          and the FX-vs-business growth split appear automatically. Bulk feed: Workbench "RWA by currency" CSV.
         </p>
       ) : (
         <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -1045,16 +1065,16 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
               {hasLc && currencies.map(c => (
                 <tr key={c + '-lc'}>
                   <td className="px-3 py-1.5 text-brand-text-primary">{c}</td>
-                  {withCcy.map(p => <td key={p.date} className="px-3 py-1.5 text-right tabular-nums">{p.rwaCcyLc?.[c] !== undefined ? fmt(p.rwaCcyLc[c], 0) : '—'}</td>)}
+                  {withCcy.map(p => { const i = ccyLcOf(p, c); return <td key={p.date} className="px-3 py-1.5 text-right tabular-nums">{i ? `${fmt(i.lc, 0)}${i.proxy ? '*' : ''}` : '—'}</td>; })}
                 </tr>
               ))}
               {hasLc && (
-                <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Implied exchange rates</td></tr>
+                <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Exchange rates (implied · * = provided month-end rate)</td></tr>
               )}
               {hasLc && currencies.map(c => (
                 <tr key={c + '-fx'}>
                   <td className="px-3 py-1.5 text-brand-text-secondary italic">{c}/CHF</td>
-                  {withCcy.map(p => { const r = rate(p, c); return <td key={p.date} className="px-3 py-1.5 text-right tabular-nums italic text-brand-text-secondary">{r !== null ? r.toFixed(4) : '—'}</td>; })}
+                  {withCcy.map(p => { const i = ccyLcOf(p, c); return <td key={p.date} className="px-3 py-1.5 text-right tabular-nums italic text-brand-text-secondary">{i ? `${i.rate.toFixed(4)}${i.proxy ? '*' : ''}` : '—'}</td>; })}
                 </tr>
               ))}
               <tr className="bg-brand-bg-body"><td colSpan={withCcy.length + 1} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">CHF equivalent (mCHF)</td></tr>
@@ -1090,7 +1110,7 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
               <tbody className="divide-y divide-efg-line">
                 {growth.rows.map(r => (
                   <tr key={r.currency}>
-                    <td className="px-3 py-1.5 font-semibold">{r.currency}</td>
+                    <td className="px-3 py-1.5 font-semibold">{r.currency}{r.proxy ? '*' : ''}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${r.fxImpact < 0 ? 'text-status-red' : ''}`}>{fmt(r.fxImpact, 0)}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${r.business < 0 ? 'text-status-red' : ''}`}>{fmt(r.business, 0)}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${r.total < 0 ? 'text-status-red' : ''}`}>{fmt(r.total, 0)}</td>
@@ -1106,6 +1126,13 @@ const RwaCurrencyTable: React.FC<{ series: CapitalPoint[]; entity: string }> = (
             </table>
           </div>
         </div>
+      )}
+      {hasProxy && (
+        <p className="text-[11px] text-brand-text-secondary mt-2">
+          * FX proxy: no local-currency RWA fed for these values — the amount is derived from the provided month-end
+          rate ("FX &lt;CCY&gt;" memo row / <code>fx_rate</code> CSV column) as CHF equivalent ÷ rate, so the
+          FX-vs-business split reflects the rate moves, not a measured local-currency position.
+        </p>
       )}
     </Card>
   );

@@ -443,25 +443,27 @@ export const convertMovementsCsv = (lines: string[][]): MovementsCsvResult => {
 
 /**
  * CSV for feeding the RWA-by-currency table across ALL periods in one file.
- * Each row becomes two memo line items on the period's capital report:
- * "<CCY>" (CHF equivalent) and "<CCY> (LC)" (original currency, optional) —
- * the implied FX rates and the FX-vs-business decomposition are computed
- * by the report.
+ * Each row becomes memo line items on the period's capital report:
+ * "<CCY>" (CHF equivalent), "<CCY> (LC)" (original currency, optional) and
+ * "FX <CCY>" (month-end rate, CHF per 1 unit, optional) — the implied FX
+ * rates and the FX-vs-business decomposition are computed by the report.
+ * When rwa_lc is not available, providing fx_rate lets the report derive a
+ * PROXY local-currency amount (rwa_chf / fx_rate) so the split still works.
  */
 export const buildRwaCcyTemplate = (delim = ','): string => {
   const rows = [
-    ['date', 'currency', 'rwa_chf', 'rwa_lc'],
-    ['2025-01-31', 'CHF', '2450', ''],
-    ['2025-01-31', 'USD', '1634', '2089'],
-    ['2025-01-31', 'EUR', '980', '1046'],
-    ['2025-01-31', 'GBP', '410', '385'],
-    ['2025-02-28', 'USD', '1702', '2140'],
+    ['date', 'currency', 'rwa_chf', 'rwa_lc', 'fx_rate'],
+    ['2025-01-31', 'CHF', '2450', '', ''],
+    ['2025-01-31', 'USD', '1634', '2089', ''],
+    ['2025-01-31', 'EUR', '980', '', '0.9370'],
+    ['2025-01-31', 'GBP', '410', '385', ''],
+    ['2025-02-28', 'EUR', '1010', '', '0.9295'],
   ];
   return rows.map(r => r.map(v => csvEscape(v, delim)).join(delim)).join('\r\n') + '\r\n';
 };
 
 export interface RwaCcyCsvResult {
-  rows: Array<{ date: string; currency: string; rwaChf: number; rwaLc?: number }>;
+  rows: Array<{ date: string; currency: string; rwaChf: number; rwaLc?: number; fxRate?: number }>;
   warnings: string[];
 }
 
@@ -471,6 +473,7 @@ export const convertRwaCcyCsv = (lines: string[][]): RwaCcyCsvResult => {
   const col = (...names: string[]) => names.map(n => header.indexOf(n)).find(i => i >= 0) ?? -1;
   const iDate = col('date'), iCcy = col('currency', 'ccy');
   const iChf = col('rwa_chf', 'chf', 'amount_chf'), iLc = col('rwa_lc', 'lc', 'amount_lc');
+  const iFx = col('fx_rate', 'fx', 'rate');
   if (iDate === -1 || iCcy === -1 || iChf === -1) {
     throw new Error('The header must contain: date, currency, rwa_chf (plus optional rwa_lc).');
   }
@@ -489,7 +492,10 @@ export const convertRwaCcyCsv = (lines: string[][]): RwaCcyCsvResult => {
     const rawLc = iLc >= 0 ? (cells[iLc] ?? '').trim() : '';
     const rwaLc = rawLc === '' ? undefined : Number(rawLc.replace(',', '.'));
     if (rwaLc !== undefined && isNaN(rwaLc)) { warnings.push(`Line ${li + 1}: rwa_lc "${rawLc}" is not a number — skipped.`); continue; }
-    rows.push({ date, currency, rwaChf, ...(rwaLc !== undefined ? { rwaLc } : {}) });
+    const rawFx = iFx >= 0 ? (cells[iFx] ?? '').trim() : '';
+    const fxRate = rawFx === '' ? undefined : Number(rawFx.replace(',', '.'));
+    if (fxRate !== undefined && (isNaN(fxRate) || fxRate <= 0)) { warnings.push(`Line ${li + 1}: fx_rate "${rawFx}" is not a positive number — skipped.`); continue; }
+    rows.push({ date, currency, rwaChf, ...(rwaLc !== undefined ? { rwaLc } : {}), ...(fxRate !== undefined ? { fxRate } : {}) });
   }
   return { rows, warnings };
 };
