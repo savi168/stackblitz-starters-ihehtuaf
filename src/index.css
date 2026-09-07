@@ -81,8 +81,12 @@
 .dark .hover\:bg-gray-100:hover { background-color: #2C343B; }
 .dark .hover\:bg-gray-200:hover { background-color: #333C44; }
 .dark .hover\:bg-gray-300:hover { background-color: #3A444D; }
+.dark .bg-gray-300 { background-color: #333C44; }
+.dark .bg-gray-400 { background-color: #3E4850; }
+.dark .border-gray-100 { border-color: #2C3339; }
 .dark .border-gray-200 { border-color: #333A40; }
 .dark .border-gray-300 { border-color: #3E464D; }
+.dark .text-gray-800 { color: #D5DCE0; }
 .dark .text-gray-300 { color: #566068; }
 .dark .text-gray-400 { color: #6B7780; }
 .dark .text-gray-500 { color: #8B979F; }
