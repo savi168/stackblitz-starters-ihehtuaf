@@ -232,13 +232,47 @@ export const LibraryPage: React.FC = () => {
     } catch (e) { setError(String((e as Error).message || e)); }
   };
 
+  // Folders are implicit path prefixes: renaming/moving a folder rewrites the
+  // prefix on every document under it (one metadata update per file).
+  const renameFolderPrefix = async (from: string, to: string) => {
+    const remap = (p: string) => (p === from || p.startsWith(from + '/')) ? to + p.slice(from.length) : p;
+    try {
+      setBusy(true);
+      for (const d of docs.filter(x => x.folder === from || x.folder.startsWith(from + '/'))) {
+        await updateDocument(apiBaseUrl!, d.id, { folder: remap(d.folder) });
+      }
+      setExtraFolders(prev => Array.from(new Set(prev.map(remap))));
+      setCollapsed(prev => new Set(Array.from(prev).map(remap)));
+      refresh();
+    } catch (e) { setError(String((e as Error).message || e)); }
+    finally { setBusy(false); }
+  };
+
+  const renameFolder = (f: string) => {
+    const path = window.prompt('Rename / move the folder — edit the full path:', f);
+    if (path === null) return;
+    const clean = path.replace(/\\/g, '/').trim().replace(/^\/+|\/+$/g, '');
+    if (!clean || clean === f) return;
+    if (clean.startsWith(f + '/')) { setError('A folder cannot be moved inside itself.'); return; }
+    void renameFolderPrefix(f, clean);
+  };
+
+  const renameDoc = async (d: DocMeta) => {
+    const t = window.prompt('New display name:', d.title || d.fileName);
+    if (t === null || !t.trim() || t.trim() === d.title) return;
+    try { await updateDocument(apiBaseUrl!, d.id, { title: t.trim() }); refresh(); }
+    catch (e) { setError(String((e as Error).message || e)); }
+  };
+
   // Drag & drop: drag a file row onto a folder (or onto any file of that
   // folder — the whole area is a target) to move it; drop files from the OS
   // explorer to upload straight into the folder. Collapsed folders auto-open
   // after hovering ~600ms; dragleave ignores moves into child elements so the
   // highlight does not flicker.
   const [dragId, setDragId] = useState<number | null>(null);
+  const [dragFolder, setDragFolder] = useState<string | null>(null);
   const [dropFolder, setDropFolder] = useState<string | null>(null);
+  const dragging = dragId !== null || dragFolder !== null;
   const expandTimer = React.useRef<{ target: string; id: ReturnType<typeof setTimeout> } | null>(null);
   const clearExpandTimer = () => {
     if (expandTimer.current) { clearTimeout(expandTimer.current.id); expandTimer.current = null; }
@@ -257,7 +291,7 @@ export const LibraryPage: React.FC = () => {
     },
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = dragId !== null ? 'move' : 'copy';
+      e.dataTransfer.dropEffect = dragging ? 'move' : 'copy';
     },
     onDragLeave: (e: React.DragEvent) => {
       // Moving onto a child of the same row is not a real leave.
@@ -272,17 +306,26 @@ export const LibraryPage: React.FC = () => {
       clearExpandTimer();
       try {
         const osFiles = Array.from(e.dataTransfer.files || []);
+        const txt = e.dataTransfer.getData('text/plain');
         if (osFiles.length > 0) {
           setBusy(true);
           for (const f of osFiles) await uploadDocument(apiBaseUrl!, f, { folder: target });
+          refresh();
+        } else if (txt.startsWith('folder:') || dragFolder !== null) {
+          // Moving a whole folder: it lands as a child of the target,
+          // keeping its own name — never inside itself or its descendants.
+          const from = txt.startsWith('folder:') ? txt.slice(7) : dragFolder!;
+          if (from && target !== from && !target.startsWith(from + '/')) {
+            const to = target ? `${target}/${from.split('/').pop()}` : from.split('/').pop()!;
+            if (to !== from) await renameFolderPrefix(from, to);
+          }
         } else {
-          const id = Number(e.dataTransfer.getData('text/plain')) || dragId;
+          const id = Number(txt) || dragId;
           const doc = id ? docs.find(x => x.id === id) : undefined;
-          if (doc && doc.folder !== target) await updateDocument(apiBaseUrl!, doc.id, { folder: target });
+          if (doc && doc.folder !== target) { await updateDocument(apiBaseUrl!, doc.id, { folder: target }); refresh(); }
         }
-        refresh();
       } catch (err) { setError(String((err as Error).message || err)); }
-      finally { setBusy(false); setDragId(null); }
+      finally { setBusy(false); setDragId(null); setDragFolder(null); }
     },
   });
   const dropHighlight = (target: string) =>
@@ -395,8 +438,12 @@ export const LibraryPage: React.FC = () => {
       <button onClick={() => downloadDocument(apiBaseUrl!, d).catch(e => setError(String(e.message || e)))}
         title="Download" className="text-brand-text-secondary hover:text-brand-secondary px-1">⬇</button>
       {isAdmin && (
-        <button onClick={() => moveDoc(d)} title="Move to another folder"
-          className="text-brand-text-secondary hover:text-brand-secondary px-1">📂</button>
+        <>
+          <button onClick={() => renameDoc(d)} title="Rename"
+            className="text-brand-text-secondary hover:text-brand-secondary px-1">✏️</button>
+          <button onClick={() => moveDoc(d)} title="Move to another folder"
+            className="text-brand-text-secondary hover:text-brand-secondary px-1">📂</button>
+        </>
       )}
       {isAdmin && (
         <button onClick={async () => {
@@ -467,7 +514,7 @@ export const LibraryPage: React.FC = () => {
               </p>
             ) : (
               <div className="border border-efg-line rounded-lg px-3 py-1">
-                {dragId !== null && (
+                {dragging && (
                   <div {...dropProps('')}
                     className={`flex items-center gap-2 py-1.5 text-sm text-brand-text-secondary border border-dashed border-gray-300 rounded my-1${dropHighlight('')}`}>
                     <span className="pl-2">📂 Drop here to move to the root ( / )</span>
@@ -481,7 +528,14 @@ export const LibraryPage: React.FC = () => {
                   return (
                     <React.Fragment key={f}>
                       <div onClick={() => toggle(f)} {...dropProps(f)}
-                        className={`group flex items-center gap-2 py-1.5 border-t border-efg-line/50 cursor-pointer hover:bg-brand-bg-body/50 text-sm font-semibold${dropHighlight(f)}`}
+                        draggable={isAdmin}
+                        onDragStart={e => {
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', `folder:${f}`);
+                          setTimeout(() => setDragFolder(f), 0); // defer: see file rows
+                        }}
+                        onDragEnd={() => { setDragId(null); setDragFolder(null); setDropFolder(null); clearExpandTimer(); }}
+                        className={`group flex items-center gap-2 py-1.5 border-t border-efg-line/50 cursor-pointer hover:bg-brand-bg-body/50 text-sm font-semibold${dropHighlight(f)} ${dragFolder === f ? 'opacity-40' : ''}`}
                         style={{ paddingLeft: `${depth * 1.25}rem` }}>
                         <span>{!q && collapsed.has(f) ? '▸' : '▾'}</span>
                         <span>📁 {f.split('/').pop()}</span>
@@ -492,6 +546,11 @@ export const LibraryPage: React.FC = () => {
                               title={`New subfolder under ${f}`}
                               className="opacity-0 group-hover:opacity-100 text-xs text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-all">
                               ＋ sub
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); renameFolder(f); }}
+                              title={`Rename or move ${f}`}
+                              className="opacity-0 group-hover:opacity-100 text-xs text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-all">
+                              ✏️
                             </button>
                             <button onClick={e => { e.stopPropagation(); setUpFolder(f); }}
                               title={`Upload into ${f}`}
@@ -509,7 +568,8 @@ export const LibraryPage: React.FC = () => {
             )}
             <p className="text-[11px] text-brand-text-secondary mt-3">
               Folders: ＋ New folder (or ＋ sub on a folder row) creates any depth of subfolders — a folder becomes permanent
-              once it holds at least one file. Move files by drag &amp; drop onto a folder (or the root drop zone), or with the 📂 button;
+              once it holds at least one file. Move files AND folders by drag &amp; drop onto a folder (or the root drop zone) — a dragged
+              folder takes all its content with it; ✏️ renames a file (display name) or a folder (editing the full path also moves it);
               dropping files from the Windows explorer onto a folder uploads them straight into it; ⬆ here preselects a folder for the next upload.
               Files are stored inside the RegReport SQL database (varbinary) — a database backup includes every document,
               nothing leaves the local environment, and anyone can re-download the original at any time.
