@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/production', label: 'Production', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
   { to: '/deadlines', label: 'Deadlines' },
+  { to: '/library', label: 'Library' },
   { to: '/projects', label: 'Projects' },
   { to: '/cockpit', label: 'Backend', adminOnly: true },
   { to: '/datamanagement', label: 'Admin', adminOnly: true },
@@ -27,6 +28,7 @@ const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then(m => ({ defa
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const TeamPage = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })));
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })));
+const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })));
 const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
 const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
@@ -103,6 +105,7 @@ const App: React.FC = () => {
                   <Route path="/" element={<HubPage />} />
                   <Route path="/daily-reports" element={<DailyReportsPage />} />
                   <Route path="/deadlines" element={<DeadlinesPage />} />
+                  <Route path="/library" element={<LibraryPage />} />
                   <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/projects/:projectId" element={<ProjectDetailPage />} />

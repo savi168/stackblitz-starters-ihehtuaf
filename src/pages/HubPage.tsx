@@ -41,6 +41,7 @@ export const HubPage: React.FC = () => {
         { title: 'Scenarios & Projections', desc: 'What-if simulation: acquisitions, disposals, HQLA trades — impact on CET1, LCR, NSFR.', tag: 'Simulation', link: '/scenarios' },
         { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns (CASABIS, LCR_G, NSFR_G) or enter components per entity.', tag: 'Data Entry', link: '/capital', adminOnly: true },
         { title: 'Daily Reports', desc: 'Daily / weekly LCR and large exposure reports for key entities.', tag: 'Monitoring', link: '/daily-reports' },
+        { title: 'Library', desc: 'Regulatory texts (CAO/OFR, EBA…), working papers and workbench source files — stored in the database, re-downloadable offline.', tag: 'Documentation', link: '/library' },
         { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects' },
         { title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'People', link: '/team' },
         { title: 'Backend Cockpit', desc: 'Connection status, live tables, schema and API map; reboot and insert data.', tag: 'Backend', link: '/cockpit', adminOnly: true },

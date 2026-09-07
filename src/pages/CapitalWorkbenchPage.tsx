@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
+import { DocumentsPanel } from './LibraryPage';
 import {
   CapitalLineItem,
   CapitalReport,
@@ -1580,6 +1581,14 @@ export const CapitalWorkbenchPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Card>
+
+      <Card>
+        <SectionHeader title="Source files"
+          suffix={`${entity}${effectiveDate ? ` — ${effectiveDate}` : ''} · working papers & imported returns, stored in the database for re-download (also visible in the Library under Workbench/)`} />
+        <DocumentsPanel
+          folder={`Workbench/${entity}${effectiveDate ? `/${effectiveDate}` : ''}`}
+          entity={entity} date={effectiveDate || undefined} withKind />
       </Card>
 
       {parsed && (

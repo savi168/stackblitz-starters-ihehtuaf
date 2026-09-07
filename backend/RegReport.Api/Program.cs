@@ -17,6 +17,11 @@ builder.Configuration.AddJsonFile(
 
 // --- Services ---
 builder.Services.AddControllers();
+// Document library uploads (PDF regulations, working papers…): raise the
+// body-size limits — per-action caps live on DocumentsController.
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 300L * 1024 * 1024);
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(
+    o => o.MultipartBodyLengthLimit = 300L * 1024 * 1024);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

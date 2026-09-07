@@ -565,6 +565,31 @@ public class ProdMappingEntry
     public string? Description { get; set; }
 }
 
+/// <summary>
+/// One file of the document library — the bytes live in the database
+/// (varbinary(max)) so a RegReport backup contains every document and the
+/// app stays fully offline. Folder is a '/'-separated path ("Regulations/EBA")
+/// giving the frontend its subfolder tree; Entity/Date/Kind tag workbench
+/// source files (working papers, CASABIS…) for re-download per period.
+/// NOT part of CentralData: served/streamed by its own endpoints only.
+/// </summary>
+public class StoredDocument
+{
+    public long Id { get; set; }
+    public string Folder { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public long SizeBytes { get; set; }
+    [JsonIgnore] public byte[] Content { get; set; } = Array.Empty<byte>();
+    public string? Entity { get; set; }
+    public string? Date { get; set; }      // reporting period YYYY-MM-DD
+    public string? Kind { get; set; }      // workingPaper | casabis | lcr | nsfr | other…
+    public string? Notes { get; set; }
+    public string UploadedBy { get; set; } = "";
+    public string UploadedAt { get; set; } = ""; // ISO timestamp
+}
+
 /// <summary>Expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1).</summary>
 public class ProdGuaranteeRef
 {
