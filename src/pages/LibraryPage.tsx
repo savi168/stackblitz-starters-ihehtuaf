@@ -232,20 +232,44 @@ export const LibraryPage: React.FC = () => {
     } catch (e) { setError(String((e as Error).message || e)); }
   };
 
-  // Drag & drop: drag a file row onto a folder to move it; drop files from
-  // the OS explorer onto a folder to upload straight into it.
+  // Drag & drop: drag a file row onto a folder (or onto any file of that
+  // folder — the whole area is a target) to move it; drop files from the OS
+  // explorer to upload straight into the folder. Collapsed folders auto-open
+  // after hovering ~600ms; dragleave ignores moves into child elements so the
+  // highlight does not flicker.
   const [dragId, setDragId] = useState<number | null>(null);
   const [dropFolder, setDropFolder] = useState<string | null>(null);
+  const expandTimer = React.useRef<{ target: string; id: ReturnType<typeof setTimeout> } | null>(null);
+  const clearExpandTimer = () => {
+    if (expandTimer.current) { clearTimeout(expandTimer.current.id); expandTimer.current = null; }
+  };
   const dropProps = (target: string) => (!isAdmin ? {} : {
+    onDragEnter: (e: React.DragEvent) => {
+      e.preventDefault();
+      setDropFolder(target);
+      if (target && collapsed.has(target) && expandTimer.current?.target !== target) {
+        clearExpandTimer();
+        expandTimer.current = {
+          target,
+          id: setTimeout(() => setCollapsed(prev => { const n = new Set(prev); n.delete(target); return n; }), 600),
+        };
+      }
+    },
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = dragId !== null ? 'move' : 'copy';
-      setDropFolder(target);
     },
-    onDragLeave: () => setDropFolder(cur => (cur === target ? null : cur)),
+    onDragLeave: (e: React.DragEvent) => {
+      // Moving onto a child of the same row is not a real leave.
+      if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) return;
+      setDropFolder(cur => (cur === target ? null : cur));
+      if (expandTimer.current?.target === target) clearExpandTimer();
+    },
     onDrop: async (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       setDropFolder(null);
+      clearExpandTimer();
       try {
         const osFiles = Array.from(e.dataTransfer.files || []);
         if (osFiles.length > 0) {
@@ -253,7 +277,8 @@ export const LibraryPage: React.FC = () => {
           for (const f of osFiles) await uploadDocument(apiBaseUrl!, f, { folder: target });
         } else {
           const id = Number(e.dataTransfer.getData('text/plain')) || dragId;
-          if (id) await updateDocument(apiBaseUrl!, id, { folder: target });
+          const doc = id ? docs.find(x => x.id === id) : undefined;
+          if (doc && doc.folder !== target) await updateDocument(apiBaseUrl!, doc.id, { folder: target });
         }
         refresh();
       } catch (err) { setError(String((err as Error).message || err)); }
@@ -342,9 +367,11 @@ export const LibraryPage: React.FC = () => {
     <div key={d.id}
       draggable={isAdmin}
       onDragStart={e => { setDragId(d.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(d.id)); }}
-      onDragEnd={() => { setDragId(null); setDropFolder(null); }}
-      className={`flex items-center gap-2 py-1 border-t border-efg-line/50 text-sm ${isAdmin ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === d.id ? 'opacity-40' : ''}`}
+      onDragEnd={() => { setDragId(null); setDropFolder(null); clearExpandTimer(); }}
+      {...dropProps(d.folder)}
+      className={`flex items-center gap-2 py-1 border-t border-efg-line/50 text-sm ${dragId === d.id ? 'opacity-40' : ''}${dropFolder === d.folder && dragId !== null && dragId !== d.id ? ' bg-brand-secondary/5' : ''}`}
       style={{ paddingLeft: `${indent * 1.25 + 1.5}rem` }}>
+      {isAdmin && <span className="text-brand-text-secondary/50 cursor-grab active:cursor-grabbing select-none" title="Drag to move">⠿</span>}
       <span>{fileIcon(d)}</span>
       <button
         onClick={() => (previewType(d.fileName)
