@@ -5,7 +5,8 @@ import { parseDateToYmd, formatDate } from '../utils';
 import { Card, PageHeader, BackButton, InfoBox, Select, Modal, SectionHeader } from '../components';
 import { diagnoseKpiData } from '../services/diagnosisService';
 import { APP_VERSION, ApiMeta, fetchMeta } from '../version';
-import { listDocuments } from '../services/documents';
+import { listDocuments, updateDocument } from '../services/documents';
+import { EntityUsage, entityUsages, renameCollisions, renameEntity, renameFolderEntity } from '../services/entityAdmin';
 
 // --- DATA MANAGEMENT HELPERS ---
 
@@ -377,6 +378,129 @@ const DataInventory: React.FC = () => {
                     </div>
                 ))}
             </div>
+        </Card>
+    );
+};
+
+/** Entity administration: the entity name is repeated across a dozen
+ * datasets — renaming here cascades everywhere at once (one transactional
+ * save), including the Library documents' entity tags and folders. */
+const EntitiesPanel: React.FC = () => {
+    const { data, setData, mode, apiBaseUrl } = useData();
+    const [renaming, setRenaming] = useState<EntityUsage | null>(null);
+    const [newName, setNewName] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [result, setResult] = useState<string | null>(null);
+    const usages = useMemo(() => entityUsages(data), [data]);
+
+    const doRename = async () => {
+        if (!renaming) return;
+        const from = renaming.entity;
+        const to = newName.trim();
+        if (!to || to === from) return;
+        const exists = usages.some(u => u.entity === to);
+        if (exists) {
+            const collisions = renameCollisions(data, from, to);
+            if (collisions.length > 0) {
+                setResult(`❌ Cannot merge "${from}" into "${to}" — ${collisions.join(' · ')}. Remove the duplicated periods first.`);
+                return;
+            }
+        }
+        if (!window.confirm(exists
+            ? `"${to}" already exists: "${from}" will be MERGED into it (${renaming.total} row(s) moved, risk-appetite thresholds of "${to}" kept). Continue?`
+            : `Rename "${from}" to "${to}"? ${renaming.total} row(s) across ${renaming.counts.length} dataset(s) will be updated, plus risk appetite and Library documents.`)) return;
+        setBusy(true);
+        setData(prev => renameEntity(prev, from, to));
+        // Library documents live outside /api/data: retag + move folders here.
+        let docNote = '';
+        if (mode === 'api' && apiBaseUrl) {
+            try {
+                const docs = await listDocuments(apiBaseUrl);
+                const affected = docs.filter(d => d.entity === from || d.folder.split('/').includes(from));
+                for (const d of affected) {
+                    await updateDocument(apiBaseUrl, d.id, {
+                        ...(d.entity === from ? { entity: to } : {}),
+                        ...(d.folder.split('/').includes(from) ? { folder: renameFolderEntity(d.folder, from, to) } : {}),
+                    });
+                }
+                if (affected.length > 0) docNote = ` ${affected.length} Library document(s) retagged / moved.`;
+            } catch (e) {
+                docNote = ` ⚠ Library documents could not be updated (${(e as Error).message}) — adjust them in the Library.`;
+            }
+        }
+        setBusy(false);
+        setRenaming(null);
+        setNewName('');
+        setResult(`✅ "${from}" ${exists ? 'merged into' : 'renamed to'} "${to}" across every dataset.${docNote}`);
+    };
+
+    return (
+        <Card className="mb-8">
+            <SectionHeader title="Entities" suffix="rename cascades across every dataset, risk appetite and the Library" />
+            {result && (
+                <div className={`p-3 mb-4 rounded-lg border-l-4 text-sm ${result.startsWith('✅') ? 'bg-green-50 border-green-500 text-green-800' : 'bg-red-50 border-red-500 text-red-800'}`}>
+                    {result}
+                </div>
+            )}
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                    <thead>
+                        <tr className="border-b border-efg-line">
+                            {['Entity', 'Rows', 'Used by', 'Risk appetite', ''].map((h, i) => (
+                                <th key={i} className="py-2.5 pr-4 text-[10px] uppercase tracking-widest text-brand-text-secondary font-semibold">{h}</th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-efg-line">
+                        {usages.map(u => (
+                            <tr key={u.entity} className="hover:bg-brand-bg-body/60">
+                                <td className="py-2.5 pr-4 font-semibold text-brand-text-primary">{u.entity}</td>
+                                <td className="py-2.5 pr-4 tabular-nums text-brand-text-secondary">{u.total}</td>
+                                <td className="py-2.5 pr-4 text-xs text-brand-text-secondary max-w-lg">
+                                    {u.counts.map(([label, n]) => `${label} (${n})`).join(' · ') || '—'}
+                                </td>
+                                <td className="py-2.5 pr-4 text-xs">{u.hasRiskAppetite ? '✓' : '—'}</td>
+                                <td className="py-2.5 text-right">
+                                    <button onClick={() => { setRenaming(u); setNewName(u.entity); setResult(null); }}
+                                        className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-3 rounded-md transition-colors">
+                                        Rename
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                        {usages.length === 0 && (
+                            <tr><td colSpan={5} className="py-6 text-center text-brand-text-secondary text-sm">No entity referenced yet.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            <Modal isOpen={!!renaming} onClose={() => setRenaming(null)} title={`Rename entity "${renaming?.entity}"`}>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-brand-text-secondary mb-1">New name</label>
+                        <input value={newName} onChange={e => setNewName(e.target.value)} autoFocus
+                            className="block w-full p-3 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary" />
+                        {renaming && newName.trim() && newName.trim() !== renaming.entity && usages.some(u => u.entity === newName.trim()) && (
+                            <p className="text-xs text-status-amber mt-1">⚠ "{newName.trim()}" already exists — this becomes a merge.</p>
+                        )}
+                    </div>
+                    {renaming && (
+                        <div className="text-xs text-brand-text-secondary bg-brand-bg-body rounded-md p-3">
+                            <p className="font-semibold text-brand-text-primary mb-1">Impact — {renaming.total} row(s):</p>
+                            {renaming.counts.map(([label, n]) => <p key={label}>{label}: {n}</p>)}
+                            {renaming.hasRiskAppetite && <p>Risk appetite thresholds</p>}
+                            <p>Library documents tagged or foldered under "{renaming.entity}"</p>
+                        </div>
+                    )}
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => setRenaming(null)} className="text-sm font-semibold text-brand-text-secondary bg-brand-bg-body hover:bg-efg-line py-2 px-4 rounded-md transition-colors">Cancel</button>
+                        <button onClick={doRename} disabled={busy || !newName.trim() || newName.trim() === renaming?.entity}
+                            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
+                            {busy ? 'Renaming…' : 'Rename everywhere'}
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </Card>
     );
 };
@@ -1069,6 +1193,8 @@ export const DataManagementPage: React.FC = () => {
             )}
 
             <DataInventory />
+
+            <EntitiesPanel />
 
             <Card className="mb-8">
                 <SectionHeader title="Backup & restore" suffix="JSON snapshot of the central data" />
