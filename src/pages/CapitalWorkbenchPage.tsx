@@ -131,7 +131,7 @@ const LineItemTable: React.FC<{
               <tr><td colSpan={4} className="px-4 py-6 text-center text-brand-text-secondary">No items — add a row below.</td></tr>
             )}
             {rows.map(row => (
-              <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
+              <tr key={row.id} className={row.memo ? 'bg-brand-bg-body/60' : ''}>
                 <td className="px-4 py-1.5">
                   <input
                     type="text"
@@ -711,7 +711,7 @@ const FinStatementEditor: React.FC<{
                   <table className="w-full text-sm">
                     <tbody className="divide-y divide-efg-line">
                       {rows.map(row => (
-                        <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
+                        <tr key={row.id} className={row.memo ? 'bg-brand-bg-body/60' : ''}>
                           <td className="px-4 py-1.5">
                             <input type="text" value={row.label} placeholder="Label…"
                               onChange={e => onChange({ ...statement, lineItems: statement.lineItems.map(i => i.id === row.id ? { ...i, label: e.target.value } : i) })}

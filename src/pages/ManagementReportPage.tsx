@@ -1656,6 +1656,36 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
       || [...all].reverse().find(s => s.date < current.date)
     : undefined;
 
+  // P&L YTD per line: for each displayed period, sum the year's imported
+  // monthly statements up to that date — row by row (section + label),
+  // section totals and net profit. Missing months make the YTD partial.
+  const pnlYtd = useMemo(() => {
+    if (kind !== 'pnl') return null;
+    const mk = (dt?: string) => {
+      if (!dt) return null;
+      const year = dt.slice(0, 4);
+      const sts = all.filter(s => s.date.slice(0, 4) === year && s.date <= dt);
+      if (sts.length === 0) return null;
+      const byRow = new Map<string, number>();
+      const sections: Record<string, number> = {};
+      let keyFigure = 0;
+      for (const s of sts) {
+        for (const i of s.lineItems)
+          byRow.set(`${i.section}|${i.label.trim().toLowerCase()}`,
+            (byRow.get(`${i.section}|${i.label.trim().toLowerCase()}`) || 0) + i.amount);
+        const sum = computeFinSummary(s);
+        for (const [k3, v] of Object.entries(sum.sections)) sections[k3] = (sections[k3] || 0) + v;
+        keyFigure += sum.keyFigure;
+      }
+      return { byRow, sections, keyFigure, months: sts.length };
+    };
+    return { cur: mk(current?.date), prev: mk(previous?.date) };
+  }, [kind, all, current?.date, previous?.date]);
+  const ytdOf = (m: { byRow: Map<string, number> } | null | undefined, section: string, label: string): number | null => {
+    if (!m) return null;
+    return m.byRow.get(`${section}|${label.trim().toLowerCase()}`) ?? null;
+  };
+
   if (!current) {
     return (
       <div>
@@ -1843,26 +1873,32 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
               <tr>
                 <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Item</th>
                 {previous && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(previous.date)}</th>}
+                {pnlYtd?.prev && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold bg-efg-line/40">YTD {monthLabel(previous!.date)}</th>}
                 <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{monthLabel(current.date)}</th>
+                {pnlYtd?.cur && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-primary font-bold bg-efg-line/40">YTD {monthLabel(current.date)}</th>}
                 {previous && <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Δ</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-efg-line">
-              {KIND_SECTIONS[kind].map(({ key, label }) => {
+              {(() => { const nCols = 2 + (previous ? 2 : 0) + (pnlYtd?.prev ? 1 : 0) + (pnlYtd?.cur ? 1 : 0); return KIND_SECTIONS[kind].map(({ key, label }) => {
                 const rows = current.lineItems.filter(i => i.section === key);
                 return (
                   <React.Fragment key={key}>
                     <tr className="bg-brand-bg-body">
-                      <td colSpan={previous ? 4 : 2} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">{label}</td>
+                      <td colSpan={nCols} className="px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">{label}</td>
                     </tr>
                     {rows.map(row => {
                       const prevRow = previous?.lineItems.find(i => i.section === key && i.label.trim().toLowerCase() === row.label.trim().toLowerCase());
                       const delta = prevRow ? row.amount - prevRow.amount : null;
+                      const ytdP = ytdOf(pnlYtd?.prev, key, row.label);
+                      const ytdC = ytdOf(pnlYtd?.cur, key, row.label);
                       return (
-                        <tr key={row.id} className={row.memo ? 'bg-gray-50/60' : ''}>
+                        <tr key={row.id} className={row.memo ? 'bg-brand-bg-body/60' : ''}>
                           <td className={`px-3 py-1.5 ${row.memo ? 'italic text-brand-text-secondary pl-6' : 'text-brand-text-primary'}`}>{row.label}</td>
                           {previous && <td className="px-3 py-1.5 text-right tabular-nums">{prevRow ? fmt(prevRow.amount, 1) : '—'}</td>}
+                          {pnlYtd?.prev && <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary bg-efg-line/20">{ytdP === null ? '—' : fmt(ytdP, 1)}</td>}
                           <td className={`px-3 py-1.5 text-right tabular-nums ${row.amount < 0 ? 'text-status-red' : ''}`}>{fmt(row.amount, 1)}</td>
+                          {pnlYtd?.cur && <td className={`px-3 py-1.5 text-right tabular-nums font-semibold bg-efg-line/20 ${ytdC !== null && ytdC < 0 ? 'text-status-red' : ''}`}>{ytdC === null ? '—' : fmt(ytdC, 1)}</td>}
                           {previous && <td className={`px-3 py-1.5 text-right tabular-nums ${delta == null ? 'text-brand-text-secondary' : delta >= 0 ? 'text-status-green' : 'text-status-red'}`}>{delta == null ? 'new' : (delta >= 0 ? '+' : '') + fmt(delta, 1)}</td>}
                         </tr>
                       );
@@ -1870,21 +1906,32 @@ const FinancialsTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asO
                     <tr className="bg-brand-bg-body/60 font-semibold border-t border-brand-text-primary/20">
                       <td className="px-3 py-2">Total {label}</td>
                       {previous && <td className="px-3 py-2 text-right tabular-nums">{fmt(prevSummary!.sections[key] ?? 0, 1)}</td>}
+                      {pnlYtd?.prev && <td className="px-3 py-2 text-right tabular-nums bg-efg-line/20">{fmt(pnlYtd.prev.sections[key] ?? 0, 1)}</td>}
                       <td className="px-3 py-2 text-right tabular-nums">{fmt(curSummary.sections[key] ?? 0, 1)}</td>
+                      {pnlYtd?.cur && <td className="px-3 py-2 text-right tabular-nums bg-efg-line/20">{fmt(pnlYtd.cur.sections[key] ?? 0, 1)}</td>}
                       {previous && <td className="px-3 py-2 text-right tabular-nums">{(() => { const d = (curSummary.sections[key] ?? 0) - (prevSummary!.sections[key] ?? 0); return (d >= 0 ? '+' : '') + fmt(d, 1); })()}</td>}
                     </tr>
                   </React.Fragment>
                 );
-              })}
+              }); })()}
               <tr className="bg-brand-secondary text-white font-semibold">
                 <td className="px-3 py-2">{curSummary.keyFigureLabel}</td>
                 {previous && <td className="px-3 py-2 text-right tabular-nums">{fmt(prevSummary!.keyFigure, 1)}</td>}
+                {pnlYtd?.prev && <td className="px-3 py-2 text-right tabular-nums">{fmt(pnlYtd.prev.keyFigure, 1)}</td>}
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(curSummary.keyFigure, 1)}</td>
+                {pnlYtd?.cur && <td className="px-3 py-2 text-right tabular-nums">{fmt(pnlYtd.cur.keyFigure, 1)}</td>}
                 {previous && <td className="px-3 py-2 text-right tabular-nums">{(() => { const d = curSummary.keyFigure - prevSummary!.keyFigure; return (d >= 0 ? '+' : '') + fmt(d, 1); })()}</td>}
               </tr>
             </tbody>
           </table>
         </div>
+        {pnlYtd?.cur && (
+          <p className="text-[11px] text-brand-text-secondary mt-2">
+            YTD = sum of the year's imported monthly P&L statements up to each period
+            ({pnlYtd.prev ? `${monthLabel(previous!.date)}: ${pnlYtd.prev.months} month(s) · ` : ''}{monthLabel(current.date)}: {pnlYtd.cur.months} month(s)) —
+            missing months make the YTD partial. This YTD net profit is what feeds the P&L bar of the capital bridge.
+          </p>
+        )}
         {kind === 'balanceSheet' && !curSummary.balanced && (
           <p className="text-[12px] text-status-amber mt-2">⚠ The balance sheet does not balance — check the amounts in the Workbench.</p>
         )}
