@@ -56,6 +56,20 @@ export const uploadDocument = async (
   if (!res.ok) return fail(res);
 };
 
+/** Metadata-only update: move to another folder, rename, retag. */
+export const updateDocument = async (
+  apiBaseUrl: string, id: number,
+  meta: { folder?: string; title?: string; entity?: string; date?: string; kind?: string; notes?: string }
+): Promise<void> => {
+  const res = await fetch(`${apiBaseUrl}/documents/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(meta),
+  });
+  if (!res.ok && res.status !== 204) return fail(res);
+};
+
 export const deleteDocument = async (apiBaseUrl: string, id: number): Promise<void> => {
   const res = await fetch(`${apiBaseUrl}/documents/${id}`, { method: 'DELETE', credentials: 'include' });
   if (!res.ok && res.status !== 204) return fail(res);

@@ -87,6 +87,33 @@ public class DocumentsController : ControllerBase
         return new { doc.Id, doc.Folder, doc.Title, doc.FileName, doc.SizeBytes };
     }
 
+    public class DocumentMetaUpdate
+    {
+        public string? Folder { get; set; }
+        public string? Title { get; set; }
+        public string? Entity { get; set; }
+        public string? Date { get; set; }
+        public string? Kind { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    /// <summary>Metadata-only update — move to another folder, rename, retag.
+    /// Only provided fields change; the content never does.</summary>
+    [HttpPut("{id:long}")]
+    public async Task<IActionResult> Update(long id, DocumentMetaUpdate form)
+    {
+        var doc = await _db.Documents.FindAsync(id);
+        if (doc is null) return NotFound();
+        if (form.Folder is not null) doc.Folder = form.Folder.Replace('\\', '/').Trim().Trim('/');
+        if (!string.IsNullOrWhiteSpace(form.Title)) doc.Title = form.Title.Trim();
+        if (form.Entity is not null) doc.Entity = string.IsNullOrWhiteSpace(form.Entity) ? null : form.Entity.Trim();
+        if (form.Date is not null) doc.Date = string.IsNullOrWhiteSpace(form.Date) ? null : form.Date.Trim();
+        if (form.Kind is not null) doc.Kind = string.IsNullOrWhiteSpace(form.Kind) ? null : form.Kind.Trim();
+        if (form.Notes is not null) doc.Notes = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes.Trim();
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id)
     {
