@@ -1,0 +1,10 @@
+node_modules
+dist
+releases
+backend/RegReport.Api/bin
+backend/RegReport.Api/obj
+backend/RegReport.Api/wwwroot
+backend/.vs
+.git
+*.local.json
+docs/mercury-model
