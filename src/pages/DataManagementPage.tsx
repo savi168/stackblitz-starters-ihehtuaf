@@ -506,7 +506,7 @@ const EntitiesPanel: React.FC = () => {
 };
 
 export const DataManagementPage: React.FC = () => {
-    const { data, setData, allEntities, mode } = useData();
+    const { data, setData, allEntities, mode, apiBaseUrl } = useData();
     const [deadlineImportMode, setDeadlineImportMode] = useState<'replace' | 'append'>('replace');
     const [kpiCapitalImportMode, setKpiCapitalImportMode] = useState<'replace' | 'append'>('append');
     const [kpiLiquidityImportMode, setKpiLiquidityImportMode] = useState<'replace' | 'append'>('append');
@@ -980,6 +980,29 @@ export const DataManagementPage: React.FC = () => {
     const downloadJson = () => {
         downloadFile(JSON.stringify(data, null, 2), 'regulatory-data.json', 'application/json');
     };
+
+    // Full application-level archive (ZIP: central data + Library documents),
+    // built by the API — a backup the team can take without SQL-server rights.
+    const [archiveBusy, setArchiveBusy] = useState(false);
+    const downloadArchive = async () => {
+        if (!apiBaseUrl) return;
+        setArchiveBusy(true);
+        try {
+            const res = await fetch(`${apiBaseUrl}/backup/archive`, { credentials: 'include' });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RegReport-archive-${new Date().toISOString().slice(0, 10)}.zip`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert(`❌ Archive failed: ${(e as Error).message}`);
+        } finally {
+            setArchiveBusy(false);
+        }
+    };
     
     const exportDeadlinesCSV = () => {
         const headers = ['id', 'endOfPeriod', 'dueDate', 'entity', 'controlNumber', 'name', 'frequency', 'ownerGroup', 'validator1', 'validator2', 'ownerApproved', 'validation1Approved', 'validation2Approved', 'signedOffWithException', 'lightFull', 'itemType', 'path', 'status', 'comments'];
@@ -1197,15 +1220,30 @@ export const DataManagementPage: React.FC = () => {
             <EntitiesPanel />
 
             <Card className="mb-8">
-                <SectionHeader title="Backup & restore" suffix="JSON snapshot of the central data" />
+                <SectionHeader title="Backup & restore" suffix="self-service archives — the IT database backups remain the real safety net" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                    <div>
-                        <button onClick={downloadJson} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💾 Download All Data (JSON)</button>
-                        <p className="text-[11px] text-brand-text-secondary mt-2">
-                            Everything behind /api/data — KPIs, reports, statements, projects, contacts, deadlines…
-                            <strong> Library documents are NOT included</strong> (they stream outside /api/data):
-                            a full backup is <code>BACKUP DATABASE RegReport</code> on the SQL side.
-                        </p>
+                    <div className="space-y-3">
+                        {mode === 'api' && (
+                            <div>
+                                <button onClick={downloadArchive} disabled={archiveBusy}
+                                    className="w-full text-left bg-brand-primary hover:bg-brand-primary-dark text-white font-bold py-3 px-4 rounded-lg transition-colors disabled:opacity-60">
+                                    {archiveBusy ? '⏳ Building the archive…' : '📦 Download full archive (ZIP — data + Library documents)'}
+                                </button>
+                                <p className="text-[11px] text-brand-text-secondary mt-2">
+                                    Everything, in one file you can store on a network share — no rights on the SQL
+                                    server needed. Contains <code>central-data.json</code> (restorable below) and every
+                                    Library document. Take one before each release.
+                                </p>
+                            </div>
+                        )}
+                        <div>
+                            <button onClick={downloadJson} className="w-full text-left bg-gray-100 hover:bg-gray-200 text-brand-text-primary font-bold py-3 px-4 rounded-lg transition-colors">💾 Download All Data (JSON only)</button>
+                            <p className="text-[11px] text-brand-text-secondary mt-2">
+                                The central data alone (no Library documents). For point-in-time recovery of the whole
+                                database, the IT's SQL backups (<code>BACKUP DATABASE</code> + log backups) are the
+                                reference — see the release procedure in the Library.
+                            </p>
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-brand-text-secondary mb-2">Restore from a JSON snapshot</label>

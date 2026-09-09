@@ -147,3 +147,28 @@
   border-right: 6px solid transparent;
   border-top: 8px solid #2B3338; /* charcoal */
 }
+
+/* --- In-app markdown viewer (Library) — theme-aware via tokens ----------- */
+.md-doc h1 { font-size: 20px; font-weight: 600; margin: 1.1em 0 .4em; }
+.md-doc h2 { font-size: 17px; font-weight: 600; margin: 1.2em 0 .4em; }
+.md-doc h3 { font-size: 15px; font-weight: 600; margin: 1em 0 .3em; }
+.md-doc p { margin: .45em 0; }
+.md-doc ul, .md-doc ol { margin: .4em 0 .7em 1.5em; }
+.md-doc ul { list-style: disc; }
+.md-doc ol { list-style: decimal; }
+.md-doc li { margin: .2em 0; }
+.md-doc hr { border: 0; border-top: 1px solid rgb(var(--efg-line)); margin: 1.3em 0; }
+.md-doc pre {
+  background: rgb(var(--brand-bg-body));
+  border: 1px solid rgb(var(--efg-line));
+  border-radius: 6px; padding: 10px; overflow-x: auto;
+  font-size: 12px; margin: .5em 0;
+}
+.md-doc code {
+  background: rgb(var(--brand-bg-body));
+  border: 1px solid rgb(var(--efg-line));
+  padding: 1px 4px; border-radius: 4px; font-size: 12px;
+}
+.md-doc pre code { background: transparent; border: 0; padding: 0; }
+.md-doc a { color: rgb(var(--brand-primary)); text-decoration: underline; }
+.md-doc strong { font-weight: 600; }

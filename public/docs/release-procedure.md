@@ -1,105 +1,144 @@
-# RegReport — Procédure de release & mise à jour
+# RegReport — Release & upgrade procedure
 
-Cette procédure couvre les deux modes de déploiement (zip Windows et Docker).
-Dans les deux cas, la règle d'or est la même : **les données ne sont jamais
-perdues** — le schéma de base est mis à niveau automatiquement au démarrage
-de l'API (migrations additives et idempotentes, tracées dans la table
-`__SchemaMigrations` — voir docs/UPGRADES.md du dépôt).
-
----
-
-## 0. Avant toute release (2 minutes, non négociable)
-
-1. **Sauvegarde de la base** — couvre tout, y compris les documents de la
-   Library (stockés en base) :
-
-    BACKUP DATABASE RegReport TO DISK = 'C:\Backups\RegReport_avant_vX.Y.Z.bak'
-
-2. Noter la version actuellement en production (badge en haut à gauche de
-   l'écran, ou Admin → System).
+This procedure covers both deployment modes (Windows zip and Docker). In
+both cases the golden rule is the same: **data is never lost** — the database
+schema is upgraded automatically when the API starts (additive, idempotent
+migrations, recorded in the `__SchemaMigrations` table).
 
 ---
 
-## 1. Préparer la release (côté développement)
+## 0. Before any release — backups (know your two safety nets)
 
-1. Mettre à jour le numéro de version — **un seul endroit** :
+There are two layers, for two situations:
+
+**A. The IT database backups — the real safety net.**
+In the enterprise you will typically be an *application* admin, not a
+sysadmin on the SQL server — and that is fine: database backups are the
+DBA's job, not yours. Before go-live, ask IT three questions, once:
+
+1. Is the `RegReport` database included in the standard backup plan
+   (full + transaction-log backups)?
+2. Is the database in **FULL recovery model**? That is what makes
+   **point-in-time restore** possible.
+3. What is the process to request a restore (ticket, SLA)?
+
+On your own machine (where you ARE the admin), the equivalent is simply:
+
+```sql
+BACKUP DATABASE RegReport TO DISK = 'C:\Backups\RegReport_before_vX.Y.Z.bak'
+```
+
+**B. The self-service application archive — what YOU can always do.**
+Admin → Backup & restore → **Download full archive (ZIP)** produces one
+file containing the whole central data (`central-data.json`) and every
+Library document. No server rights needed — store it on a network share.
+Take one before each release; it takes seconds.
+
+Finally, note the version currently in production (header badge, or
+Admin → System).
+
+---
+
+## 1. Prepare the release (development side)
+
+1. Bump the version number — **one single place**:
    `src/version.ts` → `APP_VERSION = 'X.Y.Z'`.
-2. Committer, puis construire le livrable :
-   - **Mode zip** : `.\scripts\release.ps1` (la version est lue toute seule
-     dans version.ts) → `releases\RegReport-vX.Y.Z.zip` ;
-   - **Mode Docker** : `docker build -t regreport:X.Y.Z .` puis, si un
-     registry est utilisé, `docker push <registry>/regreport:X.Y.Z`.
-3. Le numéro se retrouve partout automatiquement : badge du header,
-   VERSION.txt du zip, assembly de l'API, `GET /api/meta`.
+2. Commit, then build the deliverable:
+   - **Zip mode**: `.\scripts\release.ps1` (the version is read from
+     version.ts automatically) → `releases\RegReport-vX.Y.Z.zip`;
+   - **Docker mode**: `docker build -t regreport:X.Y.Z .` then, with a
+     registry, `docker push <registry>/regreport:X.Y.Z`.
+3. The number propagates everywhere: header badge, VERSION.txt, the API
+   assembly, `GET /api/meta`.
 
 ---
 
-## 2A. Mettre à jour — déploiement zip Windows
+## 2A. Upgrade — Windows zip deployment
 
-1. Copier le zip sur la machine cible.
-2. **Arrêter l'API** : `Ctrl+C` dans sa fenêtre, ou
+1. Copy the zip to the target machine.
+2. **Stop the API**: `Ctrl+C` in its window, or
    `Stop-Process -Name RegReport.Api -Force`.
-3. Renommer le dossier actuel (ex. `RegReport_old`) — c'est le rollback
-   instantané — puis dézipper la nouvelle version au même endroit.
-4. **Recopier `appsettings.Production.local.json`** depuis l'ancien dossier
-   vers le nouveau (il contient les connexions et la sécurité de CETTE
-   machine ; il n'est jamais dans le zip).
-5. Relancer `RegReport.Api.exe`.
-6. Dans la console, vérifier les éventuelles lignes
-   `Schema migration applied: ...` — c'est la base qui se met à niveau.
+3. Rename the current folder (e.g. `RegReport_old`) — that is your instant
+   rollback — then unzip the new version in its place.
+4. **Copy `appsettings.Production.local.json` back** from the old folder
+   into the new one (it holds THIS machine's connections and security; it
+   never ships inside the zip).
+5. Start `RegReport.Api.exe`.
+6. In the console, watch for `Schema migration applied: ...` lines — that
+   is the database upgrading itself.
 
-## 2B. Mettre à jour — déploiement Docker
+## 2B. Upgrade — Docker deployment
 
-1. Sur la machine/plateforme : récupérer la nouvelle image
-   (`docker pull <registry>/regreport:X.Y.Z`, ou `--build` en local).
-2. Mettre à jour le tag d'image dans `docker-compose.yml` (ou la définition
-   du déploiement), puis :
+1. On the host/platform: pull the new image
+   (`docker pull <registry>/regreport:X.Y.Z`, or `--build` locally).
+2. Update the image tag in `docker-compose.yml` (or the deployment
+   definition), then:
 
-    docker compose up -d
+```
+docker compose up -d
+```
 
-   Le conteneur est stateless : il est remplacé, les données restent dans
-   SQL Server. Coupure de service : quelques secondes.
-3. `docker compose logs regreport` → vérifier les
-   `Schema migration applied: ...`.
-
----
-
-## 3. Vérifications après mise à jour (1 minute)
-
-- [ ] Le **badge du header** affiche la nouvelle version et le bon
-      environnement (PROD/TEST) ;
-- [ ] **Admin → System** : version API identique, migrations appliquées
-      listées avec la date du jour pour les nouvelles, MERCURY connecté ;
-- [ ] **Admin → Data inventory** : les compteurs sont cohérents avec
-      l'avant-release (aucun dataset tombé à zéro) ;
-- [ ] Ouvrir le **Management Report** sur une entité connue : les chiffres
-      sont là ;
-- [ ] `Ctrl+F5` chez les utilisateurs si l'interface semble « d'avant »
-      (cache navigateur).
+   The container is stateless: it is replaced, the data stays in SQL
+   Server. Downtime: a few seconds.
+3. `docker compose logs regreport` → check the
+   `Schema migration applied: ...` lines.
 
 ---
 
-## 4. Revenir en arrière (rollback)
+## 3. Post-upgrade checks (1 minute)
 
-Le schéma étant **additif** (les migrations ajoutent, ne suppriment jamais),
-l'ancienne version de l'application fonctionne sur le nouveau schéma :
-
-- **Zip** : arrêter l'API, remettre le dossier `RegReport_old`, relancer ;
-- **Docker** : `docker compose up -d` avec l'ancien tag d'image.
-
-La restauration de la sauvegarde (`RESTORE DATABASE`) n'est nécessaire que
-si des **données** ont été abîmées — pas pour un simple retour de version.
+- [ ] The **header badge** shows the new version and the right environment
+      (PROD/TEST);
+- [ ] **Admin → System**: same API version, the new migrations listed with
+      today's date, MERCURY connected;
+- [ ] **Admin → Data inventory**: counters consistent with pre-release
+      (no dataset dropped to zero);
+- [ ] Open the **Management Report** on a known entity: the numbers are
+      there;
+- [ ] `Ctrl+F5` on user machines if the interface looks stale (browser
+      cache).
 
 ---
 
-## 5. Cas particuliers
+## 4. Rolling back — and what if a release breaks the DATA?
 
-- **Release majeure avec transformation de données** : le migrateur ne
-  l'exécute qu'une seule fois (table `__SchemaMigrations`) — la note de
-  release le signalera explicitement ; la sauvegarde de l'étape 0 est alors
-  d'autant plus importante.
-- **Échec d'une migration au démarrage** : l'API refuse volontairement de
-  démarrer et le log nomme l'étape en cause ; le script SQL équivalent est
-  dans `docs/` (dépôt) pour une correction manuelle via SSMS, puis relancer.
-- **Plusieurs environnements** : toujours dérouler la release sur **TEST**
-  d'abord (conteneur ou second dossier), vérifier la checklist, puis PROD.
+Two very different situations:
+
+**Rolling back the application (no data damage).**
+The schema is **additive** (migrations add, never drop), so the previous
+application version runs fine on the upgraded database:
+
+- **Zip**: stop the API, put back the `RegReport_old` folder, restart;
+- **Docker**: `docker compose up -d` with the previous image tag.
+
+No database restore needed.
+
+**Restoring data to a given point in time (data was damaged).**
+This is where the IT backups earn their keep. With FULL recovery model and
+log backups, the DBA can restore the database **to any chosen moment**:
+
+```sql
+RESTORE DATABASE RegReport_Restore FROM DISK = '…full.bak' WITH NORECOVERY;
+RESTORE LOG RegReport_Restore FROM DISK = '…log.trn'
+    WITH STOPAT = '2026-09-09 14:00', RECOVERY;
+```
+
+Best practice: ask for the restore into a **side-by-side copy**
+(`RegReport_Restore`), compare with the live database, and copy back only
+what was damaged — instead of wiping everything since the incident.
+The application-level fallback, if IT restore is unavailable: restore the
+`central-data.json` of your ZIP archive through Admin → Restore, and
+re-upload the documents from the archive's `documents/` folder.
+
+---
+
+## 5. Edge cases
+
+- **A major release that transforms data**: the migrator runs such a step
+  exactly once (`__SchemaMigrations`) — the release note will call it out;
+  the step-0 backups matter even more that day.
+- **A migration fails at startup**: the API deliberately refuses to start
+  and the log names the failing step; the equivalent manual script is in
+  the repository's `docs/` folder for a fix via SSMS, then restart.
+- **Several environments**: always roll the release on **TEST** first
+  (container or second folder), run the checklist, then PROD.

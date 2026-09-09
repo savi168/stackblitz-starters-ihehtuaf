@@ -26,24 +26,50 @@ const previewType = (fileName: string): 'iframe' | 'img' | 'md' | 'text' | null 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Tiny offline markdown renderer (headings, bold, code, lists, links). */
+/** Tiny offline markdown renderer (headings, bold, code, lists, hr, links).
+ * Emits classed markup styled by the `.md-doc` rules in index.css, so the
+ * result follows the light/dark theme instead of hardcoding colors. */
 const mdToHtml = (md: string): string => {
   const codeBlocks: string[] = [];
-  let s = escapeHtml(md).replace(/```([\s\S]*?)```/g, (_, code) => {
-    codeBlocks.push(`<pre style="background:#f5f4f2;border:1px solid #e5e2dd;border-radius:6px;padding:10px;overflow-x:auto;font-size:12px">${code}</pre>`);
+  const src = escapeHtml(md).replace(/```\w*\n?([\s\S]*?)```/g, (_, code) => {
+    codeBlocks.push(`<pre>${String(code).replace(/^\n/, '')}</pre>`);
     return `\u0000${codeBlocks.length - 1}\u0000`;
   });
-  s = s
-    .replace(/^### (.*)$/gm, '<h3 style="margin:1em 0 .3em;font-size:15px">$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2 style="margin:1.2em 0 .4em;font-size:17px">$1</h2>')
-    .replace(/^# (.*)$/gm, '<h1 style="margin:1.2em 0 .4em;font-size:20px">$1</h1>')
+  const inline = (t: string): string => t
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code style="background:#f5f4f2;padding:1px 4px;border-radius:4px;font-size:12px">$1</code>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer" style="color:#0d5257;text-decoration:underline">$1</a>')
-    .replace(/^[-*] (.*)$/gm, '<li>$1</li>')
-    .replace(/(<li>[\s\S]*?<\/li>)(\n(?!<li>))/g, '<ul style="margin:.4em 0 .4em 1.2em;list-style:disc">$1</ul>$2')
-    .replace(/\n{2,}/g, '<br/><br/>');
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)]);
+    .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+
+  const out: string[] = [];
+  let list: 'ul' | 'ol' | null = null;
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of src.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    const h = line.match(/^(#{1,3}) (.*)$/);
+    const li = line.match(/^\s*[-*] (?:\[[ x]\]\s*)?(.*)$/);
+    const oli = line.match(/^\s*\d+\. (.*)$/);
+    if (/^\s*---+\s*$/.test(line)) { closeList(); out.push('<hr/>'); continue; }
+    if (h) { closeList(); const lvl = h[1].length; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); continue; }
+    if (li) { if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+    if (oli) { if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(oli[1])}</li>`); continue; }
+    if (/^\u0000\d+\u0000$/.test(line.trim())) { closeList(); out.push(line.trim()); continue; }
+    if (line.trim() === '') { closeList(); continue; }
+    // Hard-wrapped continuation: while a list is open, plain text belongs to
+    // the previous item; otherwise merge consecutive lines into one paragraph.
+    if (list && out.length > 0 && out[out.length - 1].endsWith('</li>')) {
+      out[out.length - 1] = out[out.length - 1].replace(/<\/li>$/, ` ${inline(line.trim())}</li>`);
+      continue;
+    }
+    if (out.length > 0 && out[out.length - 1].endsWith('</p>')) {
+      out[out.length - 1] = out[out.length - 1].replace(/<\/p>$/, ` ${inline(line.trim())}</p>`);
+      continue;
+    }
+    out.push(`<p>${inline(line)}</p>`);
+  }
+  closeList();
+  return `<div class="md-doc">${out.join('\n')}</div>`
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)]);
 };
 
 interface ViewerState { title: string; url?: string; html?: string; type: 'iframe' | 'img' | 'md' | 'text'; isObjectUrl?: boolean; externalHref?: string }
@@ -476,8 +502,8 @@ export const LibraryPage: React.FC = () => {
             className="underline text-brand-secondary hover:text-brand-primary">📕 MERCURY — Quadrum Data Lake data model (PDF)</button>
           <button onClick={() => openBuiltIn('MERCURY — integration & adjustments notes', 'docs/mercury-integration.md')}
             className="underline text-brand-secondary hover:text-brand-primary">📄 MERCURY — integration & adjustments notes</button>
-          <button onClick={() => openBuiltIn('Release & mise à jour — procédure', 'docs/release-procedure.md')}
-            className="underline text-brand-secondary hover:text-brand-primary">🚀 Release & mise à jour — procédure</button>
+          <button onClick={() => openBuiltIn('Release & upgrade procedure', 'docs/release-procedure.md')}
+            className="underline text-brand-secondary hover:text-brand-primary">🚀 Release & upgrade procedure</button>
         </div>
       </Card>
 
