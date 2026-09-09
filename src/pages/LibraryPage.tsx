@@ -476,6 +476,8 @@ export const LibraryPage: React.FC = () => {
             className="underline text-brand-secondary hover:text-brand-primary">📕 MERCURY — Quadrum Data Lake data model (PDF)</button>
           <button onClick={() => openBuiltIn('MERCURY — integration & adjustments notes', 'docs/mercury-integration.md')}
             className="underline text-brand-secondary hover:text-brand-primary">📄 MERCURY — integration & adjustments notes</button>
+          <button onClick={() => openBuiltIn('Release & mise à jour — procédure', 'docs/release-procedure.md')}
+            className="underline text-brand-secondary hover:text-brand-primary">🚀 Release & mise à jour — procédure</button>
         </div>
       </Card>
 
