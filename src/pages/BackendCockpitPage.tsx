@@ -7,6 +7,7 @@ import {
     downloadCsv, NATURAL_KEYS, parseCsv,
 } from '../services/csvImport';
 import { projectToKpiHistory } from '../services/capital';
+import { logBusiness } from '../services/appLog';
 import { CentralData } from '../types';
 
 const methodColor: Record<EndpointMeta['method'], string> = {
@@ -304,11 +305,130 @@ const ImportCsvModal: React.FC<{
     );
 };
 
+// --- Row editor side panel ---
+// Click a row in the Data Explorer → this drawer shows every field and lets
+// admins edit them in place. Nested structures are edited as JSON. Every save
+// writes a field-level entry (old → new) to the business audit trail.
+const fmtVal = (v: unknown): string => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'object') {
+        const s = JSON.stringify(v);
+        return s.length > 60 ? s.slice(0, 60) + '…' : s;
+    }
+    return String(v);
+};
+
+const RowEditorPanel: React.FC<{
+    table: TableMeta;
+    row: Record<string, unknown>;
+    columns: string[];
+    rowLabel: string;
+    onClose: () => void;
+    onSave: (updated: Record<string, unknown>) => void;
+    onDelete: () => void;
+}> = ({ table, row, columns, rowLabel, onClose, onSave, onDelete }) => {
+    type FieldType = 'number' | 'boolean' | 'json' | 'string';
+    const fields = useMemo(() => columns.map(c => {
+        const v = row[c];
+        const type: FieldType = typeof v === 'number' ? 'number'
+            : typeof v === 'boolean' ? 'boolean'
+                : (v !== null && typeof v === 'object') ? 'json' : 'string';
+        const initial = v === null || v === undefined ? ''
+            : type === 'json' ? JSON.stringify(v, null, 2) : String(v);
+        return { key: c, type, initial };
+    }), [columns, row]);
+
+    const [values, setValues] = useState<Record<string, string>>(
+        () => Object.fromEntries(fields.map(f => [f.key, f.initial])));
+    const [error, setError] = useState<string | null>(null);
+
+    const submit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const updated: Record<string, unknown> = { ...row };
+        for (const f of fields) {
+            const raw = values[f.key] ?? '';
+            const orig = row[f.key];
+            if (raw.trim() === '') {
+                // Empty input: keep null/undefined as-is, else empty string / 0.
+                if (orig === null || orig === undefined) { updated[f.key] = orig; continue; }
+                updated[f.key] = f.type === 'number' ? 0 : f.type === 'boolean' ? false : '';
+                continue;
+            }
+            if (f.type === 'number') {
+                const n = Number(raw);
+                if (Number.isNaN(n)) { setError(`"${f.key}" is not a valid number.`); return; }
+                updated[f.key] = n;
+            } else if (f.type === 'boolean') {
+                updated[f.key] = raw === 'true';
+            } else if (f.type === 'json') {
+                try { updated[f.key] = JSON.parse(raw); }
+                catch { setError(`"${f.key}" is not valid JSON.`); return; }
+            } else {
+                updated[f.key] = raw;
+            }
+        }
+        onSave(updated);
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+            <form onSubmit={submit} className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-fade-in">
+                <div className="px-5 py-4 border-b border-efg-line flex items-start justify-between gap-3">
+                    <div>
+                        <h3 className="text-base font-semibold text-brand-text-primary">Edit row — {table.table}</h3>
+                        {rowLabel && <p className="text-xs text-brand-text-secondary font-mono mt-0.5">{rowLabel}</p>}
+                        <p className="text-[11px] text-brand-text-secondary mt-1">Changes are saved to the data source and recorded field-by-field in the business audit trail (☰ → Logs).</p>
+                    </div>
+                    <button type="button" onClick={onClose} className="text-brand-text-secondary hover:text-brand-text-primary text-lg leading-none">✕</button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                    {fields.map(f => (
+                        <div key={f.key}>
+                            <label className="block text-xs font-medium text-brand-text-secondary mb-1">
+                                {f.key} <span className="text-gray-400">· {f.type}</span>
+                            </label>
+                            {f.type === 'boolean' ? (
+                                <select value={values[f.key] || 'false'} onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
+                                    className="block w-full p-2 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary">
+                                    <option value="false">false</option>
+                                    <option value="true">true</option>
+                                </select>
+                            ) : f.type === 'json' ? (
+                                <textarea value={values[f.key] ?? ''} onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
+                                    rows={Math.min(8, Math.max(3, (values[f.key] || '').split('\n').length))}
+                                    className="block w-full p-2 border-2 border-gray-200 rounded-lg text-xs font-mono focus:border-brand-primary" />
+                            ) : (
+                                <input type={f.type === 'number' ? 'number' : 'text'} step="any"
+                                    value={values[f.key] ?? ''} onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
+                                    className="block w-full p-2 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary" />
+                            )}
+                        </div>
+                    ))}
+                </div>
+                {error && <p className="mx-5 mb-2 text-status-red text-sm bg-status-red/10 border border-status-red/30 rounded-md px-3 py-2">{error}</p>}
+                <div className="px-5 py-4 border-t border-efg-line flex items-center justify-between gap-3">
+                    <button type="button" onClick={onDelete}
+                        className="text-sm font-semibold text-status-red border border-status-red/40 hover:bg-status-red hover:text-white py-2 px-4 rounded-md transition-colors">
+                        Delete row
+                    </button>
+                    <div className="flex gap-3">
+                        <button type="button" onClick={onClose} className="text-sm font-semibold text-brand-text-secondary bg-brand-bg-body hover:bg-efg-line py-2 px-4 rounded-md">Cancel</button>
+                        <button type="submit" className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md">Save changes</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    );
+};
+
 // --- Data explorer (spreadsheet) ---
 const DataExplorer: React.FC = () => {
     const { data, setData } = useData();
     const [selectedKey, setSelectedKey] = useState<string>(BACKEND_TABLES[0].key as string);
     const [query, setQuery] = useState('');
+    const [colFilters, setColFilters] = useState<Record<string, string>>({});
+    const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
     const [inserting, setInserting] = useState(false);
     const [importingCsv, setImportingCsv] = useState(false);
     const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -326,10 +446,31 @@ const DataExplorer: React.FC = () => {
     }, [rows]);
 
     const filtered = useMemo(() => {
-        if (!query.trim()) return rows;
-        const q = query.toLowerCase();
-        return rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
-    }, [rows, query]);
+        let out = rows;
+        if (query.trim()) {
+            const q = query.toLowerCase();
+            out = out.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+        }
+        const active = Object.entries(colFilters).filter(([, v]) => v.trim() !== '');
+        if (active.length > 0) {
+            out = out.filter(r => active.every(([c, v]) => {
+                const cell = r[c];
+                const s = cell === null || cell === undefined ? ''
+                    : typeof cell === 'object' ? JSON.stringify(cell) : String(cell);
+                return s.toLowerCase().includes(v.trim().toLowerCase());
+            }));
+        }
+        return out;
+    }, [rows, query, colFilters]);
+
+    // Short identity of a row for the audit trail: natural key when the table
+    // has one, else the id, else nothing.
+    const rowLabel = useCallback((row: Record<string, unknown>): string => {
+        const keys = NATURAL_KEYS[selectedKey];
+        if (keys) return keys.map(k => String(row[k] ?? '')).filter(Boolean).join(' · ');
+        if (row.id !== null && row.id !== undefined) return `id ${row.id}`;
+        return '';
+    }, [selectedKey]);
 
     const insertFields = useMemo(() => {
         if (columns.length > 0) {
@@ -354,6 +495,11 @@ const DataExplorer: React.FC = () => {
 
     const handleInsert = (row: Record<string, unknown>) => {
         setData(prev => ({ ...prev, [selectedKey]: [...((prev as unknown as Record<string, unknown>)[selectedKey] as unknown[] || []), row] }));
+        logBusiness([{
+            dataset: selectedKey,
+            action: 'insert',
+            details: `${rowLabel(row) || 'new row'} — ${JSON.stringify(row).slice(0, 400)}`,
+        }], { explicit: true });
         setInserting(false);
     };
 
@@ -386,26 +532,62 @@ const DataExplorer: React.FC = () => {
             return updated;
         });
         setImportingCsv(false);
+        logBusiness([{
+            dataset: selectedKey,
+            action: 'import',
+            details: `${imported.length} row(s) imported from CSV (${mode === 'replace' ? 'table replaced' : 'append/upsert'})`,
+        }], { explicit: true });
         setImportNotice(`${imported.length} row(s) imported into ${table.table} (${mode === 'replace' ? 'table replaced' : 'append/upsert'}). Saved to the current data source.`);
     };
 
-    const deleteRow = (rowIndex: number) => {
-        if (!window.confirm('Delete this row? (persists to the current data source)')) return;
+    const removeRow = (target: Record<string, unknown>) => {
         setData(prev => {
             const list = [...((prev as unknown as Record<string, unknown>)[selectedKey] as unknown[])];
-            // map filtered index back to the real row reference
-            const target = filtered[rowIndex];
             const realIdx = list.indexOf(target);
             if (realIdx >= 0) list.splice(realIdx, 1);
             return { ...prev, [selectedKey]: list };
         });
+        logBusiness([{
+            dataset: selectedKey,
+            action: 'delete',
+            details: `${rowLabel(target) || 'row'} — ${JSON.stringify(target).slice(0, 400)}`,
+        }], { explicit: true });
+    };
+
+    const deleteRow = (rowIndex: number) => {
+        if (!window.confirm('Delete this row? (persists to the current data source)')) return;
+        removeRow(filtered[rowIndex]);
+    };
+
+    // Side-panel save: replace the row by reference and audit each changed field.
+    const saveEdit = (original: Record<string, unknown>, updated: Record<string, unknown>) => {
+        const changes: string[] = [];
+        for (const k of new Set([...Object.keys(original), ...Object.keys(updated)])) {
+            if (JSON.stringify(original[k]) !== JSON.stringify(updated[k])) {
+                changes.push(`${k}: ${fmtVal(original[k])} → ${fmtVal(updated[k])}`);
+            }
+        }
+        if (changes.length > 0) {
+            setData(prev => {
+                const list = [...((prev as unknown as Record<string, unknown>)[selectedKey] as unknown[])];
+                const realIdx = list.indexOf(original);
+                if (realIdx >= 0) list[realIdx] = updated;
+                return { ...prev, [selectedKey]: list };
+            });
+            logBusiness([{
+                dataset: selectedKey,
+                action: 'update',
+                details: `${rowLabel(original) || 'row'} — ${changes.join('; ')}`,
+            }], { explicit: true });
+        }
+        setEditing(null);
     };
 
     return (
         <Card>
             <div className="flex flex-col md:flex-row md:items-end gap-4 mb-5">
                 <div className="md:w-72">
-                    <Select label="Table" value={selectedKey} onChange={e => { setSelectedKey(e.target.value); setQuery(''); }}>
+                    <Select label="Table" value={selectedKey} onChange={e => { setSelectedKey(e.target.value); setQuery(''); setColFilters({}); setEditing(null); }}>
                         {BACKEND_TABLES.map(t => (
                             <option key={t.key as string} value={t.key as string}>
                                 {t.table} ({Array.isArray((data as unknown as Record<string, unknown>)[t.key as string]) ? ((data as unknown as Record<string, unknown>)[t.key as string] as unknown[]).length : '1'})
@@ -459,16 +641,37 @@ const DataExplorer: React.FC = () => {
                                 {columns.map(c => <th key={c} className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{c}</th>)}
                                 <th className="px-3 py-2"></th>
                             </tr>
+                            {/* Per-column filters (ANDed, case-insensitive contains) */}
+                            <tr className="bg-white border-t border-efg-line">
+                                <th className="px-3 py-1 sticky left-0 bg-white"></th>
+                                {columns.map(c => (
+                                    <th key={c} className="px-2 py-1 font-normal">
+                                        <input
+                                            value={colFilters[c] || ''}
+                                            onChange={e => setColFilters(f => ({ ...f, [c]: e.target.value }))}
+                                            placeholder="filter…"
+                                            className="w-full min-w-[5.5rem] text-[11px] font-normal border border-efg-line rounded px-1.5 py-1 bg-white focus:border-brand-primary focus:outline-none"
+                                        />
+                                    </th>
+                                ))}
+                                <th className="px-2 py-1 text-right">
+                                    {Object.values(colFilters).some(v => v.trim()) && (
+                                        <button onClick={() => setColFilters({})} title="Clear column filters"
+                                            className="text-[11px] text-brand-text-secondary hover:text-brand-primary underline">clear</button>
+                                    )}
+                                </th>
+                            </tr>
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
                                 <tr><td colSpan={columns.length + 2} className="px-3 py-8 text-center text-brand-text-secondary">No rows.</td></tr>
                             ) : filtered.slice(0, 500).map((row, i) => (
-                                <tr key={i} className="border-t border-efg-line hover:bg-brand-bg-body">
+                                <tr key={i} onClick={() => setEditing(row)} title="Click to view / edit this row"
+                                    className="border-t border-efg-line hover:bg-brand-bg-body cursor-pointer">
                                     <td className="px-3 py-1.5 text-gray-400 sticky left-0 bg-white">{i + 1}</td>
                                     {columns.map(c => <td key={c} className="px-3 py-1.5">{renderCell(row[c])}</td>)}
                                     <td className="px-3 py-1.5 text-right">
-                                        <button onClick={() => deleteRow(i)} title="Delete row" className="text-gray-300 hover:text-brand-primary">✕</button>
+                                        <button onClick={e => { e.stopPropagation(); deleteRow(i); }} title="Delete row" className="text-gray-300 hover:text-brand-primary">✕</button>
                                     </td>
                                 </tr>
                             ))}
@@ -498,6 +701,21 @@ const DataExplorer: React.FC = () => {
 
             {filtered.length > 500 && <p className="text-xs text-brand-text-secondary mt-2">Showing first 500 of {filtered.length} rows.</p>}
 
+            {editing && (
+                <RowEditorPanel
+                    table={table}
+                    row={editing}
+                    columns={columns.length > 0 ? Array.from(new Set([...columns, ...Object.keys(editing)])) : Object.keys(editing)}
+                    rowLabel={rowLabel(editing)}
+                    onClose={() => setEditing(null)}
+                    onSave={updated => saveEdit(editing, updated)}
+                    onDelete={() => {
+                        if (!window.confirm('Delete this row? (persists to the current data source)')) return;
+                        removeRow(editing);
+                        setEditing(null);
+                    }}
+                />
+            )}
             {inserting && <InsertRowModal table={table} fields={insertFields} onClose={() => setInserting(false)} onSubmit={handleInsert} />}
             {importingCsv && (
                 <ImportCsvModal

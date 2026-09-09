@@ -230,6 +230,15 @@ export const DocumentsPanel: React.FC<{
   );
 };
 
+/** Built-in docs shipped with the app. The `stem` is the ?doc= deep-link
+ * value used by the header ☰ menu (e.g. /library?doc=release-procedure). */
+const BUILT_IN_DOCS = [
+  { stem: 'regreport-documentation', icon: '📘', title: 'RegReport — tool documentation', path: 'docs/regreport-documentation.html', label: 'RegReport — tool documentation' },
+  { stem: 'mercury-datamodel', icon: '📕', title: 'MERCURY — Quadrum Data Lake data model', path: 'docs/mercury-datamodel.pdf', label: 'MERCURY — Quadrum Data Lake data model (PDF)' },
+  { stem: 'mercury-integration', icon: '📄', title: 'MERCURY — integration & adjustments notes', path: 'docs/mercury-integration.md', label: 'MERCURY — integration & adjustments notes' },
+  { stem: 'release-procedure', icon: '🚀', title: 'Release & upgrade procedure', path: 'docs/release-procedure.md', label: 'Release & upgrade procedure' },
+];
+
 export const LibraryPage: React.FC = () => {
   const { mode, apiBaseUrl, isAdmin } = useData();
   const [docs, setDocs] = useState<DocMeta[]>([]);
@@ -375,6 +384,15 @@ export const LibraryPage: React.FC = () => {
     } catch (e) { setError(String((e as Error).message || e)); }
   };
 
+  // ?doc=<stem> deep link (header ☰ menu): open the built-in doc directly.
+  useEffect(() => {
+    const stem = urlParams.get('doc');
+    if (!stem) return;
+    const d = BUILT_IN_DOCS.find(x => x.stem === stem);
+    if (d) void openBuiltIn(d.title, d.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlParams]);
+
   // Library documents: fetched as a blob and rendered in the viewer when the
   // browser can (pdf/html/images/markdown/text) — otherwise download only.
   const openDoc = async (d: DocMeta) => {
@@ -496,14 +514,10 @@ export const LibraryPage: React.FC = () => {
       <Card>
         <SectionHeader title="Built-in documentation" suffix="shipped with the app — opens right here, works even with an empty database" />
         <div className="flex flex-wrap gap-4 text-sm">
-          <button onClick={() => openBuiltIn('RegReport — tool documentation', 'docs/regreport-documentation.html')}
-            className="underline text-brand-secondary hover:text-brand-primary">📘 RegReport — tool documentation</button>
-          <button onClick={() => openBuiltIn('MERCURY — Quadrum Data Lake data model', 'docs/mercury-datamodel.pdf')}
-            className="underline text-brand-secondary hover:text-brand-primary">📕 MERCURY — Quadrum Data Lake data model (PDF)</button>
-          <button onClick={() => openBuiltIn('MERCURY — integration & adjustments notes', 'docs/mercury-integration.md')}
-            className="underline text-brand-secondary hover:text-brand-primary">📄 MERCURY — integration & adjustments notes</button>
-          <button onClick={() => openBuiltIn('Release & upgrade procedure', 'docs/release-procedure.md')}
-            className="underline text-brand-secondary hover:text-brand-primary">🚀 Release & upgrade procedure</button>
+          {BUILT_IN_DOCS.map(d => (
+            <button key={d.stem} onClick={() => openBuiltIn(d.title, d.path)}
+              className="underline text-brand-secondary hover:text-brand-primary">{d.icon} {d.label}</button>
+          ))}
         </div>
       </Card>
 

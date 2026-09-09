@@ -28,6 +28,12 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
 
+// In-app technical log (GET /api/logs/tech): ring buffer fed by the request
+// middleware below and by the application's own ILogger output.
+var techLog = new TechLogBuffer();
+builder.Services.AddSingleton(techLog);
+builder.Logging.AddProvider(new BufferLoggerProvider(techLog));
+
 // CORS: allow the Vite dev server (and any configured production origins).
 // AllowCredentials is required so the browser sends the Windows-auth handshake
 // (and cookies, if any) on cross-origin calls — hence explicit origins only.
@@ -113,6 +119,33 @@ if (windowsAuth)
     app.UseAuthentication();
     app.UseAuthorization();
 }
+
+// Request logging into the tech buffer (after auth so the user is known).
+// Reading the tech log itself is excluded, otherwise refreshing the Logs
+// page would fill the buffer with its own requests.
+app.Use(async (ctx, next) =>
+{
+    if (!ctx.Request.Path.StartsWithSegments("/api")
+        || ctx.Request.Path.StartsWithSegments("/api/logs/tech"))
+    {
+        await next();
+        return;
+    }
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    try
+    {
+        await next();
+    }
+    finally
+    {
+        var status = ctx.Response.StatusCode;
+        techLog.Add(
+            status >= 500 ? "Error" : status >= 400 ? "Warning" : "Information",
+            "HTTP",
+            $"{ctx.Request.Method} {ctx.Request.Path}{ctx.Request.QueryString} → {status} in {sw.ElapsedMilliseconds} ms ({ctx.User.Identity?.Name ?? "anonymous"})");
+    }
+});
+
 // For Entra ID / JWT instead of Windows auth, see docs/BACKEND.md §7 — the
 // role model (Reader/Admin + MutationsRequireAdminFilter) stays the same.
 app.MapControllers();

@@ -3,6 +3,11 @@ import { CentralData, CalculatedKpis } from '../types';
 import { centralData as initialData } from '../constants';
 import { calculateKpis } from '../utils';
 import { CurrentUser, dataRepository } from '../services/dataRepository';
+import { installFetchLogger, logTech, logBusiness, diffCentralData } from '../services/appLog';
+
+// Instrument fetch before the very first load so the initial GET /data is
+// already visible in the technical log.
+installFetchLogger();
 
 // Re-exported for backwards compatibility (some modules import it from here).
 export { LOCAL_STORAGE_KEY } from '../services/dataRepository';
@@ -56,6 +61,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [currentUser, setCurrentUser] = useState<CurrentUser>({ name: 'local', roles: ['Reader', 'Admin'], securityMode: 'None' });
     // Skip persisting the data that was just loaded (only persist real edits).
     const skipNextSave = useRef(true);
+    // Last snapshot successfully persisted (or loaded) — the baseline the
+    // business log diffs each save against.
+    const lastSavedRef = useRef<CentralData | null>(null);
     const isAdmin = currentUser.roles.includes('Admin');
     const isAdminRef = useRef(isAdmin);
     isAdminRef.current = isAdmin;
@@ -82,7 +90,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let cancelled = false;
         dataRepository.currentUser().then(u => { if (!cancelled) setCurrentUser(u); });
         dataRepository.load()
-            .then(loaded => { if (!cancelled) { setData(normalize(loaded)); setLastSyncedAt(Date.now()); } })
+            .then(loaded => {
+                if (!cancelled) {
+                    const n = normalize(loaded);
+                    lastSavedRef.current = n;
+                    setData(n);
+                    setLastSyncedAt(Date.now());
+                    logTech('app', `Central data loaded (${dataRepository.mode} mode)`);
+                }
+            })
             .catch(err => {
                 if (!cancelled) {
                     console.error('Failed to load data', err);
@@ -100,7 +116,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             const loaded = await dataRepository.load();
             skipNextSave.current = true;
-            setData(normalize(loaded));
+            const n = normalize(loaded);
+            lastSavedRef.current = n;
+            setData(n);
             setLastSyncedAt(Date.now());
         } catch (err) {
             console.error('Failed to reload data', err);
@@ -117,7 +135,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!isAdminRef.current) return;
         const handle = setTimeout(() => {
             dataRepository.save(data)
-                .then(() => setSaveError(null))
+                .then(() => {
+                    setSaveError(null);
+                    // Business audit: one summary line per dataset that changed
+                    // since the last persisted snapshot (skipped for datasets
+                    // that just logged a detailed entry themselves).
+                    const prev = lastSavedRef.current;
+                    lastSavedRef.current = data;
+                    if (prev) {
+                        try { logBusiness(diffCentralData(prev, data)); }
+                        catch { /* logging is best-effort */ }
+                    }
+                })
                 .catch(err => {
                     console.error('Failed to save data', err);
                     setSaveError(err instanceof Error ? err.message : String(err));

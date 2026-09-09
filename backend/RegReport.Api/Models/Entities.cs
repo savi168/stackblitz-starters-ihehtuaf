@@ -731,3 +731,20 @@ public class CentralData
     // by the frontend parser — the API only stores and returns it.
     public System.Text.Json.JsonElement? ImportMapping { get; set; }
 }
+
+/// <summary>
+/// Business audit trail: one row per data change worth remembering — Data
+/// Explorer edits (field-level before/after), CSV imports, and the per-save
+/// dataset diffs computed by the frontend. Not part of CentralData: it is
+/// append-only and read through /api/logs/business.
+/// </summary>
+public class ChangeLog
+{
+    public long Id { get; set; }
+    public DateTime At { get; set; }
+    public string UserName { get; set; } = "";
+    public string Dataset { get; set; } = "";
+    /// <summary>insert | update | delete | import | save</summary>
+    public string Action { get; set; } = "";
+    public string Details { get; set; } = "";
+}

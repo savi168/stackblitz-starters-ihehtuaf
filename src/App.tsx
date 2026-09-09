@@ -37,6 +37,7 @@ const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').t
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
 const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
+const LogsPage = lazy(() => import('./pages/LogsPage').then(m => ({ default: m.LogsPage })));
 
 const PageLoader: React.FC = () => (
   <div className="flex items-center justify-center py-24 text-brand-text-secondary">
@@ -73,6 +74,61 @@ const VersionBadge: React.FC = () => {
         <span className={`text-[10px] font-bold tracking-wider rounded px-1.5 py-0.5 ${tone}`}>{env}</span>
       )}
     </span>
+  );
+};
+
+/** Top-right ☰ menu (admins): Logs page + the built-in documentation. The
+ * doc links deep-link into the Library viewer via /library?doc=<stem>. */
+const HeaderMenu: React.FC = () => {
+  const { isAdmin } = useData();
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  if (!isAdmin) return null;
+
+  const item = 'block w-full text-left px-4 py-2 text-sm text-brand-text-primary hover:bg-brand-bg-body transition-colors';
+  const DOCS: { label: string; doc: string }[] = [
+    { label: 'RegReport — tool documentation', doc: 'regreport-documentation' },
+    { label: 'MERCURY — data model (PDF)', doc: 'mercury-datamodel' },
+    { label: 'MERCURY — integration & adjustments', doc: 'mercury-integration' },
+    { label: 'Release & upgrade procedure', doc: 'release-procedure' },
+  ];
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Logs & documentation"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`text-base leading-none px-2 py-1 rounded-md border transition-colors ${open ? 'border-efg-line bg-brand-bg-body' : 'border-transparent hover:border-efg-line'}`}
+      >
+        ☰
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 mt-2 w-72 bg-white border border-efg-line rounded-lg shadow-lg py-2 z-50">
+          <Link to="/logs" role="menuitem" onClick={() => setOpen(false)} className={item}>
+            <span className="font-semibold">Logs</span>
+            <span className="block text-xs text-brand-text-secondary">Technical (API, debug) & business audit trail</span>
+          </Link>
+          <div className="my-2 border-t border-efg-line" />
+          <p className="px-4 pb-1 text-[10px] uppercase tracking-widest text-brand-text-secondary">Documentation</p>
+          {DOCS.map(d => (
+            <Link key={d.doc} to={`/library?doc=${d.doc}`} role="menuitem" onClick={() => setOpen(false)} className={item}>
+              {d.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -144,6 +200,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <NavBar />
+                <HeaderMenu />
                 <button onClick={toggleTheme} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
                   className="text-base leading-none px-2 py-1 rounded-md border border-transparent hover:border-efg-line transition-colors">
                   {dark ? '☀️' : '🌙'}
@@ -168,6 +225,7 @@ const App: React.FC = () => {
                   <Route path="/report" element={<ManagementReportPage />} />
                   <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />
                   <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
+                  <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
                 </Routes>
               </Suspense>
             </ErrorBoundary>

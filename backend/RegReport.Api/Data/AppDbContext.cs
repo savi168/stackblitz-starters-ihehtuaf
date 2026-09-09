@@ -42,9 +42,19 @@ public class AppDbContext : DbContext
     public DbSet<RiskAppetiteEntry> RiskAppetite => Set<RiskAppetiteEntry>();
     public DbSet<DiagnosisEntry> DiagnosisResults => Set<DiagnosisEntry>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
+    public DbSet<ChangeLog> ChangeLogs => Set<ChangeLog>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        b.Entity<ChangeLog>(e =>
+        {
+            e.ToTable("ChangeLogs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserName).HasMaxLength(128);
+            e.Property(x => x.Dataset).HasMaxLength(64);
+            e.Property(x => x.Action).HasMaxLength(32);
+            e.HasIndex(x => x.At);
+        });
         b.Entity<KpiHistoryEntry>(e =>
         {
             e.HasKey(x => x.Id);
