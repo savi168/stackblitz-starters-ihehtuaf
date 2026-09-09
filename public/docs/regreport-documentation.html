@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -102,32 +102,32 @@
   <div class="tagline">Documentation</div>
 
   <div class="grp">Application</div>
-  <a href="#whatsnew">★ · Nouveautés v3.2</a>
-  <a href="#overview">1 · Vue d'ensemble</a>
-  <a href="#quickstart">2 · Démarrage rapide</a>
-  <a href="#arch">3 · Architecture dossiers</a>
-  <a href="#dataflow">4 · Flux de données</a>
-  <a href="#model">5 · Modèle de données</a>
-  <a href="#modules">6 · Les modules</a>
-  <a href="#design">7 · Système de design</a>
-  <a href="#persistence">8 · Persistance</a>
+  <a href="#whatsnew">★ · What's new v3.2</a>
+  <a href="#overview">1 · Overview</a>
+  <a href="#quickstart">2 · Quick start</a>
+  <a href="#arch">3 · Folder architecture</a>
+  <a href="#dataflow">4 · Data flow</a>
+  <a href="#model">5 · Data model</a>
+  <a href="#modules">6 · The modules</a>
+  <a href="#design">7 · Design system</a>
+  <a href="#persistence">8 · Persistence</a>
   <a href="#conventions">9 · Conventions</a>
 
-  <div class="grp">Back-end .NET</div>
-  <a href="#be-arch">A · Architecture cible</a>
-  <a href="#be-contract">B · Contrat attendu</a>
-  <a href="#be-project">C · Créer le projet</a>
-  <a href="#be-schema">D · Schéma SQL</a>
-  <a href="#be-endpoints">E · Endpoints REST</a>
-  <a href="#be-security">F · Sécurité</a>
-  <a href="#be-connect">G · Brancher le front</a>
+  <div class="grp">.NET back-end</div>
+  <a href="#be-arch">A · Target architecture</a>
+  <a href="#be-contract">B · Expected contract</a>
+  <a href="#be-project">C · Creating the project</a>
+  <a href="#be-schema">D · SQL schema</a>
+  <a href="#be-endpoints">E · REST endpoints</a>
+  <a href="#be-security">F · Security</a>
+  <a href="#be-connect">G · Connecting the front</a>
   <a href="#be-checklist">H · Checklist</a>
 </nav>
 
 <main>
   <div class="cover">
     <h1>RegReport — Documentation</h1>
-    <p class="lead">Tableau de bord de <em>regulatory reporting</em> multi-entités : suivi, analyse et comparaison des KPI réglementaires (CET1, LCR, NSFR, Leverage Ratio), des échéances, des reportings quotidiens et des projets.</p>
+    <p class="lead">Multi-entity <em>regulatory reporting</em> dashboard: tracking, analysis and comparison of regulatory KPIs (CET1, LCR, NSFR, Leverage Ratio), deadlines, daily reports and projects.</p>
     <div class="pills">
       <span class="pill">React 18 + TypeScript</span>
       <span class="pill">Vite</span>
@@ -136,141 +136,141 @@
       <span class="pill">.NET 8 + EF Core</span>
       <span class="pill">SQL Server</span>
       <span class="pill">Windows Auth</span>
-      <span class="pill">100 % offline</span>
+      <span class="pill">100% offline</span>
     </div>
   </div>
 
-  <!-- ============ PARTIE 1 — APPLICATION ============ -->
+  <!-- ============ PART 1 — APPLICATION ============ -->
 
   <section id="whatsnew">
-    <h2><span class="num">★</span>Nouveautés — v3.2 <span style="font-size:13px;color:var(--muted);font-weight:400">(septembre 2026)</span></h2>
+    <h2><span class="num">★</span>What's new — v3.2 <span style="font-size:13px;color:var(--muted);font-weight:400">(September 2026)</span></h2>
 
     <h3>Reporting &amp; Workbench</h3>
     <ul>
-      <li><strong>Management Report enrichi</strong> : onglets <em>Leverage</em> et <em>Large Exposures</em> ; l'Overview gagne une seconde rangée de tuiles (top expo non-souveraine, total actifs, fonds propres, P&amp;L YTD).</li>
-      <li><strong>Import K-LER (FINMA)</strong> : le template Large Exposure alimente le registre — type de contrepartie, famille souveraine affichée <em>exempted</em> (hors compteur de breach), décomposition Direct / Indirect / CRM (atténuation par transfert de risque), graphe empilé direct-net-de-CRM vs indirect.</li>
-      <li><strong>RWA par devise</strong> : table dédiée + split <em>FX vs business</em> dans le CET1 movement ; <strong>proxy FX MERCURY</strong> — le RWA crédit <em>counterparty</em> est ventilé par les parts de bilan et les taux fin de mois d'<code>EFG_CCY_MONTHLY</code>, automatiquement à chaque import CASABIS si la case est cochée (Workbench).</li>
-      <li><strong>Bridge CET1 flexible</strong> : lignes manuelles éditables (acquisitions, cessions, remboursements…) horodatées et signées ; la barre P&amp;L suit le flux YTD des états mensuels.</li>
-      <li><strong>Import P&amp;L fiabilisé</strong> : le net mensuel = résultat IFRS reporté, auto-contrôle contre la ligne de contrôle du fichier, colonnes YTD.</li>
+      <li><strong>Richer Management Report</strong>: <em>Leverage</em> and <em>Large Exposures</em> tabs; the Overview gains a second row of tiles (top non-sovereign exposure, total assets, total equity, YTD P&amp;L).</li>
+      <li><strong>K-LER import (FINMA)</strong>: the Large Exposure template feeds the register — counterparty type, sovereign family shown as <em>exempted</em> (excluded from the breach counter), Direct / Indirect / CRM breakdown (risk-transfer mitigation), stacked chart of direct-net-of-CRM vs indirect.</li>
+      <li><strong>RWA by currency</strong>: dedicated table + <em>FX vs business</em> split in the CET1 movement; <strong>MERCURY FX proxy</strong> — the <em>counterparty</em> credit RWA is allocated across balance-sheet shares using the end-of-month rates from <code>EFG_CCY_MONTHLY</code>, automatically on every CASABIS import when the checkbox is ticked (Workbench).</li>
+      <li><strong>Flexible CET1 bridge</strong>: editable manual lines (acquisitions, disposals, redemptions…), timestamped and signed; the P&amp;L bar follows the YTD flow from the monthly statements.</li>
+      <li><strong>More reliable P&amp;L import</strong>: the monthly net = reported IFRS result, self-checked against the file's control line, YTD columns.</li>
     </ul>
 
     <h3>Production / MERCURY</h3>
     <ul>
-      <li><strong>Module Adjustments complet</strong> : matching par <em>load collection</em>, interco (HYPERIOD_INTERCO → CounterpartyBookingCenterId), aperçu d'impact bilan avec éliminations selon le scope de consolidation, génération one-shot .sql / Excel, ligne manuelle, mappings persistés en base, audit trail.</li>
-      <li>Sélecteur <strong>reporting entity</strong> MERCURY sur la page Production.</li>
+      <li><strong>Full Adjustments module</strong>: matching by <em>load collection</em>, intercompany (HYPERIOD_INTERCO → CounterpartyBookingCenterId), balance-sheet impact preview with eliminations per consolidation scope, one-shot .sql / Excel generation, manual line, mappings persisted in the database, audit trail.</li>
+      <li>MERCURY <strong>reporting entity</strong> selector on the Production page.</li>
     </ul>
 
-    <h3>Nouveaux modules</h3>
+    <h3>New modules</h3>
     <ul>
-      <li><strong>Projects</strong> (portage de l'outil « Pilote ») : Kanban à colonnes personnalisables avec drag &amp; drop, vue Liste filtrable, planning Gantt (zoom jour/semaine/mois, sous-tâches dépliables), sous-tâches, commentaires, journal d'activité signé par l'utilisateur Windows, pièces jointes par tâche (stockées en base, visibles aussi dans la Library).</li>
-      <li><strong>Library</strong> : documents stockés dans la base (re-téléchargeables, offline), arborescence avec sous-dossiers, renommage, drag &amp; drop, visionneuse intégrée (PDF/HTML/markdown), archivage automatique des fichiers sources importés au Workbench (entité/période/type).</li>
-      <li><strong>Team &amp; Contacts</strong> : équipe éditable + répertoire de contacts hors équipe (département, société, sujets-clés, commentaires) — une recherche « garantie bancaire » ressort qui appeler, avec lien vers la procédure dans la Library.</li>
+      <li><strong>Projects</strong> (port of the "Pilote" tool): Kanban with customizable columns and drag &amp; drop, filterable List view, Gantt timeline (day/week/month zoom, expandable subtasks), subtasks, comments, activity log signed by the Windows user, per-task file attachments (stored in the database, also visible in the Library).</li>
+      <li><strong>Library</strong>: documents stored in the database (re-downloadable, offline), folder tree with subfolders, renaming, drag &amp; drop, built-in viewer (PDF/HTML/markdown), automatic archiving of the source files imported in the Workbench (entity/period/type).</li>
+      <li><strong>Team &amp; Contacts</strong>: editable team + directory of contacts outside the team (department, company, key topics, comments) — searching "bank guarantee" surfaces who to call, with a link to the procedure in the Library.</li>
     </ul>
 
-    <h3>Plateforme</h3>
+    <h3>Platform</h3>
     <ul>
-      <li><strong>Mode sombre</strong> (bascule dans le header) ; <strong>badge version + environnement</strong> (vX.Y.Z · PROD/TEST/DEV/LOCAL) alimenté par <code>GET /api/meta</code>.</li>
-      <li><strong>Migrateur de schéma intégré</strong> : à chaque démarrage l'API applique les évolutions additives et idempotentes (jamais de DROP) et les trace dans <code>__SchemaMigrations</code> — les releases se déploient sans script SSMS et sans perte de données (voir <code>docs/UPGRADES.md</code>).</li>
-      <li><strong>Admin refondu</strong> : panneau System (version, environnement, MERCURY, migrations), inventaire des données, <strong>gestion des entités</strong> (renommage en cascade sur tous les datasets, risk appetite, diagnostics et documents Library, avec détection des collisions de fusion), Backup &amp; restore JSON, feeds CSV repliés et étiquetés.</li>
-      <li><strong>Daily Reports</strong> sur les entités réellement présentes dans les données (plus de liste en dur), carte Large Exposures au niveau K-LER.</li>
-      <li><strong>Offline total</strong> : police auto-hébergée, aucune dépendance CDN, cache npm vendoré + kit NuGet ; <strong>release en un zip</strong> (<code>scripts\release.ps1</code>, l'API sert le front).</li>
+      <li><strong>Dark mode</strong> (toggle in the header); <strong>version + environment badge</strong> (vX.Y.Z · PROD/TEST/DEV/LOCAL) fed by <code>GET /api/meta</code>.</li>
+      <li><strong>Built-in schema migrator</strong>: on every startup the API applies additive, idempotent schema changes (never a DROP) and records them in <code>__SchemaMigrations</code> — releases deploy without SSMS scripts and without data loss (see <code>docs/UPGRADES.md</code>).</li>
+      <li><strong>Reworked Admin</strong>: System panel (version, environment, MERCURY, migrations), data inventory, <strong>entity management</strong> (cascading rename across all datasets, risk appetite, diagnostics and Library documents, with merge-collision detection), JSON backup &amp; restore, collapsed and labelled CSV feeds.</li>
+      <li><strong>Daily Reports</strong> based on the entities actually present in the data (no more hard-coded list), Large Exposures card at K-LER level.</li>
+      <li><strong>Fully offline</strong>: self-hosted font, no CDN dependency, vendored npm cache + NuGet kit; <strong>one-zip release</strong> (<code>scripts\release.ps1</code>, the API serves the front-end).</li>
     </ul>
   </section>
 
   <section id="overview">
-    <h2><span class="num">1</span>Vue d'ensemble</h2>
+    <h2><span class="num">1</span>Overview</h2>
     <table>
-      <tr><td style="width:130px"><strong>Type</strong></td><td>SPA React servie par l'API .NET (release en un zip) ou par Vite en dev</td></tr>
+      <tr><td style="width:130px"><strong>Type</strong></td><td>React SPA served by the .NET API (one-zip release) or by Vite in dev</td></tr>
       <tr><td><strong>Stack</strong></td><td>React 18 + TypeScript, Vite, Tailwind CSS, React Router (hash), Recharts · .NET 8 + EF Core</td></tr>
-      <tr><td><strong>Données</strong></td><td><strong>SQL Server</strong> (schéma 100 % relationnel) via l'API — rôles Reader/Admin par Windows Auth. Le <code>localStorage</code> ne sert qu'au mode démo sans API.</td></tr>
-      <tr><td><strong>Sources</strong></td><td>Imports Excel (CASABIS, LCR_G, NSFR_G, K-LER, extraits finance), CSV, et la base MERCURY (production, taux de change)</td></tr>
-      <tr><td><strong>Export</strong></td><td>PDF des rapports (jsPDF + html2canvas, chargés à la demande), CSV, JSON</td></tr>
+      <tr><td><strong>Data</strong></td><td><strong>SQL Server</strong> (100% relational schema) through the API — Reader/Admin roles via Windows Auth. <code>localStorage</code> is only used in the API-less demo mode.</td></tr>
+      <tr><td><strong>Sources</strong></td><td>Excel imports (CASABIS, LCR_G, NSFR_G, K-LER, finance extracts), CSV, and the MERCURY database (production, FX rates)</td></tr>
+      <tr><td><strong>Export</strong></td><td>PDF of the reports (jsPDF + html2canvas, loaded on demand), CSV, JSON</td></tr>
     </table>
-    <p>L'application est <strong>modulaire</strong> : chaque page correspond à un module métier indépendant, accessible depuis la barre de navigation.</p>
+    <p>The application is <strong>modular</strong>: each page is an independent business module, reachable from the navigation bar.</p>
   </section>
 
   <section id="quickstart">
-    <h2><span class="num">2</span>Démarrage rapide</h2>
-    <p><strong>Prérequis :</strong> Node.js 18+</p>
-    <pre><code>npm install      # installe les dépendances
-npm run dev      # serveur de dev (http://localhost:5173)
-npm run build    # build de production (dossier dist/)
-npm run preview  # prévisualise le build
-npm run lint     # vérification TypeScript (tsc --noEmit)</code></pre>
+    <h2><span class="num">2</span>Quick start</h2>
+    <p><strong>Prerequisite:</strong> Node.js 18+</p>
+    <pre><code>npm install      # install the dependencies
+npm run dev      # dev server (http://localhost:5173)
+npm run build    # production build (dist/ folder)
+npm run preview  # preview the build
+npm run lint     # TypeScript check (tsc --noEmit)</code></pre>
   </section>
 
   <section id="arch">
-    <h2><span class="num">3</span>Architecture des dossiers</h2>
+    <h2><span class="num">3</span>Folder architecture</h2>
     <pre class="ascii"><code>src/
-├── App.tsx                 # Routeur + layout global (header, footer). Pages en lazy-loading.
-├── index.tsx               # Point d'entrée React (montage du DOM)
-├── index.css               # Tailwind + styles de base (puces EFG, animations)
-├── theme.ts                # Palette de couleurs centrale (source de vérité des charts)
-├── types.ts                # Tous les types métier (le « modèle de données »)
-├── constants.ts            # Données initiales (seed) chargées au premier lancement
-├── utils.ts                # Calculs KPI (ratios, waterfalls) et formatage
-├── components.tsx          # Composants UI + charts partagés
+├── App.tsx                 # Router + global layout (header, footer). Lazy-loaded pages.
+├── index.tsx               # React entry point (DOM mount)
+├── index.css               # Tailwind + base styles (EFG bullets, animations)
+├── theme.ts                # Central color palette (source of truth for the charts)
+├── types.ts                # All the business types (the "data model")
+├── constants.ts            # Initial (seed) data loaded on first run
+├── utils.ts                # KPI calculations (ratios, waterfalls) and formatting
+├── components.tsx          # Shared UI components + charts
 ├── context/
-│   └── DataContext.tsx     # État global + persistance (via le repository)
+│   └── DataContext.tsx     # Global state + persistence (through the repository)
 ├── services/
-│   ├── dataRepository.ts   # Couche d'accès aux données (localStorage OU API)
-│   └── diagnosisService.ts # Contrôles de cohérence sur les données KPI
-└── pages/                  # Un composant par route (voir §6)</code></pre>
+│   ├── dataRepository.ts   # Data access layer (localStorage OR API)
+│   └── diagnosisService.ts # Consistency checks on the KPI data
+└── pages/                  # One component per route (see §6)</code></pre>
   </section>
 
   <section id="dataflow">
-    <h2><span class="num">4</span>Le flux de données <span style="font-size:13px;color:var(--muted);font-weight:400">(important)</span></h2>
-    <p>C'est le cœur de l'application. Tout passe par un <strong>état central unique</strong>.</p>
+    <h2><span class="num">4</span>The data flow <span style="font-size:13px;color:var(--muted);font-weight:400">(important)</span></h2>
+    <p>This is the heart of the application. Everything goes through a <strong>single central state</strong>.</p>
     <pre class="ascii"><code>constants.ts (seed)
       │
       ▼
 dataRepository.load() ──► DataContext (state: CentralData) ──► useData() ──► Pages
       ▲                            │
-      │                            ▼ (modification via setData)
-dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code></pre>
+      │                            ▼ (changes via setData)
+dataRepository.save() ◄──── automatic persistence (400 ms debounce)</code></pre>
     <ol>
-      <li><strong>Au démarrage</strong>, <code>DataProvider</code> appelle <code>dataRepository.load()</code>. Le repository choisit sa source selon <code>VITE_API_BASE_URL</code> : vide → <strong>mode local</strong> (lecture <code>localStorage</code> ou seed) ; renseignée → <strong>mode API</strong> (<code>GET {base}/data</code>).</li>
-      <li>Les données sont stockées dans un seul objet <code>CentralData</code> exposé via le hook <strong><code>useData()</code></strong>.</li>
-      <li>Chaque page lit <code>data</code> et le modifie via <strong><code>setData(...)</code></strong>.</li>
-      <li>À chaque modification, un effet <strong>persiste automatiquement</strong> (debounce 400 ms) : <code>localStorage.setItem</code> en local, ou <code>PUT {base}/data</code> en mode API.</li>
+      <li><strong>On startup</strong>, <code>DataProvider</code> calls <code>dataRepository.load()</code>. The repository picks its source from <code>VITE_API_BASE_URL</code>: empty → <strong>local mode</strong> (reads <code>localStorage</code> or the seed); set → <strong>API mode</strong> (<code>GET {base}/data</code>).</li>
+      <li>The data lives in a single <code>CentralData</code> object exposed through the <strong><code>useData()</code></strong> hook.</li>
+      <li>Each page reads <code>data</code> and changes it via <strong><code>setData(...)</code></strong>.</li>
+      <li>On every change, an effect <strong>persists automatically</strong> (400 ms debounce): <code>localStorage.setItem</code> locally, or <code>PUT {base}/data</code> in API mode.</li>
     </ol>
-    <div class="note"><span class="tag">À retenir</span>Aucun composant ne connaît la source des données. Pour passer au back-end, on ne change <strong>que</strong> la variable <code>VITE_API_BASE_URL</code>.</div>
-    <h3>Le hook <code>useData()</code></h3>
+    <div class="note"><span class="tag">Key point</span>No component knows where the data comes from. To switch to the back-end, the <strong>only</strong> thing that changes is the <code>VITE_API_BASE_URL</code> variable.</div>
+    <h3>The <code>useData()</code> hook</h3>
     <pre><code>const {
-  data,            // CentralData : toutes les données de l'app
-  setData,         // pour modifier les données
-  allEntities,     // string[] : entités présentes (dérivé)
-  allDates,        // string[] : dates présentes (dérivé, triées desc.)
+  data,            // CentralData: all the app's data
+  setData,         // to change the data
+  allEntities,     // string[]: entities present (derived)
+  allDates,        // string[]: dates present (derived, sorted desc.)
   getKpisForDate,  // (entity, date, currency?) => CalculatedKpis | null
-  isLoading,       // chargement initial en cours
-  loadError,       // erreur de chargement (mode API)
+  isLoading,       // initial load in progress
+  loadError,       // load error (API mode)
   mode,            // 'local' | 'api'
 } = useData();</code></pre>
   </section>
 
   <section id="model">
-    <h2><span class="num">5</span>Le modèle de données <code>(types.ts)</code></h2>
-    <p>L'objet central est <code>CentralData</code> :</p>
+    <h2><span class="num">5</span>The data model <code>(types.ts)</code></h2>
+    <p>The central object is <code>CentralData</code>:</p>
     <table>
-      <thead><tr><th>Champ</th><th>Type</th><th>Description</th></tr></thead>
+      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
       <tbody>
-        <tr><td><code>kpisHistory</code></td><td><code>KpiHistoryEntry[]</code></td><td>Historique des données brutes par entité/date (capital, RWA, liquidité par devise)</td></tr>
-        <tr><td><code>deadlines</code></td><td><code>Deadline[]</code></td><td>Échéances réglementaires et internes (statut, historique, pièces jointes)</td></tr>
-        <tr><td><code>bilan</code></td><td><code>Bilan</code></td><td>Répartition du bilan par devise</td></tr>
-        <tr><td><code>riskAppetite</code></td><td><code>RiskAppetite</code></td><td>Seuils red/amber par KPI et par entité</td></tr>
-        <tr><td><code>counterpartyRwa</code></td><td><code>CounterpartyRwa[]</code></td><td>RWA par contrepartie/industrie</td></tr>
-        <tr><td><code>largeExposures</code></td><td><code>LargeExposure[]</code></td><td>Grands risques vs limites</td></tr>
-        <tr><td><code>team</code> / <code>contacts</code></td><td><code>TeamMember[]</code> / <code>Contact[]</code></td><td>Équipe + répertoire de contacts (sujets recherchables)</td></tr>
-        <tr><td><code>projects</code> / <code>projectTasks</code> / <code>projStatuses</code> / <code>projComments</code> / <code>projActivities</code></td><td>…</td><td>Module Projects : projets, tâches et sous-tâches, colonnes Kanban, commentaires, journal</td></tr>
-        <tr><td><code>capitalReports</code> / <code>lcrReports</code> / <code>nsfrReports</code> / <code>finStatements</code></td><td>…</td><td>Rapports importés ligne à ligne (CASABIS, LCR_G, NSFR_G, extraits finance)</td></tr>
-        <tr><td><code>scenarios</code> / <code>bridgeAdjustments</code> / <code>prod*</code></td><td>…</td><td>Scénarios, lignes manuelles du bridge, datasets et décisions de production</td></tr>
-        <tr><td><code>diagnosisResults</code></td><td><code>Record&lt;…&gt;</code></td><td>Résultats des contrôles de cohérence (clé <code>entity|date</code>)</td></tr>
+        <tr><td><code>kpisHistory</code></td><td><code>KpiHistoryEntry[]</code></td><td>History of raw data per entity/date (capital, RWA, liquidity by currency)</td></tr>
+        <tr><td><code>deadlines</code></td><td><code>Deadline[]</code></td><td>Regulatory and internal deadlines (status, history, attachments)</td></tr>
+        <tr><td><code>bilan</code></td><td><code>Bilan</code></td><td>Balance-sheet split by currency</td></tr>
+        <tr><td><code>riskAppetite</code></td><td><code>RiskAppetite</code></td><td>Red/amber thresholds per KPI and per entity</td></tr>
+        <tr><td><code>counterpartyRwa</code></td><td><code>CounterpartyRwa[]</code></td><td>RWA by counterparty/industry</td></tr>
+        <tr><td><code>largeExposures</code></td><td><code>LargeExposure[]</code></td><td>Large exposures vs limits</td></tr>
+        <tr><td><code>team</code> / <code>contacts</code></td><td><code>TeamMember[]</code> / <code>Contact[]</code></td><td>Team + contact directory (searchable topics)</td></tr>
+        <tr><td><code>projects</code> / <code>projectTasks</code> / <code>projStatuses</code> / <code>projComments</code> / <code>projActivities</code></td><td>…</td><td>Projects module: projects, tasks and subtasks, Kanban columns, comments, activity log</td></tr>
+        <tr><td><code>capitalReports</code> / <code>lcrReports</code> / <code>nsfrReports</code> / <code>finStatements</code></td><td>…</td><td>Line-by-line imported reports (CASABIS, LCR_G, NSFR_G, finance extracts)</td></tr>
+        <tr><td><code>scenarios</code> / <code>bridgeAdjustments</code> / <code>prod*</code></td><td>…</td><td>Scenarios, manual bridge lines, production datasets and decisions</td></tr>
+        <tr><td><code>diagnosisResults</code></td><td><code>Record&lt;…&gt;</code></td><td>Results of the consistency checks (key <code>entity|date</code>)</td></tr>
       </tbody>
     </table>
-    <h3>KPI : données brutes vs données calculées</h3>
+    <h3>KPIs: raw vs calculated data</h3>
     <ul>
-      <li><strong><code>KpiHistoryEntry</code></strong> = ce qui est saisi/importé (capital CET1, RWA crédit / marché / opérationnel, exposition, liquidité HQLA/NCO par devise…).</li>
-      <li><strong><code>CalculatedKpis</code></strong> = ce qui est dérivé par <code>calculateKpis()</code> :</li>
+      <li><strong><code>KpiHistoryEntry</code></strong> = what is entered/imported (CET1 capital, credit / market / operational RWA, exposure, HQLA/NCO liquidity per currency…).</li>
+      <li><strong><code>CalculatedKpis</code></strong> = what <code>calculateKpis()</code> derives:</li>
     </ul>
     <table>
       <tr><td><code>cet1</code></td><td><code>cet1Capital / rwaTotal × 100</code></td></tr>
@@ -278,126 +278,126 @@ dataRepository.save() ◄──── persistance auto (debounce 400 ms)</code><
       <tr><td><code>nsfr</code></td><td><code>asf / rsf × 100</code></td></tr>
       <tr><td><code>leverage</code></td><td><code>tier1 / exposure × 100</code></td></tr>
     </table>
-    <p>C'est <code>getKpisForDate(entity, date, currency)</code> qui fait le pont entre les deux.</p>
+    <p><code>getKpisForDate(entity, date, currency)</code> is the bridge between the two.</p>
   </section>
 
   <section id="modules">
-    <h2><span class="num">6</span>Les modules (pages), pas à pas</h2>
+    <h2><span class="num">6</span>The modules (pages), step by step</h2>
     <table>
-      <thead><tr><th>Route</th><th>Module</th><th>Rôle</th></tr></thead>
+      <thead><tr><th>Route</th><th>Module</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>/</code></td><td>Hub</td><td>Accueil : aperçu chiffré, accès aux modules</td></tr>
-        <tr><td><code>/report</code></td><td>Management Report</td><td>Le pack complet : Overview, Capital (résumé mensuel, CET1 movement, RWA par devise, bridge), LCR, NSFR, Leverage, Large Exposures, Financials — export PDF par section, requêtes d'audit sur chaque table</td></tr>
-        <tr><td><code>/scenarios</code></td><td>Scenarios</td><td>Simulations what-if : chocs sur CET1 / LCR / NSFR / leverage</td></tr>
-        <tr><td><code>/capital</code></td><td>Workbench <em>(admin)</em></td><td>Alimentation : imports CASABIS / LCR_G / NSFR_G / K-LER / extraits finance (P&amp;L, bilan, equity), saisie manuelle, feeds CSV multi-périodes, proxy FX MERCURY, archivage des fichiers sources</td></tr>
-        <tr><td><code>/production</code></td><td>Production <em>(admin)</em></td><td>Aide à la production MERCURY : contrôles C1–C5 avec décisions tracées, module Adjustments (matching, interco, éliminations, one-shot SQL/Excel)</td></tr>
-        <tr><td><code>/daily-reports</code></td><td>Daily Reports</td><td>LCR quotidien &amp; grands risques par entité (entités dérivées des données)</td></tr>
-        <tr><td><code>/deadlines</code></td><td>Deadlines</td><td>Calendrier et suivi des échéances (statuts, historique, pièces jointes)</td></tr>
-        <tr><td><code>/library</code></td><td>Library</td><td>Documents en base : réglementation, working papers, sources Workbench, visionneuse intégrée</td></tr>
-        <tr><td><code>/projects</code></td><td>Projects</td><td>Kanban / Liste / Planning Gantt / Fichiers, sous-tâches, commentaires, journal d'activité</td></tr>
-        <tr><td><code>/team</code></td><td>Team &amp; Contacts</td><td>Équipe éditable + répertoire de contacts recherchable par sujet</td></tr>
-        <tr><td><code>/cockpit</code></td><td>Backend <em>(admin)</em></td><td>Documentation vivante du schéma SQL et des endpoints</td></tr>
-        <tr><td><code>/datamanagement</code></td><td>Admin <em>(admin)</em></td><td>System, inventaire, entités, backup/restore, feeds CSV, risk appetite</td></tr>
+        <tr><td><code>/</code></td><td>Hub</td><td>Home: figures at a glance, access to the modules</td></tr>
+        <tr><td><code>/report</code></td><td>Management Report</td><td>The full pack: Overview, Capital (monthly summary, CET1 movement, RWA by currency, bridge), LCR, NSFR, Leverage, Large Exposures, Financials — per-section PDF export, audit queries on every table</td></tr>
+        <tr><td><code>/scenarios</code></td><td>Scenarios</td><td>What-if simulations: shocks on CET1 / LCR / NSFR / leverage</td></tr>
+        <tr><td><code>/capital</code></td><td>Workbench <em>(admin)</em></td><td>Data feeding: CASABIS / LCR_G / NSFR_G / K-LER / finance extract imports (P&amp;L, balance sheet, equity), manual entry, multi-period CSV feeds, MERCURY FX proxy, source-file archiving</td></tr>
+        <tr><td><code>/production</code></td><td>Production <em>(admin)</em></td><td>MERCURY production support: C1–C5 controls with tracked decisions, Adjustments module (matching, intercompany, eliminations, one-shot SQL/Excel)</td></tr>
+        <tr><td><code>/daily-reports</code></td><td>Daily Reports</td><td>Daily LCR &amp; large exposures per entity (entities derived from the data)</td></tr>
+        <tr><td><code>/deadlines</code></td><td>Deadlines</td><td>Calendar and deadline tracking (statuses, history, attachments)</td></tr>
+        <tr><td><code>/library</code></td><td>Library</td><td>Documents in the database: regulation, working papers, Workbench sources, built-in viewer</td></tr>
+        <tr><td><code>/projects</code></td><td>Projects</td><td>Kanban / List / Gantt timeline / Files, subtasks, comments, activity log</td></tr>
+        <tr><td><code>/team</code></td><td>Team &amp; Contacts</td><td>Editable team + contact directory searchable by topic</td></tr>
+        <tr><td><code>/cockpit</code></td><td>Backend <em>(admin)</em></td><td>Living documentation of the SQL schema and the endpoints</td></tr>
+        <tr><td><code>/datamanagement</code></td><td>Admin <em>(admin)</em></td><td>System, inventory, entities, backup/restore, CSV feeds, risk appetite</td></tr>
       </tbody>
     </table>
 
     <h3>6.2 Deadlines <code>/deadlines</code></h3>
-    <p>Liste triable et calendrier visuel ; chaque échéance a un statut (<code>completed</code> / <code>inprogress</code> / <code>upcoming</code>), un historique de changements et des pièces jointes. Calcul de l'échéance réglementaire (+10 jours ouvrés).</p>
+    <p>Sortable list and visual calendar; each deadline has a status (<code>completed</code> / <code>inprogress</code> / <code>upcoming</code>), a change history and attachments. Computes the regulatory due date (+10 business days).</p>
 
     <h3>6.3 Admin <code>/datamanagement</code></h3>
     <ul>
-      <li><strong>System</strong> : version, environnement (PROD/TEST/DEV), connexion MERCURY, migrations de schéma appliquées.</li>
-      <li><strong>Data inventory</strong> : compteurs de lignes par dataset.</li>
-      <li><strong>Entities</strong> : renommage d'entité en cascade sur tous les datasets (+ risk appetite, diagnostics, documents Library), fusion contrôlée.</li>
-      <li><strong>Backup &amp; restore</strong> : snapshot JSON (hors documents Library — backup complet = <code>BACKUP DATABASE</code>).</li>
-      <li><strong>CSV feeds</strong> (repliés) : LCR quotidien, deadlines, KPI capital (legacy), counterparty RWA — modes <em>replace</em> / <em>append</em>.</li>
-      <li><strong>Risk Appetite</strong> : seuils red/amber par entité — pilote toutes les couleurs de statut des rapports.</li>
+      <li><strong>System</strong>: version, environment (PROD/TEST/DEV), MERCURY connection, applied schema migrations.</li>
+      <li><strong>Data inventory</strong>: row counters per dataset.</li>
+      <li><strong>Entities</strong>: cascading entity rename across all datasets (+ risk appetite, diagnostics, Library documents), controlled merge.</li>
+      <li><strong>Backup &amp; restore</strong>: full ZIP archive (data + Library documents, no server rights needed) and JSON snapshot; the real safety net remains <code>BACKUP DATABASE</code> on the SQL side.</li>
+      <li><strong>CSV feeds</strong> (collapsed): daily LCR, deadlines, capital KPIs (legacy), counterparty RWA — <em>replace</em> / <em>append</em> modes.</li>
+      <li><strong>Risk Appetite</strong>: red/amber thresholds per entity — drives every status color in the reports.</li>
     </ul>
   </section>
 
   <section id="design">
-    <h2><span class="num">7</span>Le système de design (style « EFG »)</h2>
-    <p>La charte visuelle s'inspire d'une présentation corporate de banque privée : sobre, aérée, titres en graisse légère, une seule couleur d'accent (rouge profond) utilisée avec parcimonie.</p>
+    <h2><span class="num">7</span>The design system ("EFG" style)</h2>
+    <p>The visual identity is inspired by a private-banking corporate deck: sober, airy, light-weight headings, a single accent color (deep red) used sparingly.</p>
     <ul>
-      <li><strong>Palette</strong> : définie une seule fois dans <code>src/theme.ts</code> (<code>PALETTE</code>, <code>CHART_COLORS</code>, <code>STATUS_COLORS</code>) et reflétée par <em>nom</em> dans <code>tailwind.config.js</code>. Pour changer toute l'identité visuelle, modifier ces deux fichiers.</li>
-      <li><strong>Composants de mise en page</strong> : <code>PageHeader</code>, <code>SectionHeader</code> (titre + suffixe muet), <code>BulletList</code> (puces carrées rouges), <code>Card</code>, <code>Modal</code>, <code>InfoBox</code>, <code>Select</code>, <code>TabButton</code>.</li>
-      <li><strong>Charts</strong> (Recharts) : toutes les couleurs viennent de <code>CHART_COLORS</code> / <code>PALETTE</code>. Grilles en filet clair, hauteurs compactes, rouge réservé à l'emphase / aux totaux.</li>
+      <li><strong>Palette</strong>: defined once in <code>src/theme.ts</code> (<code>PALETTE</code>, <code>CHART_COLORS</code>, <code>STATUS_COLORS</code>) and mirrored by <em>name</em> in <code>tailwind.config.js</code>. To change the whole visual identity, edit these two files.</li>
+      <li><strong>Layout components</strong>: <code>PageHeader</code>, <code>SectionHeader</code> (title + muted suffix), <code>BulletList</code> (red square bullets), <code>Card</code>, <code>Modal</code>, <code>InfoBox</code>, <code>Select</code>, <code>TabButton</code>.</li>
+      <li><strong>Charts</strong> (Recharts): every color comes from <code>CHART_COLORS</code> / <code>PALETTE</code>. Light hairline grids, compact heights, red reserved for emphasis / totals.</li>
     </ul>
   </section>
 
   <section id="persistence">
-    <h2><span class="num">8</span>Persistance &amp; réinitialisation</h2>
+    <h2><span class="num">8</span>Persistence &amp; reset</h2>
     <ul>
-      <li><strong>Mode API (nominal)</strong> : tout vit dans SQL Server, schéma 100 % relationnel — chaque valeur a sa colonne. Les évolutions de schéma sont appliquées automatiquement au démarrage de l'API (migrateur intégré, table <code>__SchemaMigrations</code> — voir <code>docs/UPGRADES.md</code>). Backup complet : <code>BACKUP DATABASE RegReport</code> (couvre aussi les documents de la Library).</li>
-      <li><strong>Mode local (démo)</strong> : sans API, les données vivent dans <code>localStorage</code> (clé <code>regReportData</code>) ; « Reset » dans Admin revient au seed de <code>constants.ts</code>.</li>
+      <li><strong>API mode (nominal)</strong>: everything lives in SQL Server, 100% relational schema — every value has its own column. Schema changes are applied automatically when the API starts (built-in migrator, <code>__SchemaMigrations</code> table — see <code>docs/UPGRADES.md</code>). Full backup: <code>BACKUP DATABASE RegReport</code> (also covers the Library documents).</li>
+      <li><strong>Local mode (demo)</strong>: without an API, the data lives in <code>localStorage</code> (key <code>regReportData</code>); "Reset" in Admin returns to the <code>constants.ts</code> seed.</li>
     </ul>
   </section>
 
   <section id="conventions">
-    <h2><span class="num">9</span>Conventions &amp; bonnes pratiques</h2>
+    <h2><span class="num">9</span>Conventions &amp; good practices</h2>
     <ul>
-      <li><strong>TypeScript strict</strong> : <code>npm run lint</code> doit rester vert.</li>
-      <li><strong>Lazy-loading</strong> : chaque page est un chunk séparé. Les libs lourdes (jsPDF, html2canvas) sont importées dynamiquement.</li>
-      <li><strong>Couleurs</strong> : ne jamais coder un hex en dur — utiliser <code>theme.ts</code> (charts) ou les tokens Tailwind <code>brand-*</code> (classNames).</li>
-      <li><strong>Données</strong> : toujours passer par <code>useData()</code> / <code>setData()</code>, jamais lire <code>localStorage</code> directement depuis une page.</li>
+      <li><strong>Strict TypeScript</strong>: <code>npm run lint</code> must stay green.</li>
+      <li><strong>Lazy loading</strong>: each page is a separate chunk. Heavy libraries (jsPDF, html2canvas) are imported dynamically.</li>
+      <li><strong>Colors</strong>: never hard-code a hex — use <code>theme.ts</code> (charts) or the <code>brand-*</code> Tailwind tokens (classNames).</li>
+      <li><strong>Data</strong>: always go through <code>useData()</code> / <code>setData()</code>, never read <code>localStorage</code> directly from a page.</li>
     </ul>
   </section>
 
   <hr>
 
-  <!-- ============ PARTIE 2 — BACK-END ============ -->
+  <!-- ============ PART 2 — BACK-END ============ -->
 
   <div class="cover" style="margin-bottom:40px">
-    <h1>Connecter un back-end</h1>
+    <h1>Connecting a back-end</h1>
     <p class="lead">.NET 8 + Entity Framework Core + SQL Server</p>
-    <p>Comment remplacer le stockage <code>localStorage</code> par un vrai back-end <strong>ASP.NET Core Web API</strong>, et y brancher le front existant <strong>sans réécrire les composants</strong>. Le front est déjà prêt : <code>dataRepository.ts</code> bascule en mode API dès que <code>VITE_API_BASE_URL</code> est définie.</p>
+    <p>How to replace the <code>localStorage</code> storage with a real <strong>ASP.NET Core Web API</strong> back-end, and plug the existing front-end into it <strong>without rewriting the components</strong>. The front-end is ready: <code>dataRepository.ts</code> switches to API mode as soon as <code>VITE_API_BASE_URL</code> is set.</p>
   </div>
 
   <section id="be-arch">
-    <h2><span class="num">A</span>Architecture cible</h2>
+    <h2><span class="num">A</span>Target architecture</h2>
     <pre class="ascii"><code>┌──────────────────┐   HTTPS / JSON   ┌────────────────────────┐      ┌────────────┐
-│ Front React/Vite │ ───────────────► │  ASP.NET Core Web API  │ ───► │ SQL Server │
+│ React/Vite front │ ───────────────► │  ASP.NET Core Web API  │ ───► │ SQL Server │
 │ dataRepository   │ ◄─────────────── │  Controllers + EF Core │ ◄─── │  (MSSQL)   │
 └──────────────────┘                  └────────────────────────┘      └────────────┘
-     mode 'api'                          /api/data, /api/kpis, ...</code></pre>
-    <p>Deux stratégies de stockage, au choix :</p>
+     'api' mode                          /api/data, /api/kpis, ...</code></pre>
+    <p>Two storage strategies, your choice:</p>
     <ul>
-      <li><strong>Option A — « Document » (démarrage rapide)</strong> : une seule table qui stocke le JSON <code>CentralData</code> complet. Fonctionne immédiatement avec <code>GET/PUT /api/data</code>.</li>
-      <li><strong>Option B — Relationnel (cible)</strong> : un schéma SQL normalisé (une table par ressource) pour requêter, auditer et sécuriser finement.</li>
+      <li><strong>Option A — "Document" (fast start)</strong>: a single table storing the full <code>CentralData</code> JSON. Works immediately with <code>GET/PUT /api/data</code>.</li>
+      <li><strong>Option B — Relational (target)</strong>: a normalized SQL schema (one table per resource) for fine-grained querying, auditing and security.</li>
     </ul>
-    <div class="note"><span class="tag">Astuce</span>On peut <strong>commencer par A puis migrer vers B</strong> sans toucher au front : le front parle toujours <code>/api/data</code>, c'est le contrôleur qui change d'implémentation.</div>
+    <div class="note"><span class="tag">Tip</span>You can <strong>start with A and migrate to B</strong> without touching the front-end: the front always talks to <code>/api/data</code>; only the controller's implementation changes.</div>
   </section>
 
   <section id="be-contract">
-    <h2><span class="num">B</span>Le contrat que le front attend déjà</h2>
+    <h2><span class="num">B</span>The contract the front-end already expects</h2>
     <table>
-      <thead><tr><th>Méthode</th><th>Endpoint</th><th>Corps</th><th>Réponse</th></tr></thead>
+      <thead><tr><th>Method</th><th>Endpoint</th><th>Body</th><th>Response</th></tr></thead>
       <tbody>
         <tr><td><code>GET</code></td><td><code>{base}/data</code></td><td>—</td><td><code>CentralData</code> (JSON)</td></tr>
         <tr><td><code>PUT</code></td><td><code>{base}/data</code></td><td><code>CentralData</code></td><td><code>204 No Content</code></td></tr>
       </tbody>
     </table>
-    <div class="note"><span class="tag">Suffisant</span>Implémenter ces deux endpoints suffit pour que toute l'application fonctionne sur le back-end. Les endpoints granulaires sont une amélioration ultérieure.</div>
+    <div class="note"><span class="tag">Sufficient</span>Implementing these two endpoints is enough for the whole application to run on the back-end. The granular endpoints are a later improvement.</div>
   </section>
 
   <section id="be-project">
-    <h2><span class="num">C</span>Créer le projet .NET</h2>
-    <pre><code># .NET 8 SDK requis
+    <h2><span class="num">C</span>Creating the .NET project</h2>
+    <pre><code># .NET 8 SDK required
 dotnet new webapi -n RegReport.Api
 cd RegReport.Api
 
 dotnet add package Microsoft.EntityFrameworkCore.SqlServer
 dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet tool install --global dotnet-ef</code></pre>
-    <p><code>appsettings.json</code> — chaîne de connexion :</p>
+    <p><code>appsettings.json</code> — connection string:</p>
     <pre><code>{
   "ConnectionStrings": {
     "Default": "Server=localhost;Database=RegReport;Trusted_Connection=True;TrustServerCertificate=True;"
   },
   "Cors": { "AllowedOrigins": [ "http://localhost:5173" ] }
 }</code></pre>
-    <div class="note"><span class="tag">Banque</span>Privilégier l'<strong>authentification intégrée</strong> (<code>Trusted_Connection</code>) ou un <strong>Managed Identity</strong> Azure plutôt qu'un mot de passe en clair.</div>
-    <h3>Option A — Contrôleur <code>/api/data</code> (document)</h3>
+    <div class="note"><span class="tag">Banking</span>Prefer <strong>integrated authentication</strong> (<code>Trusted_Connection</code>) or an Azure <strong>Managed Identity</strong> over a clear-text password.</div>
+    <h3>Option A — <code>/api/data</code> controller (document)</h3>
     <pre><code>[ApiController]
 [Route("api/data")]
 public class DataController : ControllerBase
@@ -428,9 +428,9 @@ public class DataController : ControllerBase
   </section>
 
   <section id="be-schema">
-    <h2><span class="num">D</span>Option B — Schéma relationnel (cible)</h2>
-    <p>Schéma normalisé miroir de <code>types.ts</code>, <strong>100 % relationnel</strong> : les structures imbriquées sont aplaties en colonnes (breakdown CET1, key metrics) ou stockées dans des tables enfants (liquidité par devise, historique/pièces jointes). Aucune colonne JSON, à l'exception du paramètre <code>importMapping</code> (config du parseur Excel) dans <code>Settings</code>.</p>
-    <pre><code>-- KPI bruts (un enregistrement par entité + date)
+    <h2><span class="num">D</span>Option B — Relational schema (target)</h2>
+    <p>Normalized schema mirroring <code>types.ts</code>, <strong>100% relational</strong>: nested structures are flattened into columns (CET1 breakdown, key metrics) or stored in child tables (liquidity per currency, history/attachments). No JSON columns, except the <code>importMapping</code> setting (Excel parser config) in <code>Settings</code>.</p>
+    <pre><code>-- Raw KPIs (one record per entity + date)
 CREATE TABLE dbo.KpiHistory (
     Id           INT IDENTITY PRIMARY KEY,
     Entity       NVARCHAR(64)  NOT NULL,
@@ -441,86 +441,86 @@ CREATE TABLE dbo.KpiHistory (
     OpRWA        DECIMAL(18,2) NOT NULL,
     Tier1        DECIMAL(18,2) NOT NULL,
     Exposure     DECIMAL(18,2) NOT NULL,
-    BreakdownEquity … BreakdownDividend DECIMAL(18,2) NULL, -- 7 colonnes
+    BreakdownEquity … BreakdownDividend DECIMAL(18,2) NULL, -- 7 columns
     CONSTRAINT UQ_KpiHistory UNIQUE (Entity, [Date])
 );
 
--- KpiLiquidity : 1 ligne par devise (FK KpiHistory, colonnes plates)
--- DeadlineHistory / DeadlineAttachments : tables enfants des deadlines
--- RiskAppetite : 1 ligne par entité (seuils en colonnes)
--- Bilan : table à une ligne (une colonne par devise)
+-- KpiLiquidity: 1 row per currency (FK KpiHistory, flat columns)
+-- DeadlineHistory / DeadlineAttachments: child tables of the deadlines
+-- RiskAppetite: 1 row per entity (thresholds as columns)
+-- Bilan: single-row table (one column per currency)
 -- + Deadlines, CounterpartyRwa, LargeExposures, TeamMembers,
---   Projects, ProjectTasks, Settings (uniquement importMapping)</code></pre>
-    <p>Mappez chaque table à une entité EF Core et exposez un <code>DbSet&lt;&gt;</code> par ressource. Le contrôleur <code>/api/data</code> devient alors un <strong>agrégateur</strong> qui recompose <code>CentralData</code> à partir des tables (et inversement au <code>PUT</code>).</p>
+--   Projects, ProjectTasks, Settings (importMapping only)</code></pre>
+    <p>Map each table to an EF Core entity and expose one <code>DbSet&lt;&gt;</code> per resource. The <code>/api/data</code> controller then becomes an <strong>aggregator</strong> that recomposes <code>CentralData</code> from the tables (and the reverse on <code>PUT</code>).</p>
   </section>
 
   <section id="be-endpoints">
-    <h2><span class="num">E</span>Endpoints REST granulaires</h2>
-    <p>Pour des chargements partiels, de la pagination et des droits fins, exposez en plus des routes par ressource. <strong>Ces contrôleurs sont déjà fournis dans le projet <code>backend/</code> :</strong></p>
+    <h2><span class="num">E</span>Granular REST endpoints</h2>
+    <p>For partial loads, pagination and fine-grained permissions, also expose per-resource routes. <strong>These controllers already ship in the <code>backend/</code> project:</strong></p>
     <table>
-      <thead><tr><th>Ressource</th><th>Endpoints</th></tr></thead>
+      <thead><tr><th>Resource</th><th>Endpoints</th></tr></thead>
       <tbody>
-        <tr><td>Agrégat</td><td><code>GET/PUT /api/data</code></td></tr>
-        <tr><td>KPI</td><td><code>GET /api/kpis</code>, <code>GET/PUT/DELETE /api/kpis/{entity}/{date}</code></td></tr>
+        <tr><td>Aggregate</td><td><code>GET/PUT /api/data</code></td></tr>
+        <tr><td>KPIs</td><td><code>GET /api/kpis</code>, <code>GET/PUT/DELETE /api/kpis/{entity}/{date}</code></td></tr>
         <tr><td>Deadlines</td><td><code>GET/POST /api/deadlines</code>, <code>PUT/DELETE /api/deadlines/{id}</code></td></tr>
-        <tr><td>Contreparties</td><td><code>GET/POST/PUT/DELETE /api/counterparty-rwa</code> + <code>PUT bulk/{entity}/{date}</code></td></tr>
-        <tr><td>Grands risques</td><td><code>GET/POST/PUT/DELETE /api/large-exposures</code> + bulk</td></tr>
-        <tr><td>Projets</td><td><code>GET/POST /api/projects</code>, <code>GET /api/projects/{id}/tasks</code></td></tr>
-        <tr><td>Équipe</td><td><code>GET/POST/PUT/DELETE /api/team</code></td></tr>
+        <tr><td>Counterparties</td><td><code>GET/POST/PUT/DELETE /api/counterparty-rwa</code> + <code>PUT bulk/{entity}/{date}</code></td></tr>
+        <tr><td>Large exposures</td><td><code>GET/POST/PUT/DELETE /api/large-exposures</code> + bulk</td></tr>
+        <tr><td>Projects</td><td><code>GET/POST /api/projects</code>, <code>GET /api/projects/{id}/tasks</code></td></tr>
+        <tr><td>Team</td><td><code>GET/POST/PUT/DELETE /api/team</code></td></tr>
         <tr><td>Settings</td><td><code>GET/PUT /api/settings/bilan</code>, <code>GET/PUT /api/settings/risk-appetite[/{entity}]</code></td></tr>
       </tbody>
     </table>
   </section>
 
   <section id="be-security">
-    <h2><span class="num">F</span>Sécurité (recommandé en banque)</h2>
+    <h2><span class="num">F</span>Security (recommended in banking)</h2>
     <ul>
-      <li><strong>Authentification</strong> : Microsoft Entra ID (Azure AD) via OpenID Connect. API : <code>AddAuthentication().AddJwtBearer(...)</code> + <code>[Authorize]</code>. Front : access token (MSAL.js) injecté dans <code>ApiRepository.headers()</code> (emplacement déjà préparé).</li>
-      <li><strong>HTTPS</strong> obligatoire (<code>app.UseHttpsRedirection()</code>).</li>
-      <li><strong>Audit</strong> : les colonnes <code>UpdatedBy</code> / <code>UpdatedAtUtc</code> tracent les écritures.</li>
-      <li><strong>Validation</strong> du payload côté serveur (DataAnnotations / FluentValidation) avant persistance.</li>
+      <li><strong>Authentication</strong>: Microsoft Entra ID (Azure AD) via OpenID Connect. API: <code>AddAuthentication().AddJwtBearer(...)</code> + <code>[Authorize]</code>. Front: access token (MSAL.js) injected into <code>ApiRepository.headers()</code> (the slot is already prepared).</li>
+      <li><strong>HTTPS</strong> mandatory (<code>app.UseHttpsRedirection()</code>).</li>
+      <li><strong>Audit</strong>: the <code>UpdatedBy</code> / <code>UpdatedAtUtc</code> columns trace every write.</li>
+      <li><strong>Validation</strong> of the payload server-side (DataAnnotations / FluentValidation) before persisting.</li>
     </ul>
   </section>
 
   <section id="be-connect">
-    <h2><span class="num">G</span>Pointer le front sur l'API — pas à pas</h2>
+    <h2><span class="num">G</span>Pointing the front-end at the API — step by step</h2>
     <ol>
-      <li>Lancer l'API .NET (<code>dotnet run</code>) et noter son URL (ex. <code>https://localhost:7042</code>).</li>
-      <li>À la racine du front, créer <strong><code>.env.local</code></strong> (copie de <code>.env.example</code>) :
+      <li>Start the .NET API (<code>dotnet run</code>) and note its URL (e.g. <code>https://localhost:7042</code>).</li>
+      <li>At the root of the front-end, create <strong><code>.env.local</code></strong> (copy of <code>.env.example</code>):
         <pre style="margin-top:8px"><code>VITE_API_BASE_URL=https://localhost:7042/api</code></pre>
       </li>
-      <li>Redémarrer le serveur de dev : <code>npm run dev</code>.</li>
-      <li>Le front passe automatiquement en <strong>mode <code>api</code></strong> : <code>GET /api/data</code> au démarrage, <code>PUT /api/data</code> à chaque modification (debounce 400 ms).</li>
-      <li>Vérifier dans l'onglet <strong>Network</strong> que les appels partent vers l'API. En cas d'échec, un bandeau rouge s'affiche et l'app retombe sur le seed local.</li>
+      <li>Restart the dev server: <code>npm run dev</code>.</li>
+      <li>The front-end automatically switches to <strong><code>api</code> mode</strong>: <code>GET /api/data</code> on startup, <code>PUT /api/data</code> on every change (400 ms debounce).</li>
+      <li>Check in the <strong>Network</strong> tab that the calls go to the API. On failure, a red banner shows and the app falls back to the local seed.</li>
     </ol>
-    <div class="note"><span class="tag">Revenir en local</span>Vider <code>VITE_API_BASE_URL</code> (ou supprimer <code>.env.local</code>) et redémarrer.</div>
+    <div class="note"><span class="tag">Back to local</span>Clear <code>VITE_API_BASE_URL</code> (or delete <code>.env.local</code>) and restart.</div>
   </section>
 
   <section id="be-checklist">
-    <h2><span class="num">H</span>Checklist de migration</h2>
+    <h2><span class="num">H</span>Migration checklist</h2>
     <div class="card">
       <ul style="margin-bottom:0">
-        <li>Projet <code>RegReport.Api</code> créé, packages EF Core ajoutés</li>
-        <li>Chaîne de connexion SQL Server configurée</li>
-        <li>Option A : table <code>CentralDataDocuments</code> + contrôleur <code>/api/data</code></li>
-        <li><code>dotnet ef database update</code> exécuté</li>
-        <li>CORS autorise <code>http://localhost:5173</code></li>
-        <li><code>GET /api/data</code> renvoie un JSON valide (au moins <code>{}</code>)</li>
-        <li><code>.env.local</code> du front pointe sur l'API</li>
-        <li>Les écritures du front se retrouvent en base</li>
-        <li>(Cible) Schéma relationnel + endpoints granulaires</li>
-        <li>(Banque) Auth Entra ID + HTTPS + audit</li>
+        <li><code>RegReport.Api</code> project created, EF Core packages added</li>
+        <li>SQL Server connection string configured</li>
+        <li>Option A: <code>CentralDataDocuments</code> table + <code>/api/data</code> controller</li>
+        <li><code>dotnet ef database update</code> executed</li>
+        <li>CORS allows <code>http://localhost:5173</code></li>
+        <li><code>GET /api/data</code> returns valid JSON (at least <code>{}</code>)</li>
+        <li>The front-end's <code>.env.local</code> points at the API</li>
+        <li>Front-end writes end up in the database</li>
+        <li>(Target) Relational schema + granular endpoints</li>
+        <li>(Banking) Entra ID auth + HTTPS + audit</li>
       </ul>
     </div>
   </section>
 
   <footer>
-    RegReport — Documentation générée pour le projet de regulatory reporting.
-    Pour le détail technique complet, voir <code>docs/APPLICATION.md</code> et <code>docs/BACKEND.md</code> dans le dépôt.
+    RegReport — Documentation generated for the regulatory reporting project.
+    For the full technical detail, see <code>docs/APPLICATION.md</code> and <code>docs/BACKEND.md</code> in the repository.
   </footer>
 </main>
 </div>
 
-<button class="print-btn" onclick="window.print()">⎙ Imprimer / Enregistrer en PDF</button>
+<button class="print-btn" onclick="window.print()">⎙ Print / Save as PDF</button>
 </body>
 </html>

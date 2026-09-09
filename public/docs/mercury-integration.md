@@ -1,20 +1,20 @@
-# Intégration MERCURY — alimentation des contrôles de production
+# MERCURY integration — feeding the production controls
 
-L'app alimente les tables de contrôle (`ProdCounterparties`, `ProdSecurities`)
-directement depuis la base **MERCURY**, déclenchée depuis *Production →
-Prerequisites → Feed from MERCURY* en choisissant le **loadid** et le **type de
-produit**. Le contrat est volontairement simple :
+The app feeds the control tables (`ProdCounterparties`, `ProdSecurities`)
+directly from the **MERCURY** database, triggered from *Production →
+Prerequisites → Feed from MERCURY* by picking the **loadid** and the
+**product type**. The contract is deliberately simple:
 
 ```
 Front (Production)  →  POST /api/production/mercury/load   →  SELECT * FROM <TVF>(@loadId, @productType)
-                        { target, entity, date,                sur la connexion MERCURY
-                          loadId, productType, dataset }    →  remplace le périmètre dans RegReport
+                        { target, entity, date,                on the MERCURY connection
+                          loadId, productType, dataset }    →  replaces the scope in RegReport
 ```
 
-**La TVF vit côté MERCURY et encapsule le modèle** (jointures
-`core_positions × list_counterparty`, filtres par loadid/produit…). L'API ne
-connaît que le nom de la TVF et le contrat de colonnes ci-dessous — quand le
-modèle MERCURY évolue, on adapte la TVF, pas l'application.
+**The TVF lives on the MERCURY side and encapsulates the model** (joins
+`core_positions × list_counterparty`, loadid/product filters…). The API only
+knows the TVF's name and the column contract below — when the MERCURY model
+evolves, you adapt the TVF, not the application.
 
 ## 1. Configuration (appsettings.Development.local.json)
 
@@ -33,47 +33,47 @@ modèle MERCURY évolue, on adapte la TVF, pas l'application.
 }
 ```
 
-`GET /api/production/mercury/status` indique si la connexion est configurée et
-joignable.
+`GET /api/production/mercury/status` reports whether the connection is
+configured and reachable.
 
-## 2. Contrat de colonnes des TVF
+## 2. TVF column contract
 
-Les noms de colonnes sont insensibles à la casse ; toute colonne absente est
-importée vide/NULL. Les lignes sans clé (ClientNumber / Isin) sont ignorées.
+Column names are case-insensitive; any missing column is imported as
+empty/NULL. Rows without a key (ClientNumber / Isin) are ignored.
 
 ### `fn_regreport_prod_counterparties(@loadId nvarchar, @productType nvarchar NULL)`
 
-| Colonne | Type | Rôle |
+| Column | Type | Role |
 |---|---|---|
-| `Dataset` | nvarchar | `liquidityAssets` \| `dueFromBanks` \| `dueToBanks` \| `dueFromCustomers` \| `dueToCustomers` \| `mortgages` (sinon le dataset choisi dans l'app est appliqué) |
-| `ClientNumber` (ou `CounterpartyId`) | nvarchar | **clé** |
-| `ClientType` | nvarchar | type client du data model |
+| `Dataset` | nvarchar | `liquidityAssets` \| `dueFromBanks` \| `dueToBanks` \| `dueFromCustomers` \| `dueToCustomers` \| `mortgages` (otherwise the dataset picked in the app is applied) |
+| `ClientNumber` (or `CounterpartyId`) | nvarchar | **key** |
+| `ClientType` | nvarchar | client type from the data model |
 | `GroupLexId` | nvarchar | ultimate parent |
 | `CounterpartyType` | nvarchar | retail bank, financial… |
-| `IssuerRating` (ou `Rating`) | nvarchar | |
+| `IssuerRating` (or `Rating`) | nvarchar | |
 | `Amount` | float | mCHF |
 | `Currency` | nvarchar | |
 
 ### `fn_regreport_prod_securities(@loadId nvarchar, @productType nvarchar NULL)`
 
-| Colonne | Type |
+| Column | Type |
 |---|---|
-| `Isin` | **clé** |
+| `Isin` | **key** |
 | `SecurityMaster`, `SecurityType`, `Rating` | nvarchar |
 | `DailyReval` | bit / 0-1 / 'true' |
 | `IssuerLexId`, `GuarantorLexId`, `GuarantorName`, `HqlaLevel` | nvarchar |
 | `Amount` | float |
 
-## 3. TVF sur le modèle Quadrum Data Lake
+## 3. TVFs on the Quadrum Data Lake model
 
-Les TVF **écrites sur le modèle réel** (doc `docs/mercury-model/`) sont dans
-**`docs/SQL_MERCURY_TVFS.sql`** — jointures `core_positions ×
-list_counterparties` (Id + PointInTime) et `core_positions × list_securities ×
-list_counterparties` (issuer + guarantor), GroupLEXId comme ultimate parent,
-HQLACategory comme niveau HQLA calculé par les règles QDL. Points à ajuster
-dans le CASE des datasets : préfixes `LegalAccountNumber` et SubType hypothèque.
+The TVFs **written against the real model** (doc `docs/mercury-model/`) live
+in **`docs/SQL_MERCURY_TVFS.sql`** — joins `core_positions ×
+list_counterparties` (Id + PointInTime) and `core_positions × list_securities ×
+list_counterparties` (issuer + guarantor), GroupLEXId as ultimate parent,
+HQLACategory as the HQLA level computed by the QDL rules. Points to adjust in
+the dataset CASE: `LegalAccountNumber` prefixes and the mortgage SubType.
 
-L'exemple générique ci-dessous illustre seulement le principe :
+The generic example below only illustrates the principle:
 
 ```sql
 CREATE FUNCTION dbo.fn_regreport_prod_counterparties
@@ -81,7 +81,7 @@ CREATE FUNCTION dbo.fn_regreport_prod_counterparties
 RETURNS TABLE
 AS RETURN
 SELECT
-    CASE p.product_family                       -- à mapper sur les 6 datasets
+    CASE p.product_family                       -- map onto the 6 datasets
         WHEN 'LIQ'  THEN 'liquidityAssets'
         WHEN 'DFB'  THEN 'dueFromBanks'
         WHEN 'DTB'  THEN 'dueToBanks'
@@ -102,130 +102,127 @@ WHERE p.loadid = @loadId
   AND (@productType IS NULL OR p.product_type = @productType);
 ```
 
-Même principe pour `fn_regreport_prod_securities` (security master, rating,
-reval, garant, HQLA level).
+Same principle for `fn_regreport_prod_securities` (security master, rating,
+reval, guarantor, HQLA level).
 
-## 4. Boucle de production
+## 4. Production loop
 
-1. Chaque période : *Production → Feed from MERCURY* → loadid + product type →
-   les tables de contrôle sont remplacées pour la période.
-2. Onglet *Controls* : C1 (dérive par client vs période précédente),
-   C2 (un traitement par grouplexid), C3 (dérive par ISIN), C4 (physique vs
-   référentiel garantie/HQLA) — automatiques dès que les données sont là.
-3. Le CSV manuel reste disponible en secours (mêmes tables, mêmes contrôles).
+1. Each period: *Production → Feed from MERCURY* → loadid + product type →
+   the control tables are replaced for the period.
+2. *Controls* tab: C1 (per-client drift vs previous period), C2 (one
+   treatment per grouplexid), C3 (per-ISIN drift), C4 (physical vs
+   guarantee/HQLA referential) — automatic as soon as the data is there.
+3. The manual CSV remains available as a fallback (same tables, same
+   controls).
 
-## 5. Module Adjustments — règles convenues (onglet *Production → Adjustments*)
+## 5. Adjustments module — agreed rules (*Production → Adjustments* tab)
 
-Sources : `docs/mercury-model/adjustments-sample.xlsx` (lignes compta : LIGNE,
-REFERENCE, MONTANT, NOMINAL, CCY, CATEG, IND, CLIENT, DEBIT/CREDIT…) et
-`docs/mercury-model/Mapping.xlsb` (Mapping_GL_BALANCESHEET, CCY, Maping
+Sources: `docs/mercury-model/adjustments-sample.xlsx` (accounting lines:
+LIGNE, REFERENCE, MONTANT, NOMINAL, CCY, CATEG, IND, CLIENT, DEBIT/CREDIT…)
+and `docs/mercury-model/Mapping.xlsb` (Mapping_GL_BALANCESHEET, CCY, Maping
 RT01→QDL, INDUSTRY).
 
-**Rapprochement d'une ligne d'ajustement avec core_positions (du load choisi)** :
+**Matching an adjustment line with core_positions (of the chosen load)**:
 
-1. Candidats par clé composite LIKE :
+1. Candidates by composite LIKE key:
    `(InternalReference1 LIKE '%<REFERENCE>%' OR ContractId LIKE '%<REFERENCE>%')`
    `AND CounterpartyId LIKE '%<CLIENT>%'`
-2. Plusieurs candidats sont fréquents → désambiguïsation par
+2. Multiple candidates are common → disambiguation by
    `LegalAccountNumber = Mapping_GL_BALANCESHEET[LIGNE].LegalAccountNumber`
-   (c'est le mapping qui dit quelle ligne on veut construire/ajuster depuis
-   l'instruction de base).
-3. Un candidat → INSERT core_positions d'ajustement (attributs copiés,
-   BookAmount = MONTANT signé DEBIT/CREDIT, conversion via la feuille CCY,
-   Id suffixé -ADJ, DataSource = 'ADJUSTMENT').
-   Plusieurs après désambiguïsation → choix utilisateur dans l'UI.
-   Aucun → construction complète : LIGNE→Mapping_GL_BALANCESHEET (compte,
+   (the mapping is what says which line we want to build/adjust from the base
+   instruction).
+3. One candidate → INSERT of an adjustment core_positions row (attributes
+   copied, BookAmount = MONTANT signed by DEBIT/CREDIT, conversion via the
+   CCY sheet, Id suffixed -ADJ, DataSource = 'ADJUSTMENT').
+   Several after disambiguation → user choice in the UI.
+   None → full construction: LIGNE→Mapping_GL_BALANCESHEET (account,
    cp_TypeOf, cp_SubType…), IND→INDUSTRY (TypeOf + EconomicActivityType),
-   CATEG→Maping (RT01→QDL), contrepartie = CLIENT.
-4. Tout passe par des scripts SQL préparés (SELECT de contrôle + INSERT) et le
-   journal de décisions, comme les contrôles C1–C5.
+   CATEG→Maping (RT01→QDL), counterparty = CLIENT.
+4. Everything goes through prepared SQL scripts (control SELECT + INSERT) and
+   the decision log, like the C1–C5 controls.
 
-**Implémentation** : onglet *Production → Adjustments* — upload du classeur de
-mapping + du fichier d'ajustements, choix du loadid (core_loads), bouton
-*Run matching* → `POST /api/production/mercury/adjustments/match` (clé LIKE
-composite, TOP 25 candidats par ligne, flag `accountMatch` quand le
-LegalAccountNumber du candidat = celui du mapping GL de la LIGNE). Candidat
-unique ou seul ✓GL → présélectionné ; plusieurs → choix dans l'UI ; aucun →
-INSERT de construction complète. Le bouton *Copy + log decision* journalise
-la décision (contrôle `ADJ`) dans l'historique de l'onglet Controls.
-Le mock (`SQL_MERCURY_MOCK.sql`) contient trois positions de test
-(POS-ADJ-A/B/C, load 1002) alignées sur le fichier d'exemple
-`adjustments-sample.xlsx` (références 5950216318 / 5900175308).
+**Implementation**: *Production → Adjustments* tab — upload of the mapping
+workbook + the adjustments file, loadid choice (core_loads), *Run matching*
+button → `POST /api/production/mercury/adjustments/match` (composite LIKE
+key, TOP 25 candidates per line, `accountMatch` flag when the candidate's
+LegalAccountNumber = the one from the LIGNE's GL mapping). Single candidate
+or lone ✓GL → preselected; several → choice in the UI; none → full
+construction INSERT. The *Copy + log decision* button records the decision
+(`ADJ` control) into the Controls tab's history.
+The mock (`SQL_MERCURY_MOCK.sql`) contains three test positions
+(POS-ADJ-A/B/C, load 1002) aligned with the sample file
+`adjustments-sample.xlsx` (references 5950216318 / 5900175308).
 
-**Référentiels (anti-orphelins C5)** : toute nouvelle position (sans match)
-génère un *package* — d'abord les lignes référentielles manquantes, gardées
-par `IF NOT EXISTS` (pas de doublon si elles existent déjà au PIT) :
-`list_counterparties` pour le CLIENT (TypeOf/EconomicActivityType préremplis
-via IND→INDUSTRY et CATEG→RT01), et quand la LIGNE GL est `cp_TypeOf =
-Security`, une ligne `list_securities` (Id `ADJ-SEC-<ligne>-<row>`, ISIN si la
-REFERENCE en a le format, MaturityDate depuis MAT DATE, issuer = CLIENT) liée
-à la position par SecurityId/SecurityPIT — puis l'INSERT `core_positions`.
-L'Excel one-shot ajoute les feuilles `list_counterparties` /
-`list_securities` correspondantes (dédupliquées).
+**Referentials (C5 anti-orphans)**: every new position (without a match)
+generates a *package* — first the missing referential rows, guarded by
+`IF NOT EXISTS` (no duplicate if they already exist at the PIT):
+`list_counterparties` for the CLIENT (TypeOf/EconomicActivityType prefilled
+via IND→INDUSTRY and CATEG→RT01), and when the GL LIGNE is `cp_TypeOf =
+Security`, a `list_securities` row (Id `ADJ-SEC-<ligne>-<row>`, ISIN when the
+REFERENCE has the right format, MaturityDate from MAT DATE, issuer = CLIENT)
+linked to the position by SecurityId/SecurityPIT — then the `core_positions`
+INSERT. The one-shot Excel adds the corresponding `list_counterparties` /
+`list_securities` sheets (deduplicated).
 
-**Intercompany & booking center** : un code IND portant `HYPERIOD_INTERCO`
-dans la feuille INDUSTRY marque une position intercompany — la valeur (ex.
-`3000 00` pour COMPANY Bank SA Zurich) est forcée dans
-`CounterpartyBookingCenterId`, sur les ajustements matchés comme sur les
-nouvelles positions (badge « IC » dans le tableau des lignes). Le champ
-*Booking center* de l'UI est estampillé dans `BookingCenterId` des nouvelles
-positions.
+**Intercompany & booking center**: an IND code carrying `HYPERIOD_INTERCO`
+in the INDUSTRY sheet marks an intercompany position — the value (e.g.
+`3000 00` for COMPANY Bank SA Zurich) is forced into
+`CounterpartyBookingCenterId`, on matched adjustments as well as on new
+positions ("IC" badge in the lines table). The UI's *Booking center* field is
+stamped into the `BookingCenterId` of new positions.
 
-**Aperçu d'impact bilan** (bouton 📊) : `GET
-/api/production/mercury/balance?loadId=` agrège le load par
-`LEFT(LegalAccountNumber,3)` (SUM BookAmount) ; l'UI affiche par préfixe —
-sections Actif (1xx) / Passif (2xx) / Hors-bilan — le bilan de base, le delta
-des ajustements (lignes matchées → compte de la position choisie, sinon compte
-du mapping GL, montants convertis en CHF) et le bilan résultant, avec les
-intitulés dérivés du mapping GL (description HFM la plus fréquente par
-préfixe).
+**Balance-sheet impact preview** (📊 button): `GET
+/api/production/mercury/balance?loadId=` aggregates the load by
+`LEFT(LegalAccountNumber,3)` (SUM BookAmount); the UI shows per prefix —
+Assets (1xx) / Liabilities (2xx) / Off-balance-sheet sections — the base
+balance sheet, the adjustments delta (matched lines → account of the chosen
+position, otherwise the GL mapping's account, amounts converted to CHF) and
+the resulting balance sheet, with labels derived from the GL mapping (most
+frequent HFM description per prefix).
 
-**Load collections (unité de travail des ajustements)** : `GET
-/api/production/mercury/load-collections` liste `core_load_collections`
-(visibles, non archivées ; requête surchargeable via
-`Production:LoadCollectionsQuery`) avec leurs loads membres
-(`core_loads_loads_collection`). Choisir une collection dans l'onglet : le
-matching couvre **tous les loads** de la collection (l'INSERT d'un ajustement
-matché vise le load du candidat), la `ReportingEntityId` de la collection
-**fixe automatiquement le scope de consolidation** (éliminations visibles de
-suite, badges ✂/⊘ par ligne), et le bilan de base agrège tous les loads. Le
-« Target load » (nouvelles positions) se choisit parmi les membres.
+**Load collections (the adjustments' unit of work)**: `GET
+/api/production/mercury/load-collections` lists `core_load_collections`
+(visible, not archived; query overridable via
+`Production:LoadCollectionsQuery`) with their member loads
+(`core_loads_loads_collection`). Pick a collection in the tab: the matching
+covers **all the loads** of the collection (a matched adjustment's INSERT
+targets the candidate's load), the collection's `ReportingEntityId`
+**automatically sets the consolidation scope** (eliminations visible right
+away, ✂/⊘ badges per line), and the base balance sheet aggregates all the
+loads. The "Target load" (new positions) is picked among the members.
 
-**Mappings persistés** : bouton 💾 *Save to database* → table relationnelle
-`ProdMappingEntries` (RegReport, script gardé dans
+**Persisted mappings**: 💾 *Save to database* button → relational table
+`ProdMappingEntries` (RegReport, script kept in
 `SQL_PRODUCTION_TABLES.sql`) — kinds `gl` / `fx` / `rt01` / `industry` /
-`label`. Au chargement de l'onglet, les mappings viennent de la base ; le
-re-upload du classeur ne sert qu'aux mises à jour (ex. taux CCY), suivi d'un
-nouveau 💾.
+`label`. When the tab loads, the mappings come from the database; re-uploading
+the workbook is only for updates (e.g. CCY rates), followed by a new 💾.
 
-**Audit trail** : chaque script copié ou export one-shot est journalisé
-(contrôle `ADJ`) dans `ProdFindingLogs` — table SQL de la base RegReport,
-comme les décisions des contrôles C1–C5. L'onglet Adjustments affiche
-l'historique (qui / quand / quoi) ; l'onglet Controls garde sa « Decision
-history ».
+**Audit trail**: every copied script or one-shot export is logged (`ADJ`
+control) into `ProdFindingLogs` — a SQL table of the RegReport database, like
+the decisions of the C1–C5 controls. The Adjustments tab shows the history
+(who / when / what); the Controls tab keeps its "Decision history".
 
-**Éliminations selon le scope de consolidation** : l'aperçu 📊 propose un
-sélecteur *Consolidation scope* alimenté par `GET
-/api/production/mercury/conso` (`list_reporting_entities` + niveaux BO/PC/GR,
-`list_reporting_sets` = booking centers du périmètre, `list_booking_centers`
-avec OwnerId). Avec un scope choisi : le bilan de base est restreint aux
-positions bookées dans le périmètre (le endpoint balance ventile par
-BookingCenterId × CounterpartyBookingCenterId), les montants — base comme
-ajustements — dont le `CounterpartyBookingCenterId` est **dans** le périmètre
-sont **éliminés** (colonnes Adj gross / IC eliminated / Adj net), et les
-lignes d'ajustement bookées hors périmètre sont exclues (compteur ⊘). Une
-position sans booking center est conservée. Le mock contient MOCK-SOLO
-(BC-GVA) et MOCK-GROUP (BC-GVA + BC-ZH) avec POS-ADJ-C interco BC-GVA↔BC-ZH :
-éliminée au niveau groupe, conservée en solo.
+**Eliminations by consolidation scope**: the 📊 preview offers a
+*Consolidation scope* selector fed by `GET /api/production/mercury/conso`
+(`list_reporting_entities` + BO/PC/GR levels, `list_reporting_sets` = booking
+centers of the scope, `list_booking_centers` with OwnerId). With a scope
+selected: the base balance sheet is restricted to positions booked inside the
+scope (the balance endpoint splits by BookingCenterId ×
+CounterpartyBookingCenterId), the amounts — base and adjustments alike —
+whose `CounterpartyBookingCenterId` is **inside** the scope are
+**eliminated** (Adj gross / IC eliminated / Adj net columns), and adjustment
+lines booked outside the scope are excluded (⊘ counter). A position without
+a booking center is kept. The mock contains MOCK-SOLO (BC-GVA) and MOCK-GROUP
+(BC-GVA + BC-ZH) with POS-ADJ-C intercompany BC-GVA↔BC-ZH: eliminated at
+group level, kept solo.
 
-**Génération one-shot** : dès que le matching est résolu, deux exports —
-un **.sql unique** (tous les INSERT, une seule exécution SSMS) et un
-**Excel** (feuille Summary + feuille core_positions avec les lignes à insérer,
-toutes colonnes, pour revue de masse / bulk import). Les lignes encore
-ambiguës (candidat non choisi) sont exclues et signalées.
+**One-shot generation**: as soon as the matching is resolved, two exports —
+a **single .sql** (all the INSERTs, one SSMS execution) and an **Excel**
+(Summary sheet + core_positions sheet with the rows to insert, all columns,
+for mass review / bulk import). Lines still ambiguous (candidate not chosen)
+are excluded and flagged.
 
-**Ligne manuelle** : panneau « Manual line » — choisir une LIGNE du mapping GL
-(liste déroulante avec compte + description), montant signé, CCY, nominal,
-référence/client/libellé optionnels → INSERT complet avec les défauts du
-mapping, ou « Add to the lines » pour l'inclure dans le matching et le
-one-shot.
+**Manual line**: "Manual line" panel — pick a LIGNE from the GL mapping
+(dropdown with account + description), signed amount, CCY, nominal, optional
+reference/client/label → full INSERT with the mapping's defaults, or "Add to
+the lines" to include it in the matching and the one-shot.
