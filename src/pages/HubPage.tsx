@@ -36,14 +36,14 @@ export const HubPage: React.FC = () => {
         alertMsg?: string;
         adminOnly?: boolean;
     }> = [
-        { title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'Regulatory', link: '/deadlines' },
         { title: 'Management Report', desc: 'Capital adequacy, LCR & NSFR pack: bridges between any periods, monthly detail, projections.', tag: 'Reporting', link: '/report' },
-        { title: 'Scenarios & Projections', desc: 'What-if simulation: acquisitions, disposals, HQLA trades — impact on CET1, LCR, NSFR.', tag: 'Simulation', link: '/scenarios' },
-        { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns (CASABIS, LCR_G, NSFR_G) or enter components per entity.', tag: 'Data Entry', link: '/capital', adminOnly: true },
         { title: 'Daily Reports', desc: 'Daily / weekly LCR and large exposure reports for key entities.', tag: 'Monitoring', link: '/daily-reports' },
-        { title: 'Library', desc: 'Regulatory texts (CAO/OFR, EBA…), working papers and workbench source files — stored in the database, re-downloadable offline.', tag: 'Documentation', link: '/library' },
-        { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects' },
-        { title: 'Team Directory', desc: 'Contact information for the project team members.', tag: 'People', link: '/team' },
+        { title: 'Calendar & Deadlines', desc: 'Tracking of regulatory and internal deadlines, visual calendar.', tag: 'Regulatory', link: '/deadlines', adminOnly: true },
+        { title: 'Scenarios & Projections', desc: 'What-if simulation: acquisitions, disposals, HQLA trades — impact on CET1, LCR, NSFR.', tag: 'Simulation', link: '/scenarios', adminOnly: true },
+        { title: 'Capital & Liquidity Workbench', desc: 'Import FINMA/SNB Excel returns (CASABIS, LCR_G, NSFR_G) or enter components per entity.', tag: 'Data Entry', link: '/capital', adminOnly: true },
+        { title: 'Library', desc: 'Regulatory texts (CAO/OFR, EBA…), working papers and workbench source files — stored in the database, re-downloadable offline.', tag: 'Documentation', link: '/library', adminOnly: true },
+        { title: 'Projects', desc: 'Track project tasks, assign owners, and monitor progress.', tag: 'Collaboration', link: '/projects', adminOnly: true },
+        { title: 'Team & Contacts', desc: 'The team and the topic-searchable contact directory.', tag: 'People', link: '/team', adminOnly: true },
         { title: 'Backend Cockpit', desc: 'Connection status, live tables, schema and API map; reboot and insert data.', tag: 'Backend', link: '/cockpit', adminOnly: true },
         { title: 'Data Management', desc: 'Add / modify deadlines, import / export CSV and JSON.', tag: 'Admin', link: '/datamanagement', adminOnly: true },
     ].filter(card => !card.adminOnly || isAdmin);
@@ -106,6 +106,7 @@ export const HubPage: React.FC = () => {
                 })}
             </div>
 
+            {isAdmin && (
             <Card>
                 <SectionHeader title="Centralized Database" suffix="read-only" />
                 <p className="text-brand-text-secondary mb-4 text-sm">A read-only view of the application's central data. To edit, import, or export, go to the Data Management module.</p>
@@ -115,6 +116,7 @@ export const HubPage: React.FC = () => {
                     <button onClick={() => navigate('/datamanagement')} className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-5 rounded-md transition-colors">Manage Data</button>
                 </div>
             </Card>
+            )}
         </div>
     );
 };

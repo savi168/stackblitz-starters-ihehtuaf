@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="820" viewBox="0 0 1180 820" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5B6472"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#A62B25"/>
+    </marker>
+  </defs>
+
+  <rect width="1180" height="820" fill="#F7F6F3"/>
+  <text x="40" y="46" font-size="22" font-weight="600" fill="#1F2937">RegReport × Keycloak — le cheminement d'une connexion</text>
+  <text x="40" y="70" font-size="13" fill="#6B7280">L'Active Directory reste la source de vérité des utilisateurs et des groupes ; Keycloak ne fait que les transporter dans un token.</text>
+
+  <!-- ===================== BOXES ===================== -->
+
+  <!-- Navigateur -->
+  <rect x="40" y="150" width="200" height="150" rx="10" fill="#FFFFFF" stroke="#D6D3CC" stroke-width="1.5"/>
+  <text x="140" y="180" font-size="15" font-weight="600" fill="#1F2937" text-anchor="middle">Ton navigateur</text>
+  <text x="140" y="202" font-size="12" fill="#6B7280" text-anchor="middle">(toi, ou un collègue)</text>
+  <text x="140" y="240" font-size="26" text-anchor="middle">👤💻</text>
+  <text x="140" y="280" font-size="11" fill="#6B7280" text-anchor="middle">garde le token JWT</text>
+
+  <!-- RegReport -->
+  <rect x="420" y="130" width="250" height="190" rx="10" fill="#FFFFFF" stroke="#A62B25" stroke-width="2"/>
+  <text x="545" y="160" font-size="15" font-weight="600" fill="#A62B25" text-anchor="middle">RegReport (conteneur)</text>
+  <rect x="440" y="175" width="210" height="38" rx="6" fill="#FBF6F5" stroke="#E3C9C6"/>
+  <text x="545" y="199" font-size="12.5" fill="#1F2937" text-anchor="middle">Front (SPA dans le navigateur)</text>
+  <rect x="440" y="222" width="210" height="60" rx="6" fill="#FBF6F5" stroke="#E3C9C6"/>
+  <text x="545" y="244" font-size="12.5" fill="#1F2937" text-anchor="middle">API .NET</text>
+  <text x="545" y="262" font-size="11" fill="#6B7280" text-anchor="middle">valide le token, mappe</text>
+  <text x="545" y="276" font-size="11" fill="#6B7280" text-anchor="middle">groupes AD → Reader / Admin</text>
+
+  <!-- Keycloak -->
+  <rect x="880" y="130" width="250" height="170" rx="10" fill="#FFFFFF" stroke="#2E5E8C" stroke-width="2"/>
+  <text x="1005" y="160" font-size="15" font-weight="600" fill="#2E5E8C" text-anchor="middle">Keycloak (SSO)</text>
+  <text x="1005" y="182" font-size="12" fill="#6B7280" text-anchor="middle">le serveur d'identité de la plateforme</text>
+  <text x="1005" y="218" font-size="12.5" fill="#1F2937" text-anchor="middle">• authentifie l'utilisateur</text>
+  <text x="1005" y="238" font-size="12.5" fill="#1F2937" text-anchor="middle">• fabrique et signe le token JWT</text>
+  <text x="1005" y="258" font-size="12.5" fill="#1F2937" text-anchor="middle">• y glisse identité + groupes AD</text>
+
+  <!-- Active Directory -->
+  <rect x="880" y="420" width="250" height="150" rx="10" fill="#FFFFFF" stroke="#4B7A4E" stroke-width="2"/>
+  <text x="1005" y="450" font-size="15" font-weight="600" fill="#4B7A4E" text-anchor="middle">Active Directory</text>
+  <text x="1005" y="472" font-size="12" fill="#6B7280" text-anchor="middle">la source de vérité (IT)</text>
+  <text x="1005" y="505" font-size="12.5" fill="#1F2937" text-anchor="middle">utilisateurs + mots de passe</text>
+  <text x="1005" y="527" font-size="12.5" fill="#1F2937" text-anchor="middle">groupes : GG-REGREPORT-USERS,</text>
+  <text x="1005" y="545" font-size="12.5" fill="#1F2937" text-anchor="middle">GG-REGREPORT-ADMINS, (MERCURY…)</text>
+
+  <!-- SQL -->
+  <rect x="420" y="440" width="250" height="110" rx="10" fill="#FFFFFF" stroke="#D6D3CC" stroke-width="1.5"/>
+  <text x="545" y="470" font-size="15" font-weight="600" fill="#1F2937" text-anchor="middle">SQL Server</text>
+  <text x="545" y="492" font-size="12" fill="#6B7280" text-anchor="middle">bases RegReport + MERCURY</text>
+  <text x="545" y="522" font-size="12" fill="#6B7280" text-anchor="middle">(compte de service SQL — indépendant</text>
+  <text x="545" y="538" font-size="12" fill="#6B7280" text-anchor="middle">de l'utilisateur connecté)</text>
+
+  <!-- ===================== PHASE 1 : CONNEXION ===================== -->
+  <text x="40" y="122" font-size="14" font-weight="700" fill="#A62B25">PHASE 1 — À la connexion (une fois par session)</text>
+
+  <!-- 1 : navigateur -> RegReport -->
+  <line x1="240" y1="185" x2="416" y2="185" stroke="#5B6472" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <circle cx="300" cy="185" r="11" fill="#A62B25"/><text x="300" y="189.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+  <text x="328" y="176" font-size="11.5" fill="#374151">ouvre l'appli</text>
+
+  <!-- 2 : RegReport -> navigateur (redirection) -->
+  <line x1="416" y1="225" x2="240" y2="225" stroke="#5B6472" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <circle cx="360" cy="225" r="11" fill="#A62B25"/><text x="360" y="229.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+  <text x="252" y="243" font-size="11.5" fill="#374151">« pas de token ? va voir Keycloak »</text>
+
+  <!-- 3 : navigateur -> Keycloak (grand arc au-dessus) -->
+  <path d="M 140 150 C 200 60, 900 60, 1000 126" fill="none" stroke="#5B6472" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <circle cx="570" cy="90" r="11" fill="#A62B25"/><text x="570" y="94.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+  <text x="592" y="94" font-size="11.5" fill="#374151">login SSO — souvent invisible (déjà connecté au poste)</text>
+
+  <!-- 4 : Keycloak <-> AD (LDAP) -->
+  <line x1="1005" y1="300" x2="1005" y2="416" stroke="#5B6472" stroke-width="1.8" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <circle cx="1005" cy="356" r="11" fill="#A62B25"/><text x="1005" y="360.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+  <text x="1022" y="348" font-size="11.5" fill="#374151">fédération LDAP :</text>
+  <text x="1022" y="364" font-size="11.5" fill="#374151">vérifie l'identité,</text>
+  <text x="1022" y="380" font-size="11.5" fill="#374151">lit les groupes</text>
+
+  <!-- 5 : Keycloak -> navigateur (token) -->
+  <path d="M 880 240 C 700 330, 330 330, 165 304" fill="none" stroke="#A62B25" stroke-width="2.2" marker-end="url(#arrowRed)"/>
+  <circle cx="520" cy="312" r="11" fill="#A62B25"/><text x="520" y="316.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+  <text x="542" y="316" font-size="11.5" font-weight="600" fill="#A62B25">token JWT signé : « savi, groupes = [USERS, ADMINS] »</text>
+
+  <!-- ===================== PHASE 2 : CHAQUE REQUETE ===================== -->
+  <text x="40" y="640" font-size="14" font-weight="700" fill="#2E5E8C">PHASE 2 — À chaque requête (transparent, toute la session)</text>
+
+  <rect x="40" y="660" width="1090" height="120" rx="10" fill="#FFFFFF" stroke="#D6D3CC" stroke-width="1.5"/>
+  <!-- 6 -->
+  <circle cx="80" cy="700" r="11" fill="#2E5E8C"/><text x="80" y="704.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+  <text x="100" y="704" font-size="12.5" fill="#1F2937">le navigateur joint le token à chaque appel API (« Authorization: Bearer … »)</text>
+  <!-- 7 -->
+  <circle cx="80" cy="730" r="11" fill="#2E5E8C"/><text x="80" y="734.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">7</text>
+  <text x="100" y="734" font-size="12.5" fill="#1F2937">l'API vérifie la signature du token (sans rappeler Keycloak) et mappe les groupes :  GG-REGREPORT-ADMINS → Admin  ·  GG-REGREPORT-USERS → Reader (Report + Daily Reports)</text>
+  <!-- 8 -->
+  <circle cx="80" cy="760" r="11" fill="#2E5E8C"/><text x="80" y="764.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">8</text>
+  <text x="100" y="764" font-size="12.5" fill="#1F2937">l'API interroge SQL avec son propre compte de service — l'utilisateur n'a jamais d'accès direct aux bases</text>
+
+  <!-- Ligne API -> SQL (phase 2) -->
+  <line x1="545" y1="320" x2="545" y2="436" stroke="#2E5E8C" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="558" y="385" font-size="11.5" fill="#2E5E8C">requêtes SQL (compte de service)</text>
+
+  <!-- Note gestion -->
+  <rect x="40" y="420" width="330" height="130" rx="10" fill="#FDF9EE" stroke="#D9C68A" stroke-width="1.5"/>
+  <text x="58" y="448" font-size="13" font-weight="600" fill="#8A6D1A">💡 Qui gère les accès ?</text>
+  <text x="58" y="472" font-size="12" fill="#4B5563">Uniquement l'IT, dans l'AD : ajouter ou retirer</text>
+  <text x="58" y="490" font-size="12" fill="#4B5563">quelqu'un d'un groupe suffit. Le groupe MERCURY</text>
+  <text x="58" y="508" font-size="12" fill="#4B5563">peut être imbriqué dans GG-REGREPORT-USERS</text>
+  <text x="58" y="526" font-size="12" fill="#4B5563">(« qui a MERCURY a RegReport »). Rien à changer</text>
+  <text x="58" y="544" font-size="12" fill="#4B5563">dans l'appli ni dans Keycloak.</text>
+</svg>

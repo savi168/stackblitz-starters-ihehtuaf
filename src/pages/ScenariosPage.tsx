@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
-import { BackButton, Card, PageHeader, SectionHeader } from '../components';
+import { BackButton, Card, PageHeader, SectionHeader, WaterfallChart } from '../components';
 import { Scenario, ScenarioShock, ShockTarget } from '../types';
 import { newItemId } from '../services/capital';
 import { formatDate } from '../utils';
@@ -154,6 +154,38 @@ export const ScenariosPage: React.FC = () => {
 
   const sim = scenario ? simulate(baseline, scenario.shocks) : null;
 
+  // --- Impact bridge: waterfall of the selected ratio, one bar per shock ----
+  // Shocks are applied cumulatively in list order (like the capital bridge),
+  // so each bar is the marginal impact given the shocks before it — the sum
+  // of the bars reconciles exactly with the before → after ratios.
+  const [bridgeMetric, setBridgeMetric] = useState<keyof SimResult>('cet1Ratio');
+  const METRIC_LABELS: Array<[keyof SimResult, string]> = [
+    ['cet1Ratio', 'CET1 ratio'], ['totalRatio', 'Total capital ratio'],
+    ['leverage', 'Leverage ratio'], ['lcr', 'LCR'], ['nsfr', 'NSFR'],
+  ];
+  const bridge = useMemo(() => {
+    if (!scenario || scenario.shocks.length === 0) return null;
+    const start = simulate(baseline, [])[bridgeMetric][0];
+    const end = simulate(baseline, scenario.shocks)[bridgeMetric][1];
+    if (start === null || end === null) return null;
+    const items: Array<{ name: string; value: number }> = [
+      { name: `Baseline ${formatDate(effDate)}`, value: start },
+    ];
+    let hidden = 0;
+    let prev = start;
+    scenario.shocks.forEach((shock, i) => {
+      const after = simulate(baseline, scenario.shocks.slice(0, i + 1))[bridgeMetric][1];
+      if (after === null) return;
+      const delta = after - prev;
+      prev = after;
+      if (Math.abs(delta) < 0.005) { hidden++; return; } // no impact on this metric
+      const label = shock.label || SHOCK_CODES[shock.target].find(c => c.code === shock.code)?.label || shock.code;
+      items.push({ name: label, value: delta });
+    });
+    items.push({ name: scenario.name, value: end });
+    return items.length > 2 ? { items, hidden } : null;
+  }, [scenario, baseline, bridgeMetric, effDate]);
+
   const metricRow = (label: string, pair: [number | null, number | null], goodUp = true) => {
     const [before, after] = pair;
     const delta = before !== null && after !== null ? after - before : null;
@@ -300,6 +332,27 @@ export const ScenariosPage: React.FC = () => {
                 {metricRow('LCR', sim.lcr)}
                 {metricRow('NSFR', sim.nsfr)}
               </div>
+
+              {/* Waterfall: impact event by event on the selected ratio */}
+              {bridge && (
+                <div className="mt-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-brand-text-primary">Impact bridge — event by event</h3>
+                    <select value={bridgeMetric} onChange={e => setBridgeMetric(e.target.value as keyof SimResult)}
+                      className="p-1.5 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+                      {METRIC_LABELS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    </select>
+                  </div>
+                  <WaterfallChart title="" data={bridge.items} unit="%" />
+                  <p className="text-[11px] text-brand-text-secondary">
+                    Shocks applied cumulatively in list order, like the capital bridge — each bar is the marginal
+                    impact given the shocks before it (denominator effects included), so the bars reconcile exactly
+                    with the baseline → scenario ratios.
+                    {bridge.hidden > 0 && ` ${bridge.hidden} shock(s) with no impact on this metric are not shown.`}
+                  </p>
+                </div>
+              )}
+
               {/* Per-shock standalone contributions */}
               {scenario.shocks.length > 1 && (
                 <div className="mt-4 overflow-x-auto border border-efg-line rounded-lg">

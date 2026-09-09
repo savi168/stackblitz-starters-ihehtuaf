@@ -6,15 +6,17 @@ import { APP_VERSION, fetchMeta } from './version';
 
 // adminOnly modules stay hidden (and their routes blocked) for users without
 // the Admin role — the API enforces the same rule server-side on mutations.
+// Readers (non-admin) only see the finished reports: Report + Daily Reports.
+// Everything else — working tools and internal modules — is team/admin only.
 const NAV_ITEMS = [
   { to: '/report', label: 'Report' },
-  { to: '/scenarios', label: 'Scenarios' },
+  { to: '/scenarios', label: 'Scenarios', adminOnly: true },
   { to: '/capital', label: 'Workbench', adminOnly: true },
   { to: '/production', label: 'Production', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
-  { to: '/deadlines', label: 'Deadlines' },
-  { to: '/library', label: 'Library' },
-  { to: '/projects', label: 'Projects' },
+  { to: '/deadlines', label: 'Deadlines', adminOnly: true },
+  { to: '/library', label: 'Library', adminOnly: true },
+  { to: '/projects', label: 'Projects', adminOnly: true },
   { to: '/cockpit', label: 'Backend', adminOnly: true },
   { to: '/datamanagement', label: 'Admin', adminOnly: true },
 ];
@@ -155,16 +157,16 @@ const App: React.FC = () => {
                 <Routes>
                   <Route path="/" element={<HubPage />} />
                   <Route path="/daily-reports" element={<DailyReportsPage />} />
-                  <Route path="/deadlines" element={<DeadlinesPage />} />
-                  <Route path="/library" element={<LibraryPage />} />
+                  <Route path="/deadlines" element={<AdminRoute><DeadlinesPage /></AdminRoute>} />
+                  <Route path="/library" element={<AdminRoute><LibraryPage /></AdminRoute>} />
                   <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
-                  <Route path="/projects" element={<ProjectsPage />} />
-                  <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
-                  <Route path="/team" element={<TeamPage />} />
+                  <Route path="/projects" element={<AdminRoute><ProjectsPage /></AdminRoute>} />
+                  <Route path="/projects/:projectId" element={<AdminRoute><ProjectDetailPage /></AdminRoute>} />
+                  <Route path="/team" element={<AdminRoute><TeamPage /></AdminRoute>} />
                   <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
                   <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
                   <Route path="/report" element={<ManagementReportPage />} />
-                  <Route path="/scenarios" element={<ScenariosPage />} />
+                  <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />
                   <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
                 </Routes>
               </Suspense>
