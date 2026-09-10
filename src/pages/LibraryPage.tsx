@@ -529,7 +529,7 @@ export const LibraryPage: React.FC = () => {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="p-5 md:p-8 space-y-6">
       <BackButton />
       <PageHeader title="Library"
         subtitle="Regulatory texts, norms and working files — stored in the RegReport database, organised in folders, available offline and re-downloadable at any time." />

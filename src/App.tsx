@@ -14,7 +14,6 @@ const NAV_ITEMS = [
   { to: '/capital', label: 'Workbench', adminOnly: true },
   { to: '/production', label: 'Production', adminOnly: true },
   { to: '/daily-reports', label: 'Daily Reports' },
-  { to: '/deadlines', label: 'Deadlines', adminOnly: true },
   { to: '/library', label: 'Library', adminOnly: true },
   { to: '/projects', label: 'Projects', adminOnly: true },
   { to: '/cockpit', label: 'Backend', adminOnly: true },
@@ -74,6 +73,36 @@ const VersionBadge: React.FC = () => {
         <span className={`text-[10px] font-bold tracking-wider rounded px-1.5 py-0.5 ${tone}`}>{env}</span>
       )}
     </span>
+  );
+};
+
+/** Icon shortcuts on the right of the ribbon (admins): Deadlines calendar
+ * and the Team & Contacts directory. */
+const IconNav: React.FC = () => {
+  const { isAdmin } = useData();
+  if (!isAdmin) return null;
+  const cls = ({ isActive }: { isActive: boolean }) =>
+    `p-1.5 rounded-md border transition-colors ${
+      isActive
+        ? 'border-efg-line bg-brand-bg-body text-brand-primary'
+        : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary hover:border-efg-line'
+    }`;
+  return (
+    <>
+      <NavLink to="/deadlines" title="Deadlines" className={cls}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Deadlines">
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      </NavLink>
+      <NavLink to="/team" title="Team & Contacts" className={cls}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Team & Contacts">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      </NavLink>
+    </>
   );
 };
 
@@ -201,7 +230,10 @@ const App: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <NavBar />
-                <HeaderMenu />
+                <span className="flex items-center gap-0.5 pl-1 border-l border-efg-line">
+                  <IconNav />
+                  <HeaderMenu />
+                </span>
                 <button onClick={toggleTheme} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
                   className="text-base leading-none px-2 py-1 rounded-md border border-transparent hover:border-efg-line transition-colors">
                   {dark ? '☀️' : '🌙'}

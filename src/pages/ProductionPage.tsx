@@ -1353,7 +1353,7 @@ const ProductionPage: React.FC = () => {
   })), [dates, cps, secs, entity]);
 
   return (
-    <div className="space-y-6">
+    <div className="p-5 md:p-8 space-y-6">
       <BackButton />
       <PageHeader
         title="Production"
