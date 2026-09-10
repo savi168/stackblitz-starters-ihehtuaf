@@ -45,6 +45,22 @@ public class LogsController : ControllerBase
         return Ok(rows);
     }
 
+    /// <summary>
+    /// Per-row audit summary of one dataset: how many recorded changes each
+    /// row has and when the last one happened. Feeds the Data Explorer's
+    /// "row was changed" markers; grouped on the (Dataset, RowKey) index.
+    /// </summary>
+    [HttpGet("business/summary")]
+    public async Task<IActionResult> Summary([FromQuery] string dataset)
+    {
+        var rows = await _db.ChangeLogs.AsNoTracking()
+            .Where(x => x.Dataset == dataset && x.RowKey != "")
+            .GroupBy(x => x.RowKey)
+            .Select(g => new { rowKey = g.Key, count = g.Count(), lastAt = g.Max(x => x.At) })
+            .ToListAsync();
+        return Ok(rows);
+    }
+
     public record BusinessEntryDto(string Dataset, string Action, string Details, string? RowKey);
 
     [HttpPost("business")]

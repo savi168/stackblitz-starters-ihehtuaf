@@ -468,11 +468,14 @@ const RowEditorPanel: React.FC<{
 
 // --- Data explorer (spreadsheet) ---
 const DataExplorer: React.FC = () => {
-    const { data, setData } = useData();
+    const { data, setData, mode, apiBaseUrl } = useData();
     const [selectedKey, setSelectedKey] = useState<string>(BACKEND_TABLES[0].key as string);
     const [query, setQuery] = useState('');
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
     const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
+    // rowKey -> {count, lastAt}: which rows of this dataset have recorded
+    // changes (fed by /api/logs/business/summary, one grouped indexed query).
+    const [auditMap, setAuditMap] = useState<Map<string, { count: number; lastAt: string | number }>>(new Map());
     const [inserting, setInserting] = useState(false);
     const [importingCsv, setImportingCsv] = useState(false);
     const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -522,6 +525,38 @@ const DataExplorer: React.FC = () => {
         return parts.join(' · ');
     }, [selectedKey]);
 
+    const loadAudit = useCallback(async () => {
+        if (mode === 'api' && apiBaseUrl) {
+            try {
+                const res = await fetch(`${apiBaseUrl}/logs/business/summary?dataset=${encodeURIComponent(selectedKey)}`, { credentials: 'include' });
+                if (!res.ok) { setAuditMap(new Map()); return; }
+                const rows = await res.json() as { rowKey: string; count: number; lastAt: string }[];
+                setAuditMap(new Map(rows.map(r => [r.rowKey, { count: r.count, lastAt: r.lastAt }])));
+            } catch { setAuditMap(new Map()); }
+        } else {
+            const m = new Map<string, { count: number; lastAt: string | number }>();
+            for (const e of getLocalBusinessLog()) {
+                if (e.dataset !== selectedKey || !e.rowKey) continue;
+                const cur = m.get(e.rowKey);
+                m.set(e.rowKey, { count: (cur?.count || 0) + 1, lastAt: Math.max(Number(cur?.lastAt) || 0, e.at) });
+            }
+            setAuditMap(m);
+        }
+    }, [mode, apiBaseUrl, selectedKey]);
+    React.useEffect(() => { void loadAudit(); }, [loadAudit]);
+
+    // Optimistic marker update after an explicit audit entry (the POST is
+    // fire-and-forget, so the badge appears without waiting for a refetch).
+    const bumpAudit = useCallback((rowKey: string) => {
+        if (!rowKey) return;
+        setAuditMap(prev => {
+            const m = new Map(prev);
+            const cur = m.get(rowKey);
+            m.set(rowKey, { count: (cur?.count || 0) + 1, lastAt: Date.now() });
+            return m;
+        });
+    }, []);
+
     const insertFields = useMemo(() => {
         if (columns.length > 0) {
             return columns
@@ -551,6 +586,7 @@ const DataExplorer: React.FC = () => {
             rowKey: rowLabel(row),
             details: `${rowLabel(row) || 'new row'} — ${JSON.stringify(row).slice(0, 400)}`,
         }], { explicit: true });
+        bumpAudit(rowLabel(row));
         setInserting(false);
     };
 
@@ -604,6 +640,7 @@ const DataExplorer: React.FC = () => {
             rowKey: rowLabel(target),
             details: `${rowLabel(target) || 'row'} — ${JSON.stringify(target).slice(0, 400)}`,
         }], { explicit: true });
+        bumpAudit(rowLabel(target));
     };
 
     const deleteRow = (rowIndex: number) => {
@@ -632,6 +669,7 @@ const DataExplorer: React.FC = () => {
                 rowKey: rowLabel(original),
                 details: `${rowLabel(original) || 'row'} — ${changes.join('; ')}`,
             }], { explicit: true });
+            bumpAudit(rowLabel(original));
         }
         setEditing(null);
     };
@@ -672,7 +710,10 @@ const DataExplorer: React.FC = () => {
                 )}
             </div>
 
-            <p className="text-xs text-brand-text-secondary mb-3">{table.description}</p>
+            <p className="text-xs text-brand-text-secondary mb-3">
+                {table.description}
+                {auditMap.size > 0 && <span className="ml-2 text-status-amber">✎ = row has recorded changes — click it to see the history.</span>}
+            </p>
             {selectedKey === 'capitalReports' && (
                 <p className="text-xs text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded-md px-3 py-2 mb-3">
                     Capital reports carry nested line items — load them via the <strong>Capital Workbench</strong> (FINMA Excel import or manual entry), not CSV.
@@ -691,12 +732,14 @@ const DataExplorer: React.FC = () => {
                         <thead className="bg-brand-bg-body">
                             <tr>
                                 <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold sticky left-0 bg-brand-bg-body">#</th>
+                                <th className="px-2 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold text-center" title="Rows with recorded changes (audit trail)">✎</th>
                                 {columns.map(c => <th key={c} className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{c}</th>)}
                                 <th className="px-3 py-2"></th>
                             </tr>
                             {/* Per-column filters (ANDed, case-insensitive contains) */}
                             <tr className="bg-white border-t border-efg-line">
                                 <th className="px-3 py-1 sticky left-0 bg-white"></th>
+                                <th className="px-2 py-1"></th>
                                 {columns.map(c => (
                                     <th key={c} className="px-2 py-1 font-normal">
                                         <input
@@ -717,11 +760,23 @@ const DataExplorer: React.FC = () => {
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
-                                <tr><td colSpan={columns.length + 2} className="px-3 py-8 text-center text-brand-text-secondary">No rows.</td></tr>
+                                <tr><td colSpan={columns.length + 3} className="px-3 py-8 text-center text-brand-text-secondary">No rows.</td></tr>
                             ) : filtered.slice(0, 500).map((row, i) => (
                                 <tr key={i} onClick={() => setEditing(row)} title="Click to view / edit this row"
                                     className="border-t border-efg-line hover:bg-brand-bg-body cursor-pointer">
                                     <td className="px-3 py-1.5 text-gray-400 sticky left-0 bg-white">{i + 1}</td>
+                                    <td className="px-2 py-1.5 text-center">
+                                        {(() => {
+                                            const a = auditMap.get(rowLabel(row));
+                                            return a ? (
+                                                <span
+                                                    title={`${a.count} recorded change(s) — last: ${new Date(a.lastAt).toLocaleString()}. Open the row to see the history.`}
+                                                    className="inline-flex items-center text-[10px] font-bold text-status-amber bg-status-amber/15 rounded px-1 py-0.5">
+                                                    ✎{a.count > 1 ? a.count : ''}
+                                                </span>
+                                            ) : null;
+                                        })()}
+                                    </td>
                                     {columns.map(c => <td key={c} className="px-3 py-1.5">{renderCell(row[c])}</td>)}
                                     <td className="px-3 py-1.5 text-right">
                                         <button onClick={e => { e.stopPropagation(); deleteRow(i); }} title="Delete row" className="text-gray-300 hover:text-brand-primary">✕</button>
