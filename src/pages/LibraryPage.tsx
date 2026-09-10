@@ -44,8 +44,29 @@ const mdToHtml = (md: string): string => {
   const out: string[] = [];
   let list: 'ul' | 'ol' | null = null;
   const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  // Markdown tables: consecutive |…| lines; the :---: separator row marks
+  // the first row as the header and is dropped.
+  let table: string[][] | null = null;
+  const closeTable = () => {
+    if (table && table.length > 0) {
+      const [head, ...body] = table;
+      out.push('<table><thead><tr>' + head.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead><tbody>'
+        + body.map(r => '<tr>' + r.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>').join('')
+        + '</tbody></table>');
+    }
+    table = null;
+  };
   for (const raw of src.split('\n')) {
     const line = raw.replace(/\s+$/, '');
+    const tr = line.trim();
+    if (/^\|.*\|$/.test(tr)) {
+      closeList();
+      const cells = tr.slice(1, -1).split('|').map(c => c.trim());
+      if (cells.every(c => /^:?-{3,}:?$/.test(c))) continue; // header separator
+      (table ??= []).push(cells);
+      continue;
+    }
+    closeTable();
     const h = line.match(/^(#{1,3}) (.*)$/);
     const li = line.match(/^\s*[-*] (?:\[[ x]\]\s*)?(.*)$/);
     const oli = line.match(/^\s*\d+\. (.*)$/);
@@ -67,6 +88,7 @@ const mdToHtml = (md: string): string => {
     }
     out.push(`<p>${inline(line)}</p>`);
   }
+  closeTable();
   closeList();
   return `<div class="md-doc">${out.join('\n')}</div>`
     .replace(/\u0000(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)]);
@@ -237,6 +259,7 @@ const BUILT_IN_DOCS = [
   { stem: 'mercury-datamodel', icon: '📕', title: 'MERCURY — Quadrum Data Lake data model', path: 'docs/mercury-datamodel.pdf', label: 'MERCURY — Quadrum Data Lake data model (PDF)' },
   { stem: 'mercury-integration', icon: '📄', title: 'MERCURY — integration & adjustments notes', path: 'docs/mercury-integration.md', label: 'MERCURY — integration & adjustments notes' },
   { stem: 'release-procedure', icon: '🚀', title: 'Release & upgrade procedure', path: 'docs/release-procedure.md', label: 'Release & upgrade procedure' },
+  { stem: 'release-notes', icon: '📋', title: 'Release notes', path: 'docs/release-notes.md', label: 'Release notes (version history)' },
 ];
 
 export const LibraryPage: React.FC = () => {

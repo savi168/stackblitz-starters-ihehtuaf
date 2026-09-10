@@ -43,12 +43,16 @@ Admin → System).
 
 1. Bump the version number — **one single place**:
    `src/version.ts` → `APP_VERSION = 'X.Y.Z'`.
-2. Commit, then build the deliverable:
+2. Append a section to the **release notes**
+   (`public/docs/release-notes.md`, newest first): what changed, the schema
+   migrations shipped, upgrade notes. They stay consultable forever in
+   Library → *Release notes (version history)*.
+3. Commit, then build the deliverable:
    - **Zip mode**: `.\scripts\release.ps1` (the version is read from
      version.ts automatically) → `releases\RegReport-vX.Y.Z.zip`;
    - **Docker mode**: `docker build -t regreport:X.Y.Z .` then, with a
      registry, `docker push <registry>/regreport:X.Y.Z`.
-3. The number propagates everywhere: header badge, VERSION.txt, the API
+4. The number propagates everywhere: header badge, VERSION.txt, the API
    assembly, `GET /api/meta`.
 
 ---

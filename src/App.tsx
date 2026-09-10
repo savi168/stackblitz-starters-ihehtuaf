@@ -101,6 +101,7 @@ const HeaderMenu: React.FC = () => {
     { label: 'MERCURY — data model (PDF)', doc: 'mercury-datamodel' },
     { label: 'MERCURY — integration & adjustments', doc: 'mercury-integration' },
     { label: 'Release & upgrade procedure', doc: 'release-procedure' },
+    { label: 'Release notes (version history)', doc: 'release-notes' },
   ];
   return (
     <div className="relative" ref={ref}>

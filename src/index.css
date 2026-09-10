@@ -172,3 +172,16 @@
 .md-doc pre code { background: transparent; border: 0; padding: 0; }
 .md-doc a { color: rgb(var(--brand-primary)); text-decoration: underline; }
 .md-doc strong { font-weight: 600; }
+.md-doc table {
+  width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 13px;
+  border: 1px solid rgb(var(--efg-line));
+}
+.md-doc th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: rgb(var(--brand-text-secondary)); background: rgb(var(--brand-bg-body));
+  padding: 6px 10px; border-bottom: 1px solid rgb(var(--efg-line));
+}
+.md-doc td {
+  padding: 6px 10px; border-bottom: 1px solid rgb(var(--efg-line)); vertical-align: top;
+}
+.md-doc tr:last-child td { border-bottom: none; }
