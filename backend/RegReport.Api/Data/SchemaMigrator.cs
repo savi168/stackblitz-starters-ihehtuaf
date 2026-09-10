@@ -265,6 +265,30 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ChangeLogs_Dataset_RowKey')
     CREATE INDEX [IX_ChangeLogs_Dataset_RowKey] ON [ChangeLogs] ([Dataset], [RowKey]);
 "),
+
+        // Period-key indexes on the two per-counterparty tables that grow with
+        // every reporting date. Their Entity/Date columns were created as
+        // nvarchar(max) (not indexable), so they are narrowed first — safe:
+        // they only ever hold entity names and ISO dates.
+        ("009_performance_indexes", @"
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_LargeExposures_Entity_Date')
+    ALTER TABLE [LargeExposures] ALTER COLUMN [Entity] nvarchar(450) NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_LargeExposures_Entity_Date')
+    ALTER TABLE [LargeExposures] ALTER COLUMN [Date] nvarchar(450) NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_LargeExposures_Entity_Date')
+    CREATE INDEX [IX_LargeExposures_Entity_Date] ON [LargeExposures] ([Entity], [Date]);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CounterpartyRwa_Entity_Date')
+    ALTER TABLE [CounterpartyRwa] ALTER COLUMN [Entity] nvarchar(450) NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CounterpartyRwa_Entity_Date')
+    ALTER TABLE [CounterpartyRwa] ALTER COLUMN [Date] nvarchar(450) NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CounterpartyRwa_Entity_Date')
+    CREATE INDEX [IX_CounterpartyRwa_Entity_Date] ON [CounterpartyRwa] ([Entity], [Date]);
+"),
     };
 
     public static void Apply(AppDbContext db, ILogger logger)

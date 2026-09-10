@@ -95,6 +95,20 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
     SchemaMigrator.Apply(db, app.Logger);
     if (app.Environment.IsDevelopment()) DbSeeder.Seed(db);
+
+    // Optional audit retention (App:ChangeLogRetentionDays). Default 0 = keep
+    // everything — in banking the audit trail usually stays for years, and the
+    // (Dataset, RowKey)/(At) indexes keep it fast even with millions of rows.
+    // Set a value (e.g. 3650 = 10 years) to purge older entries at startup.
+    var retentionDays = builder.Configuration.GetValue<int>("App:ChangeLogRetentionDays");
+    if (retentionDays > 0)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
+        var purged = db.ChangeLogs.Where(x => x.At < cutoff).ExecuteDelete();
+        if (purged > 0)
+            app.Logger.LogInformation(
+                "Audit retention: purged {Count} ChangeLogs entries older than {Days} days", purged, retentionDays);
+    }
 }
 
 app.UseCors(CorsPolicy);

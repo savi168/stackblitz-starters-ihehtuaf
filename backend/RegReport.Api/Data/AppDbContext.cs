@@ -104,8 +104,18 @@ public class AppDbContext : DbContext
             });
         });
 
-        b.Entity<CounterpartyRwa>().HasKey(x => x.Id);
-        b.Entity<LargeExposure>().HasKey(x => x.Id);
+        // Both grow with every reporting period (rows per counterparty per
+        // entity/date) — index the period key so per-period reads stay flat.
+        b.Entity<CounterpartyRwa>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date });
+        });
+        b.Entity<LargeExposure>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date });
+        });
 
         b.Entity<TeamMember>(e =>
         {
