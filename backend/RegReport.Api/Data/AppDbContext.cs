@@ -52,8 +52,10 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.UserName).HasMaxLength(128);
             e.Property(x => x.Dataset).HasMaxLength(64);
+            e.Property(x => x.RowKey).HasMaxLength(200);
             e.Property(x => x.Action).HasMaxLength(32);
             e.HasIndex(x => x.At);
+            e.HasIndex(x => new { x.Dataset, x.RowKey });
         });
         b.Entity<KpiHistoryEntry>(e =>
         {

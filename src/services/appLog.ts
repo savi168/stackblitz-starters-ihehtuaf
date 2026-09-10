@@ -84,6 +84,9 @@ export interface BusinessEntry {
   at: number;
   userName: string;
   dataset: string;
+  /** Identity of the changed row (natural key or "id N") — '' for
+   * whole-dataset entries. Indexed server-side with the dataset. */
+  rowKey?: string;
   /** insert | update | delete | import | save */
   action: string;
   details: string;
@@ -117,7 +120,7 @@ const EXPLICIT_WINDOW_MS = 10_000;
  * edits) so the generic save diff won't duplicate them.
  */
 export const logBusiness = (
-  entries: { dataset: string; action: string; details: string }[],
+  entries: { dataset: string; action: string; details: string; rowKey?: string }[],
   opts?: { explicit?: boolean },
 ) => {
   if (entries.length === 0) return;
@@ -161,8 +164,8 @@ const rowSignatures = (rows: Record<string, unknown>[]): Map<string, string> => 
 export const diffCentralData = (
   prev: CentralData,
   next: CentralData,
-): { dataset: string; action: string; details: string }[] => {
-  const out: { dataset: string; action: string; details: string }[] = [];
+): { dataset: string; action: string; details: string; rowKey?: string }[] => {
+  const out: { dataset: string; action: string; details: string; rowKey?: string }[] = [];
   const now = Date.now();
   const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
 

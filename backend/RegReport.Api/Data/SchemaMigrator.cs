@@ -256,6 +256,15 @@ BEGIN
     CREATE INDEX [IX_ChangeLogs_At] ON [ChangeLogs] ([At]);
 END
 "),
+
+        ("008_change_logs_rowkey", @"
+IF COL_LENGTH('ChangeLogs', 'RowKey') IS NULL
+    ALTER TABLE [ChangeLogs]
+        ADD [RowKey] nvarchar(200) NOT NULL CONSTRAINT [DF_ChangeLogs_RowKey] DEFAULT '';
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ChangeLogs_Dataset_RowKey')
+    CREATE INDEX [IX_ChangeLogs_Dataset_RowKey] ON [ChangeLogs] ([Dataset], [RowKey]);
+"),
     };
 
     public static void Apply(AppDbContext db, ILogger logger)

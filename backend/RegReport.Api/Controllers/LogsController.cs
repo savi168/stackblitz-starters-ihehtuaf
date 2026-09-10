@@ -25,17 +25,27 @@ public class LogsController : ControllerBase
     public IActionResult Tech([FromQuery] int take = 500) =>
         Ok(_buffer.Snapshot(Math.Clamp(take, 1, 1000)));
 
+    /// <summary>
+    /// Audit trail, newest first. `dataset` + `rowKey` narrow the query to a
+    /// single row's history (served by the (Dataset, RowKey) index).
+    /// </summary>
     [HttpGet("business")]
-    public async Task<IActionResult> Business([FromQuery] int take = 300)
+    public async Task<IActionResult> Business(
+        [FromQuery] int take = 300,
+        [FromQuery] string? dataset = null,
+        [FromQuery] string? rowKey = null)
     {
-        var rows = await _db.ChangeLogs.AsNoTracking()
+        var q = _db.ChangeLogs.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrEmpty(dataset)) q = q.Where(x => x.Dataset == dataset);
+        if (!string.IsNullOrEmpty(rowKey)) q = q.Where(x => x.RowKey == rowKey);
+        var rows = await q
             .OrderByDescending(x => x.Id)
             .Take(Math.Clamp(take, 1, 1000))
             .ToListAsync();
         return Ok(rows);
     }
 
-    public record BusinessEntryDto(string Dataset, string Action, string Details);
+    public record BusinessEntryDto(string Dataset, string Action, string Details, string? RowKey);
 
     [HttpPost("business")]
     public async Task<IActionResult> Append([FromBody] BusinessEntryDto[] entries)
@@ -50,6 +60,7 @@ public class LogsController : ControllerBase
                 At = now,
                 UserName = user,
                 Dataset = e.Dataset.Length > 64 ? e.Dataset[..64] : e.Dataset,
+                RowKey = (e.RowKey ?? "").Length > 200 ? e.RowKey![..200] : e.RowKey ?? "",
                 Action = e.Action.Length > 32 ? e.Action[..32] : e.Action,
                 Details = e.Details,
             });

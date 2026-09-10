@@ -8,7 +8,7 @@ import {
 /** Server-side entries as returned by GET /api/logs/tech. */
 interface ServerTechEntry { at: string; level: string; category: string; message: string }
 /** Rows of the ChangeLogs table (GET /api/logs/business). */
-interface ServerBusinessEntry { id: number; at: string; userName: string; dataset: string; action: string; details: string }
+interface ServerBusinessEntry { id: number; at: string; userName: string; dataset: string; rowKey?: string; action: string; details: string }
 
 const time = (t: number | string) => new Date(t).toLocaleTimeString();
 const dateTime = (t: number | string) => new Date(t).toLocaleString();
@@ -174,7 +174,7 @@ const BusinessTab: React.FC = () => {
     const list = rows ?? [];
     if (!q) return list;
     return (list as (ServerBusinessEntry | BusinessEntry)[]).filter(r =>
-      `${r.userName} ${r.dataset} ${r.action} ${r.details}`.toLowerCase().includes(q));
+      `${r.userName} ${r.dataset} ${r.rowKey || ''} ${r.action} ${r.details}`.toLowerCase().includes(q));
   }, [rows, q]);
 
   return (
@@ -183,7 +183,7 @@ const BusinessTab: React.FC = () => {
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Filter — user, dataset, action, details…"
+          placeholder="Filter — user, dataset, row, action, details…"
           className="flex-1 p-2.5 border-2 border-gray-200 rounded-lg text-sm focus:border-brand-primary bg-white"
         />
         <button onClick={() => void refresh()} className="text-sm font-semibold text-brand-secondary border border-brand-secondary hover:bg-brand-secondary hover:text-white py-2 px-4 rounded-md transition-colors whitespace-nowrap">
@@ -202,18 +202,24 @@ const BusinessTab: React.FC = () => {
               <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold whitespace-nowrap">When</th>
               <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">User</th>
               <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Dataset</th>
+              <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Row</th>
               <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Action</th>
               <th className="px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Details</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-8 text-center text-brand-text-secondary">{rows == null ? 'Loading…' : 'No entries yet — they appear as soon as data changes.'}</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-brand-text-secondary">{rows == null ? 'Loading…' : 'No entries yet — they appear as soon as data changes.'}</td></tr>
             ) : (filtered as (ServerBusinessEntry | BusinessEntry)[]).map((r, i) => (
               <tr key={i} className="border-t border-efg-line align-top">
                 <td className="px-3 py-1.5 text-brand-text-secondary whitespace-nowrap tabular-nums">{dateTime(r.at)}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap">{r.userName.split('\\').pop()}</td>
                 <td className="px-3 py-1.5 font-mono whitespace-nowrap">{r.dataset}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap max-w-[16rem] truncate" title={r.rowKey || undefined}>
+                  {r.rowKey ? (
+                    <button onClick={() => setQuery(r.rowKey!)} title="Filter on this row" className="underline decoration-dotted hover:text-brand-primary">{r.rowKey}</button>
+                  ) : <span className="text-gray-300">—</span>}
+                </td>
                 <td className="px-3 py-1.5">
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${r.action === 'delete' ? 'bg-status-red/15 text-status-red' : r.action === 'insert' || r.action === 'import' ? 'bg-status-green/15 text-status-green' : 'bg-brand-bg-body text-brand-text-secondary'}`}>{r.action}</span>
                 </td>

@@ -744,6 +744,13 @@ public class ChangeLog
     public DateTime At { get; set; }
     public string UserName { get; set; } = "";
     public string Dataset { get; set; } = "";
+    /// <summary>
+    /// Identity of the changed row inside its dataset — the natural key
+    /// (e.g. "COUNTERPARTY 1 · EFG International · 2026-06-30") or "id N".
+    /// Indexed with Dataset so one row's full history is one indexed lookup.
+    /// Empty for whole-dataset entries (imports, save summaries).
+    /// </summary>
+    public string RowKey { get; set; } = "";
     /// <summary>insert | update | delete | import | save</summary>
     public string Action { get; set; } = "";
     public string Details { get; set; } = "";

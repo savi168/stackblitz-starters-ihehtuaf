@@ -7,7 +7,7 @@ import {
     downloadCsv, NATURAL_KEYS, parseCsv,
 } from '../services/csvImport';
 import { projectToKpiHistory } from '../services/capital';
-import { logBusiness } from '../services/appLog';
+import { logBusiness, getLocalBusinessLog, BusinessEntry } from '../services/appLog';
 import { CentralData } from '../types';
 
 const methodColor: Record<EndpointMeta['method'], string> = {
@@ -320,13 +320,31 @@ const fmtVal = (v: unknown): string => {
 
 const RowEditorPanel: React.FC<{
     table: TableMeta;
+    datasetKey: string;
     row: Record<string, unknown>;
     columns: string[];
     rowLabel: string;
     onClose: () => void;
     onSave: (updated: Record<string, unknown>) => void;
     onDelete: () => void;
-}> = ({ table, row, columns, rowLabel, onClose, onSave, onDelete }) => {
+}> = ({ table, datasetKey, row, columns, rowLabel, onClose, onSave, onDelete }) => {
+    const { mode, apiBaseUrl } = useData();
+    // Audit history of THIS row — one indexed lookup on (Dataset, RowKey).
+    const [history, setHistory] = useState<BusinessEntry[] | null>(null);
+    React.useEffect(() => {
+        let cancelled = false;
+        if (!rowLabel) { setHistory([]); return; }
+        if (mode === 'api' && apiBaseUrl) {
+            fetch(`${apiBaseUrl}/logs/business?take=50&dataset=${encodeURIComponent(datasetKey)}&rowKey=${encodeURIComponent(rowLabel)}`,
+                { credentials: 'include' })
+                .then(r => (r.ok ? r.json() : []))
+                .then(rows => { if (!cancelled) setHistory(rows as BusinessEntry[]); })
+                .catch(() => { if (!cancelled) setHistory([]); });
+        } else {
+            setHistory(getLocalBusinessLog().filter(e => e.dataset === datasetKey && e.rowKey === rowLabel));
+        }
+        return () => { cancelled = true; };
+    }, [mode, apiBaseUrl, datasetKey, rowLabel]);
     type FieldType = 'number' | 'boolean' | 'json' | 'string';
     const fields = useMemo(() => columns.map(c => {
         const v = row[c];
@@ -405,6 +423,32 @@ const RowEditorPanel: React.FC<{
                             )}
                         </div>
                     ))}
+
+                    {/* Audit history of this row */}
+                    <div className="pt-3 mt-3 border-t border-efg-line">
+                        <p className="text-[11px] uppercase tracking-widest text-brand-text-secondary mb-2">
+                            Change history {history != null && history.length > 0 && `(${history.length})`}
+                        </p>
+                        {history == null ? (
+                            <p className="text-xs text-brand-text-secondary">Loading…</p>
+                        ) : history.length === 0 ? (
+                            <p className="text-xs text-brand-text-secondary">
+                                {rowLabel ? 'No recorded changes for this row yet.' : 'This table has no natural key — history is tracked at dataset level (☰ → Logs).'}
+                            </p>
+                        ) : (
+                            <ul className="space-y-2">
+                                {history.map((h, i) => (
+                                    <li key={i} className="text-xs bg-brand-bg-body border border-efg-line rounded-md px-2.5 py-1.5">
+                                        <div className="flex items-center justify-between gap-2 text-brand-text-secondary">
+                                            <span className="tabular-nums">{new Date(h.at).toLocaleString()}</span>
+                                            <span>{(h.userName || '').split('\\').pop()} · <strong className={h.action === 'delete' ? 'text-status-red' : 'text-brand-text-primary'}>{h.action}</strong></span>
+                                        </div>
+                                        <p className="mt-1 text-brand-text-primary whitespace-pre-wrap break-words">{h.details}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
                 </div>
                 {error && <p className="mx-5 mb-2 text-status-red text-sm bg-status-red/10 border border-status-red/30 rounded-md px-3 py-2">{error}</p>}
                 <div className="px-5 py-4 border-t border-efg-line flex items-center justify-between gap-3">
@@ -464,12 +508,18 @@ const DataExplorer: React.FC = () => {
     }, [rows, query, colFilters]);
 
     // Short identity of a row for the audit trail: natural key when the table
-    // has one, else the id, else nothing.
+    // has one, else the id, else the row's identifying business fields.
     const rowLabel = useCallback((row: Record<string, unknown>): string => {
         const keys = NATURAL_KEYS[selectedKey];
         if (keys) return keys.map(k => String(row[k] ?? '')).filter(Boolean).join(' · ');
         if (row.id !== null && row.id !== undefined) return `id ${row.id}`;
-        return '';
+        const CANDIDATES = ['entity', 'date', 'counterparty', 'clientNumber', 'isin', 'groupLexId',
+            'currency', 'ccy', 'control', 'name', 'title', 'key', 'label', 'category'];
+        const parts = CANDIDATES
+            .filter(k => row[k] !== null && row[k] !== undefined && row[k] !== '' && typeof row[k] !== 'object')
+            .slice(0, 3)
+            .map(k => String(row[k]));
+        return parts.join(' · ');
     }, [selectedKey]);
 
     const insertFields = useMemo(() => {
@@ -498,6 +548,7 @@ const DataExplorer: React.FC = () => {
         logBusiness([{
             dataset: selectedKey,
             action: 'insert',
+            rowKey: rowLabel(row),
             details: `${rowLabel(row) || 'new row'} — ${JSON.stringify(row).slice(0, 400)}`,
         }], { explicit: true });
         setInserting(false);
@@ -550,6 +601,7 @@ const DataExplorer: React.FC = () => {
         logBusiness([{
             dataset: selectedKey,
             action: 'delete',
+            rowKey: rowLabel(target),
             details: `${rowLabel(target) || 'row'} — ${JSON.stringify(target).slice(0, 400)}`,
         }], { explicit: true });
     };
@@ -577,6 +629,7 @@ const DataExplorer: React.FC = () => {
             logBusiness([{
                 dataset: selectedKey,
                 action: 'update',
+                rowKey: rowLabel(original),
                 details: `${rowLabel(original) || 'row'} — ${changes.join('; ')}`,
             }], { explicit: true });
         }
@@ -704,6 +757,7 @@ const DataExplorer: React.FC = () => {
             {editing && (
                 <RowEditorPanel
                     table={table}
+                    datasetKey={selectedKey}
                     row={editing}
                     columns={columns.length > 0 ? Array.from(new Set([...columns, ...Object.keys(editing)])) : Object.keys(editing)}
                     rowLabel={rowLabel(editing)}
