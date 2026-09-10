@@ -37,7 +37,13 @@ RUN VER=$(sed -n "s/.*APP_VERSION = '\([^']*\)'.*/\1/p" src/version.ts) && \
       -c Release -o /out /p:Version=${VER:-0.0.0}
 
 # --- Étape 3 : image finale --------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+# Base "chiseled" (Ubuntu minimale, ~10 paquets, PAS de shell, utilisateur
+# NON-root par défaut) : réduit drastiquement la surface d'attaque et les
+# findings des scanners (Trivy & co) par rapport à aspnet:8.0 Debian complet.
+# Variante -extra = + ICU/tzdata (globalisation, dates). Conséquence assumée :
+# pas de `docker exec bash` dans ce conteneur — diagnostic via `docker logs`
+# et la page ☰ → Logs de l'application.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-noble-chiseled-extra
 WORKDIR /app
 COPY --from=api /out .
 COPY --from=front /src/dist ./wwwroot

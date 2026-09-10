@@ -91,3 +91,47 @@ auto-hébergée, aucune dépendance CDN).
 L'image estampille l'assembly avec `APP_VERSION` lue dans `src/version.ts`
 (même numéro que le badge du header et `GET /api/meta`). Taguer l'image
 pareil : `regreport:3.2.0`.
+
+## Scan de sécurité (Trivy)
+
+Les plateformes d'entreprise scannent les images avant déploiement (souvent
+avec **Trivy**) et bloquent sur les vulnérabilités HIGH/CRITICAL. L'image est
+construite pour bien passer :
+
+- **Base runtime "chiseled"** (`aspnet:8.0-noble-chiseled-extra`) : Ubuntu
+  minimale (~10 paquets au lieu d'une centaine), **pas de shell**, utilisateur
+  **non-root** — la quasi-totalité des CVE OS des images Debian classiques
+  disparaissent du scan.
+- **Multi-stage** : node et le SDK .NET ne sont PAS dans l'image finale — seuls
+  le runtime, les DLL publiées et les fichiers statiques du front sont livrés.
+  Les paquets npm ne sont jamais expédiés (uniquement le bundle compilé).
+- **NuGet en versions flottantes** (`8.0.*`) : chaque build en ligne prend les
+  derniers correctifs de sécurité .NET/EF Core automatiquement.
+- **Aucun secret dans l'image** : les connexions arrivent par variables
+  d'environnement à l'exécution.
+
+Vérifier soi-même AVANT l'IT (sur le poste avec Docker Desktop) :
+
+```powershell
+docker build -t regreport:X.Y.Z .
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock `
+  aquasec/trivy image --severity HIGH,CRITICAL --ignore-unfixed regreport:X.Y.Z
+```
+
+`--ignore-unfixed` masque les CVE sans correctif disponible (aucune action
+possible) — la plupart des politiques d'entreprise les tolèrent ; retirer le
+flag pour voir la liste complète.
+
+Deux réflexes d'exploitation :
+
+1. **Reconstruire l'image à chaque release** (et au moins mensuellement s'il
+   n'y a pas de release) : les correctifs OS et .NET arrivent par les images
+   de base — une image jamais reconstruite accumule les findings.
+2. Le conteneur chiseled n'a pas de shell : le diagnostic passe par
+   `docker logs regreport` et la page **☰ → Logs** de l'application (c'est
+   voulu — un attaquant n'a pas de shell non plus).
+
+Note : le `docker-compose.yml` du dépôt embarque un mot de passe `sa` PAR
+DÉFAUT pour le TEST local — le surcharger (`SQL_SA_PASSWORD`) et ne jamais
+utiliser ce compose SQL en production (en entreprise, la base est celle de
+l'IT).

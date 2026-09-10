@@ -6,6 +6,26 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.3.1 — 10 September 2026
+
+**Theme: container hardening for enterprise security scans (Trivy).**
+
+- **Minimal runtime base image**: the container now runs on
+  `aspnet:8.0-noble-chiseled-extra` — a stripped-down Ubuntu base
+  (~10 OS packages, no shell, **non-root** user). This removes the bulk
+  of the HIGH/CRITICAL OS findings a scanner reports against classic
+  Debian-based images.
+- **Floating NuGet patch versions** (`8.0.*`): every online build picks
+  up the latest .NET / EF Core security patches automatically; the
+  offline (vendored) build keeps working unchanged.
+- **Scan guide**: `docs/DOCKER.md` gains a *Security scanning (Trivy)*
+  section — how to scan the image yourself before IT does, and why the
+  image should be rebuilt at every release.
+- No schema changes, no functional changes. Note: the chiseled container
+  has no shell — diagnostics go through `docker logs` and ☰ → Logs.
+
+---
+
 ## v3.3.0 — 10 September 2026
 
 **Theme: traceability — logs, audit trail, and in-place data editing.**

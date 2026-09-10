@@ -51,7 +51,10 @@ Admin → System).
    - **Zip mode**: `.\scripts\release.ps1` (the version is read from
      version.ts automatically) → `releases\RegReport-vX.Y.Z.zip`;
    - **Docker mode**: `docker build -t regreport:X.Y.Z .` then, with a
-     registry, `docker push <registry>/regreport:X.Y.Z`.
+     registry, `docker push <registry>/regreport:X.Y.Z`. Rebuild at every
+     release (base-image and NuGet security patches come with the build)
+     and, if the platform scans images, run Trivy yourself first — see
+     "Security scanning" in `docs/DOCKER.md`.
 4. The number propagates everywhere: header badge, VERSION.txt, the API
    assembly, `GET /api/meta`.
 
