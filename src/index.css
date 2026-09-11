@@ -185,3 +185,69 @@
   padding: 6px 10px; border-bottom: 1px solid rgb(var(--efg-line)); vertical-align: top;
 }
 .md-doc tr:last-child td { border-bottom: none; }
+
+/* ---------------------------------------------------------------------------
+ * Polish pass (v3.3.2): finishing touches on top of the EFG identity —
+ * no palette change, just material quality and micro-interactions.
+ * ------------------------------------------------------------------------- */
+
+/* Frosted-glass sticky header: content scrolls "under" it. */
+.app-header {
+  background-color: rgb(255 255 255 / 0.82);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+}
+.dark .app-header { background-color: rgb(28 33 37 / 0.82); }
+
+/* Text selection in brand color. */
+::selection { background-color: rgb(var(--brand-primary) / 0.18); }
+
+/* Visible, branded keyboard-focus ring (mouse clicks stay clean). */
+:focus-visible {
+  outline: 2px solid rgb(var(--brand-primary) / 0.55);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Thin, theme-aware scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--efg-line)) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--efg-line));
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--brand-accent)); }
+
+/* Tactile button press (respects disabled state and reduced motion). */
+button:not(:disabled):active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active { transform: none; }
+  .skeleton::after { animation: none; }
+}
+
+/* Tables align their digits (Inter tabular numerals). */
+table { font-variant-numeric: tabular-nums; }
+
+/* Skeleton loading placeholder with a soft shimmer sweep. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: rgb(var(--efg-line) / 0.6);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5), transparent);
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+.dark .skeleton { background-color: rgb(var(--efg-line) / 0.45); }
+.dark .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+}
+@keyframes skeleton-sweep { to { transform: translateX(100%); } }

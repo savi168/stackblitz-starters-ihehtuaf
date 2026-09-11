@@ -33,7 +33,9 @@ export default {
         'status-red': 'rgb(var(--status-red) / <alpha-value>)',
       },
       boxShadow: {
-        card: '0 1px 2px 0 rgb(43 51 56 / 0.04), 0 1px 3px 0 rgb(43 51 56 / 0.06)',
+        // Layered, very soft — reads as "paper on a desk" rather than a box.
+        card: '0 1px 2px 0 rgb(43 51 56 / 0.04), 0 2px 6px -1px rgb(43 51 56 / 0.05), 0 6px 16px -6px rgb(43 51 56 / 0.05)',
+        'card-hover': '0 2px 4px 0 rgb(43 51 56 / 0.05), 0 6px 14px -3px rgb(43 51 56 / 0.08), 0 14px 32px -12px rgb(43 51 56 / 0.10)',
       },
     }
   },

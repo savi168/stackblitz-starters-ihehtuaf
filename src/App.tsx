@@ -38,9 +38,16 @@ const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then(m => ({ de
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
 const LogsPage = lazy(() => import('./pages/LogsPage').then(m => ({ default: m.LogsPage })));
 
+/** Skeleton placeholder shaped like a typical page (header + cards) — reads
+ * as "content arriving" instead of a bare Loading label. */
 const PageLoader: React.FC = () => (
-  <div className="flex items-center justify-center py-24 text-brand-text-secondary">
-    <span className="animate-pulse text-lg">Loading…</span>
+  <div className="p-5 md:p-8 animate-fade-in" aria-busy="true" aria-label="Loading">
+    <div className="skeleton h-9 w-72 mb-3" />
+    <div className="skeleton h-4 w-96 max-w-full mb-10" />
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="skeleton h-44 rounded-xl" />
+      <div className="skeleton h-44 rounded-xl" />
+    </div>
   </div>
 );
 
@@ -215,7 +222,7 @@ const App: React.FC = () => {
     <DataProvider>
       <HashRouter>
         <div className="min-h-screen flex flex-col bg-brand-bg-body text-brand-text-primary">
-          <header className="bg-white border-b border-efg-line sticky top-0 z-40">
+          <header className="app-header border-b border-efg-line sticky top-0 z-40">
             <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <Link to="/" className="flex items-center gap-2 group">

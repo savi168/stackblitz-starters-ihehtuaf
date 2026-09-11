@@ -73,7 +73,7 @@ export const Card: FC<{ children: ReactNode; className?: string }> = memo(({
   children,
   className = '',
 }) => (
-  <div className={`bg-white p-6 rounded-lg shadow-card border border-efg-line ${className}`}>
+  <div className={`bg-white p-6 rounded-xl shadow-card hover:shadow-card-hover transition-shadow duration-300 border border-efg-line ${className}`}>
     {children}
   </div>
 ));

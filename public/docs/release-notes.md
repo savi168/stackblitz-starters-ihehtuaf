@@ -6,6 +6,21 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.3.2 — 11 September 2026
+
+**Theme: visual polish — same identity, finer finish.**
+
+- Frosted-glass sticky header (content scrolls under it).
+- Softer layered card shadows with a gentle hover elevation; slightly
+  larger card radius.
+- Branded keyboard-focus rings, brand-tinted text selection, thin
+  theme-aware scrollbars, tactile button press.
+- Skeleton loading placeholders (shimmer) instead of the "Loading…" label.
+- Tables render tabular numerals (digits align in columns).
+- No schema changes, no functional changes; honors prefers-reduced-motion.
+
+---
+
 ## v3.3.1 — 10 September 2026
 
 **Theme: container hardening for enterprise security scans (Trivy).**
