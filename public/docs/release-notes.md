@@ -6,6 +6,18 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.3.3 — 14 September 2026
+
+**Theme: brand mark.**
+
+- RegReport gets a logo: an ascending-bars monogram in the EFG deep red,
+  shown in the header next to the wordmark (theme-aware) and as the
+  browser-tab **favicon** — the tab is now recognizable among many.
+- Browser tab title becomes "RegReport — Regulatory Reporting".
+- No schema changes, no functional changes.
+
+---
+
 ## v3.3.2 — 11 September 2026
 
 **Theme: visual polish — same identity, finer finish.**

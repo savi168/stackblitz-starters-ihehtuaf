@@ -225,7 +225,16 @@ const App: React.FC = () => {
           <header className="app-header border-b border-efg-line sticky top-0 z-40">
             <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <Link to="/" className="flex items-center gap-2 group">
+                <Link to="/" className="flex items-center gap-2.5 group">
+                  {/* Brand mark: ascending bars in the EFG deep red (same as
+                      favicon.svg). Token-driven so dark mode lightens it. */}
+                  <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"
+                    className="shrink-0 transition-transform duration-200 group-hover:scale-105">
+                    <rect width="32" height="32" rx="7" className="fill-brand-primary" />
+                    <rect x="7.5" y="17" width="4.5" height="8" rx="1.5" fill="#fff" opacity="0.85" />
+                    <rect x="13.75" y="12" width="4.5" height="13" rx="1.5" fill="#fff" opacity="0.92" />
+                    <rect x="20" y="7" width="4.5" height="18" rx="1.5" fill="#fff" />
+                  </svg>
                   <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
                     Reg<span className="text-brand-primary">Report</span>
                   </span>
