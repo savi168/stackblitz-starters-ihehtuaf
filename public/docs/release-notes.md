@@ -28,6 +28,13 @@ and anything to know before or after upgrading.
   Older, narrower TVFs keep working (missing columns import as NULL).
 - Integration guide (`MERCURY — integration & adjustments`) updated with
   the extended column contract.
+- **MERCURY_MOCK rebuilt on the real architecture**
+  (`docs/SQL_MERCURY_MOCK.sql`): the local test database now carries the
+  exact production DDL (all 85 `core_positions` columns, full
+  `list_counterparties`/`list_securities`, conso & loads tables — with
+  mock-only defaults on NOT NULL columns), and the seed exercises the
+  new full-field drifts (external rating, domicile, SNB eligibility…).
+  Re-run the script, then re-run `docs/SQL_MERCURY_TVFS.sql` on it.
 
 ### Database schema (automatic at first startup)
 
