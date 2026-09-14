@@ -34,6 +34,7 @@ const MercuryCard: React.FC<{
     const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string; name?: string | null }>>([]);
     const [productType, setProductType] = useState('');
     const [busy, setBusy] = useState(false);
+    const [showManual, setShowManual] = useState(false);
 
     useEffect(() => {
       if (mode !== 'api') return;
@@ -118,8 +119,14 @@ const MercuryCard: React.FC<{
               className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-1.5 px-4 rounded-md transition-colors disabled:opacity-50">
               {busy ? 'Loading…' : '⚡ Feed counterparties + securities'}
             </button>
+            <span className="text-[11px] text-brand-text-secondary">everything the controls need, in one click</span>
+            <button onClick={() => setShowManual(v => !v)}
+              className="ml-auto text-[11px] underline text-brand-text-secondary hover:text-brand-primary">
+              {showManual ? 'hide advanced' : 'advanced: one target / another loadid'}
+            </button>
           </div>
         )}
+        {(showManual || !presetLoadIds || presetLoadIds.length === 0) && (<>
         {loads.length > 0 && (
           <div className="overflow-x-auto border border-efg-line rounded-lg mb-3 max-h-48 overflow-y-auto">
             <table className="w-full text-xs whitespace-nowrap">
@@ -162,6 +169,7 @@ const MercuryCard: React.FC<{
             {busy ? 'Loading…' : '⚡ Load from MERCURY'}
           </button>
         </div>
+        </>)}
         <p className="text-[11px] text-brand-text-secondary mt-2">
           The API calls the TVF configured in Production:Sources (e.g. dbo.fn_regreport_prod_counterparties(@loadid, @producttype))
           on the MERCURY connection — the TVF owns the joins (core_positions × list_counterparty…) and returns the fixed
@@ -450,6 +458,10 @@ const AdjustmentsCard: React.FC<{
     const [manual, setManual] = useState({ ligne: '', montant: '', ccy: 'CHF', nominal: '', reference: '', client: '', ind: '', libelle: '' });
     const [manualScript, setManualScript] = useState('');
     const [bookingCenter, setBookingCenter] = useState('');
+    const [genericCpty, setGenericCpty] = useState(false);
+    const [genericRating, setGenericRating] = useState('');
+    const [expandedRow, setExpandedRow] = useState<number | null>(null);
+    const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
     const [baseRows, setBaseRows] = useState<Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
     const [conso, setConso] = useState<{
       entities: Array<{ id: string; name?: string; bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }>;
@@ -607,12 +619,15 @@ const AdjustmentsCard: React.FC<{
           if (cands.length === 1) pre[r.row] = cands[0].id;
           else if (matches.length === 1) pre[r.row] = matches[0].id;
         }
-        setResults(map); setChosen(pre); setScripts({});
+        setResults(map); setChosen(pre); setScripts({}); setExpandedRow(null);
         const total = lines.length;
         const none = lines.filter(l => (map[l.row] || []).length === 0).length;
         const auto = Object.keys(pre).length;
         const target = collection ? `collection ${collection.loadCollectionId} (${collLoadIds.length} load(s))` : `load ${loadId}`;
         onNotice(`Matching done on ${target}: ${auto}/${total} line(s) resolved automatically, ${total - auto - none} to disambiguate, ${none} without match (new position).`);
+        // Surface the consolidated impact right away — the point of the whole
+        // exercise is to see the balance sheet move.
+        if (!showImpact) void toggleImpact();
       } catch (err) { onError(`Adjustments matching failed: ${err instanceof Error ? err.message : String(err)}`); }
       finally { setBusy(false); }
     };
@@ -675,7 +690,11 @@ const AdjustmentsCard: React.FC<{
       }));
     };
 
-    const buildOpts = () => ({ bookingCenterId: bookingCenter.trim() || undefined });
+    const buildOpts = () => ({
+      bookingCenterId: bookingCenter.trim() || undefined,
+      genericCounterparty: genericCpty || undefined,
+      genericRating: genericRating.trim() || undefined,
+    });
 
     const downloadAllSql = async () => {
       if (!mappings || !oneShotItems || oneShotItems.ready.length === 0) return;
@@ -805,6 +824,25 @@ const AdjustmentsCard: React.FC<{
         <SectionHeader title="Adjustments from accounting"
           suffix="pick a load collection (= consolidation level), match each line against core_positions, prepare the INSERTs — eliminations previewed before loading" />
 
+        {/* What you need — at a glance. */}
+        <div className="flex flex-wrap gap-2 mb-3 text-[11px] font-semibold">
+          {([
+            ['Mapping workbook', storedMappings.length > 0 || !!mappings, storedMappings.length > 0 ? 'stored in database' : mappings ? 'loaded this session' : 'upload Mapping.xlsb below (once) and 💾 save'],
+            ['Adjustments file', lines.length > 0, lines.length > 0 ? `${lines.length} line(s)` : 'the accounting extract (LIGNE / REFERENCE / CLIENT / MONTANT…)'],
+            ['Load collection', collLoadIds.length > 0 || !!loadId, collLoadIds.length > 0 ? `load(s) ${collLoadIds.join(', ')}` : 'from the Scope step, or a loadid below'],
+          ] as Array<[string, boolean, string]>).map(([label, ok, hint]) => (
+            <span key={label} title={hint}
+              className={`px-2.5 py-1 rounded-full border ${ok
+                ? 'border-status-green/40 bg-status-green/5 text-status-green'
+                : 'border-status-amber/40 bg-status-amber/5 text-status-amber'}`}>
+              {ok ? '✓' : '○'} {label}
+            </span>
+          ))}
+          <span className="px-2.5 py-1 rounded-full border border-efg-line text-brand-text-secondary font-normal">
+            Flow: files ready → 🔍 matching → pick candidates (or new/generic positions) → 📊 impact → one-shot .sql / Excel
+          </span>
+        </div>
+
         {/* 1 — Mappings (persisted in the RegReport database) */}
         <div className="border border-efg-line rounded-lg p-3 mb-3">
           <p className={stepTitle}>1 — Mappings {storedMappings.length > 0 ? '· stored in database' : '· not stored yet'}</p>
@@ -914,6 +952,17 @@ const AdjustmentsCard: React.FC<{
             <div>
               <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Booking center (new positions)</label>
               <input value={bookingCenter} onChange={e => setBookingCenter(e.target.value)} placeholder="BookingCenterId" className={input} />
+            </div>
+            <div className="pb-1">
+              <label className="flex items-center gap-2 text-[12px] cursor-pointer"
+                title="No-match lines: instead of creating one list_counterparties row per unknown CLIENT, book them on a shared generic counterparty per industry type (GEN-BANK, GEN-CORP…). The real client number is kept on the position in InternalReference2.">
+                <input type="checkbox" checked={genericCpty} onChange={e => setGenericCpty(e.target.checked)} />
+                Generic counterparty for unknown clients
+              </label>
+              {genericCpty && (
+                <input value={genericRating} onChange={e => setGenericRating(e.target.value)}
+                  placeholder="RatingClass (optional)" className="mt-1 p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-40" />
+              )}
             </div>
           </div>
         </div>
@@ -1032,6 +1081,29 @@ const AdjustmentsCard: React.FC<{
           );
         })()}
 
+        {lines.length > 0 && results && (() => {
+          const statusOf = (l: AdjustmentLine): 'matched' | 'ambiguous' | 'new' => {
+            const cands = results[l.row] || [];
+            if (cands.length === 0) return 'new';
+            return chosen[l.row] ? 'matched' : 'ambiguous';
+          };
+          const nOf = (s: 'matched' | 'ambiguous' | 'new') => lines.filter(l => statusOf(l) === s).length;
+          return (
+            <div className="flex flex-wrap gap-2 mb-2 text-[11px] font-semibold">
+              {([
+                ['matched', `✓ ${nOf('matched')} matched`, 'text-status-green border-status-green/40'],
+                ['ambiguous', `? ${nOf('ambiguous')} to disambiguate`, 'text-status-red border-status-red/40'],
+                ['new', `✚ ${nOf('new')} new position(s)`, 'text-status-amber border-status-amber/40'],
+              ] as Array<['matched' | 'ambiguous' | 'new', string, string]>).map(([key, label, cls]) => (
+                <button key={key} onClick={() => setAdjFilter(adjFilter === key ? '' : key)}
+                  className={`px-2.5 py-1 rounded-full border transition-colors ${cls} ${adjFilter === key ? 'ring-2 ring-brand-primary/30 bg-brand-bg-body' : 'bg-white hover:bg-brand-bg-body/60'}`}>
+                  {label}
+                </button>
+              ))}
+              <span className="px-2.5 py-1 text-brand-text-secondary font-normal">click a line to open its candidates</span>
+            </div>
+          );
+        })()}
         {lines.length > 0 && (
           <div className="overflow-x-auto border border-efg-line rounded-lg">
             <table className="w-full text-xs">
@@ -1040,7 +1112,12 @@ const AdjustmentsCard: React.FC<{
                   <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
               </tr></thead>
               <tbody>
-                {lines.map(l => {
+                {lines.filter(l => {
+                  if (!adjFilter || !results) return true;
+                  const cands = results[l.row] || [];
+                  const st = cands.length === 0 ? 'new' : chosen[l.row] ? 'matched' : 'ambiguous';
+                  return st === adjFilter;
+                }).map(l => {
                   const gl = mappings?.gl.get(l.ligne);
                   const interco = l.ind ? mappings?.industry.get(l.ind)?.interco : undefined;
                   const cands = results?.[l.row];
@@ -1064,12 +1141,13 @@ const AdjustmentsCard: React.FC<{
                   const lineCbc = interco ?? (cand ? rawField(cand.raw, 'CounterpartyBookingCenterId') : '');
                   const lineBc = cand ? rawField(cand.raw, 'BookingCenterId') : bookingCenter.trim();
                   const scopeTag = !scopeSet ? null
-                    : lineBc && !scopeSet.has(lineBc) ? { txt: `⊘ out of scope (${lineBc})`, cls: 'text-status-amber' }
-                    : lineCbc && scopeSet.has(lineCbc) ? { txt: `✂ eliminated in ${scopeSel} (IC ${lineCbc})`, cls: 'text-status-red' }
+                    : lineBc && !scopeSet.has(lineBc) ? { txt: `⊘ out of scope (${lineBc})`, cls: 'text-status-amber', tip: `Booked in ${lineBc}, outside the ${scopeSel} reporting set — excluded from the CONSOLIDATED impact preview only. The generated INSERT is not affected: it still copies the position's attributes as-is.` }
+                    : lineCbc && scopeSet.has(lineCbc) ? { txt: `✂ eliminated in ${scopeSel} (IC ${lineCbc})`, cls: 'text-status-red', tip: `Faces the intra-scope group company ${lineCbc} — netted out of the CONSOLIDATED impact preview only. The generated INSERT is not affected.` }
                     : null;
                   return (
                     <React.Fragment key={l.row}>
-                      <tr className="border-t border-efg-line align-top">
+                      <tr onClick={() => setExpandedRow(expandedRow === l.row ? null : l.row)}
+                        className={`border-t border-efg-line align-top ${cands ? 'cursor-pointer hover:bg-brand-bg-body/50' : ''} ${expandedRow === l.row ? 'bg-brand-bg-body/40' : ''}`}>
                         <td className="px-3 py-1.5 tabular-nums">{l.row}</td>
                         <td className="px-3 py-1.5 font-semibold">{l.ligne}</td>
                         <td className="px-3 py-1.5 whitespace-normal max-w-xs">{l.libelle || l.description || '—'}</td>
@@ -1084,11 +1162,11 @@ const AdjustmentsCard: React.FC<{
                         <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</td>
                         <td className="px-3 py-1.5">{gl?.legalAccountNumber || <span className="text-status-red">no GL map</span>}</td>
                         <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>
-                          {status}
-                          {scopeTag && <span className={`ml-1.5 text-[10px] font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
+                          {cands ? (expandedRow === l.row ? '\u25be ' : '\u25b8 ') : ''}{status}
+                          {scopeTag && <span title={scopeTag.tip} className={`ml-1.5 text-[10px] font-semibold cursor-help ${scopeTag.cls}`}>{scopeTag.txt}</span>}
                         </td>
                       </tr>
-                      {cands && (
+                      {cands && expandedRow === l.row && (
                         <tr className="border-t border-efg-line/50 bg-brand-bg-body/40">
                           <td colSpan={8} className="px-4 py-2">
                             {cands.length > 0 && (
@@ -1345,6 +1423,7 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
     const [err, setErr] = useState('');
     const [manualLoadId, setManualLoadId] = useState('');
     const [scopeSel, setScopeSel] = useState('');
+    const [scopeOverride, setScopeOverride] = useState(false);
     useEffect(() => {
       const re = collection?.reportingEntityId ? String(collection.reportingEntityId) : '';
       if (re && conso?.sets[re]) setScopeSel(re);
@@ -1367,6 +1446,13 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
     const labels = useMemo(() => {
       const m = new Map<string, string>();
       for (const e of data.prodMappingEntries || []) if (e.kind === 'label' && e.textValue) m.set(e.mapKey, e.textValue);
+      // Fallback: derive a prefix label from the GL mapping lines (first
+      // description seen for each LEFT-3 account prefix).
+      for (const e of data.prodMappingEntries || []) {
+        if (e.kind !== 'gl' || !e.textValue || !e.description) continue;
+        const pfx = e.textValue.slice(0, 3);
+        if (pfx && !m.has(pfx)) m.set(pfx, e.description);
+      }
       return m;
     }, [data.prodMappingEntries]);
 
@@ -1412,15 +1498,24 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
               <input value={manualLoadId} onChange={e => setManualLoadId(e.target.value)} placeholder="e.g. 1002" className={input} />
             </div>
           )}
-          <div>
-            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Consolidation scope</label>
-            <select value={scopeSel} onChange={e => setScopeSel(e.target.value)} className={input}>
-              <option value="">— entire load(s), no scope —</option>
-              {(conso?.entities || []).map(e => (
-                <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
-              ))}
-            </select>
-          </div>
+          {collection?.reportingEntityId && scopeSel === String(collection.reportingEntityId) && !scopeOverride ? (
+            <div className="pb-1">
+              <span className="inline-flex items-center gap-2 text-[12px] px-3 py-1.5 rounded-full border border-brand-secondary/40 bg-brand-secondary/5">
+                Scope <strong>{scopeSel}</strong>{conso?.entities.find(e => e.id === scopeSel)?.name ? ` — ${conso?.entities.find(e => e.id === scopeSel)?.name}` : ''} · from the Scope step
+                <button onClick={() => setScopeOverride(true)} className="underline text-brand-text-secondary hover:text-brand-primary text-[11px]">change</button>
+              </span>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Consolidation scope</label>
+              <select value={scopeSel} onChange={e => setScopeSel(e.target.value)} className={input}>
+                <option value="">— entire load(s), no scope —</option>
+                {(conso?.entities || []).map(e => (
+                  <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {scopeSet && (
             <p className="text-[11px] text-brand-text-secondary pb-2">
               {scopeSet.size} booking center(s) in the reporting set — {Array.from(scopeSet).map(bc => conso?.bcNames[bc] || bc).join(', ')}
@@ -2017,25 +2112,68 @@ const ProductionPage: React.FC = () => {
                                   </tr></thead>
                                   <tbody>
                                     {isSec
-                                      ? (detail as typeof secs).sort((a, b) => a.date.localeCompare(b.date)).map(r => (
-                                        <tr key={r.id} className="border-t border-efg-line/60">
-                                          <td className="px-2 py-1 font-semibold">{r.date}</td><td className="px-2 py-1">{r.isin}</td>
-                                          <td className="px-2 py-1">{r.securityMaster || '—'}</td><td className="px-2 py-1">{r.securityType || '—'}</td>
-                                          <td className="px-2 py-1">{r.rating || '—'}</td><td className="px-2 py-1">{r.dailyReval === undefined ? '—' : String(r.dailyReval)}</td>
-                                          <td className="px-2 py-1">{r.issuerLexId || '—'}</td><td className="px-2 py-1">{r.guarantorName || r.guarantorLexId || '—'}</td>
-                                          <td className="px-2 py-1 font-semibold">{r.hqlaLevel || '—'}</td>
-                                          <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
-                                        </tr>))
-                                      : (detail as typeof cps).sort((a, b) => a.date.localeCompare(b.date) || a.dataset.localeCompare(b.dataset)).map(r => (
-                                        <tr key={r.id} className="border-t border-efg-line/60">
-                                          <td className="px-2 py-1 font-semibold">{r.date}</td>
-                                          <td className="px-2 py-1">{PROD_DATASETS.find(d => d.key === r.dataset)?.label || r.dataset}</td>
-                                          <td className="px-2 py-1">{r.clientNumber}</td><td className="px-2 py-1">{r.clientType || '—'}</td>
-                                          <td className="px-2 py-1">{r.groupLexId || '—'}</td><td className="px-2 py-1">{r.counterpartyType || '—'}</td>
-                                          <td className="px-2 py-1">{r.issuerRating || '—'}</td>
-                                          <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
-                                          <td className="px-2 py-1">{r.currency || '—'}</td>
-                                        </tr>))}
+                                      ? (() => {
+                                        // Columns whose value changed between the periods are
+                                        // highlighted (HQLA in red — treatment change).
+                                        const rows = (detail as typeof secs).sort((a, b) => a.date.localeCompare(b.date));
+                                        const diff = (get: (r: typeof rows[number]) => unknown) =>
+                                          new Set(rows.map(r => String(get(r) ?? ''))).size > 1;
+                                        const hl = (changed: boolean, grave = false) =>
+                                          changed ? (grave ? ' bg-status-red/15 font-semibold' : ' bg-status-amber/15 font-semibold') : '';
+                                        return rows.map(r => (
+                                          <tr key={r.id} className="border-t border-efg-line/60">
+                                            <td className="px-2 py-1 font-semibold">{r.date}</td><td className="px-2 py-1">{r.isin}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.securityMaster))}>{r.securityMaster || '—'}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.securityType))}>{r.securityType || '—'}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.rating))}>{r.rating || '—'}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.dailyReval))}>{r.dailyReval === undefined ? '—' : String(r.dailyReval)}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.issuerLexId))}>{r.issuerLexId || '—'}</td>
+                                            <td className={'px-2 py-1' + hl(diff(x => x.guarantorName || x.guarantorLexId))}>{r.guarantorName || r.guarantorLexId || '—'}</td>
+                                            <td className={'px-2 py-1 font-semibold' + hl(diff(x => x.hqlaLevel), true)}>{r.hqlaLevel || '—'}</td>
+                                            <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
+                                          </tr>
+                                        ));
+                                      })()
+                                      : (() => {
+                                        // Per-dataset diff: a value changing across the periods
+                                        // within the same dataset is highlighted; plausibility
+                                        // flags mark a client type at odds with the dataset
+                                        // (e.g. a Bank in Due from customers).
+                                        const rows = (detail as typeof cps).sort((a, b) => a.date.localeCompare(b.date) || a.dataset.localeCompare(b.dataset));
+                                        const diffIn = (ds: string, get: (r: typeof rows[number]) => unknown) =>
+                                          new Set(rows.filter(x => x.dataset === ds).map(r => String(get(r) ?? ''))).size > 1;
+                                        const hl = (changed: boolean) => changed ? ' bg-status-amber/15 font-semibold' : '';
+                                        const BANK_DS = ['dueFromBanks', 'dueToBanks'];
+                                        const CUSTOMER_DS = ['dueFromCustomers', 'dueToCustomers', 'mortgages'];
+                                        const implausible = (r: typeof rows[number]): string | null => {
+                                          const t = (r.clientType || '').toLowerCase();
+                                          if (!t) return null;
+                                          if (t.includes('bank') && CUSTOMER_DS.includes(r.dataset))
+                                            return `A Bank counterparty in "${PROD_DATASETS.find(d => d.key === r.dataset)?.label}" is unusual — check the client type or the dataset.`;
+                                          if (!t.includes('bank') && BANK_DS.includes(r.dataset))
+                                            return `A ${r.clientType} counterparty in "${PROD_DATASETS.find(d => d.key === r.dataset)?.label}" is unusual — check the client type or the dataset.`;
+                                          return null;
+                                        };
+                                        return rows.map(r => {
+                                          const odd = implausible(r);
+                                          return (
+                                            <tr key={r.id} className="border-t border-efg-line/60">
+                                              <td className="px-2 py-1 font-semibold">{r.date}</td>
+                                              <td className="px-2 py-1">{PROD_DATASETS.find(d => d.key === r.dataset)?.label || r.dataset}</td>
+                                              <td className="px-2 py-1">{r.clientNumber}</td>
+                                              <td title={odd ?? undefined}
+                                                className={'px-2 py-1' + hl(diffIn(r.dataset, x => x.clientType)) + (odd ? ' bg-status-red/15 font-semibold cursor-help' : '')}>
+                                                {r.clientType || '—'}{odd ? ' ⚠' : ''}
+                                              </td>
+                                              <td className={'px-2 py-1' + hl(diffIn(r.dataset, x => x.groupLexId))}>{r.groupLexId || '—'}</td>
+                                              <td className={'px-2 py-1' + hl(diffIn(r.dataset, x => x.counterpartyType))}>{r.counterpartyType || '—'}</td>
+                                              <td className={'px-2 py-1' + hl(diffIn(r.dataset, x => x.issuerRating))}>{r.issuerRating || '—'}</td>
+                                              <td className="px-2 py-1 text-right tabular-nums">{r.amount?.toFixed(1) ?? '—'}</td>
+                                              <td className="px-2 py-1">{r.currency || '—'}</td>
+                                            </tr>
+                                          );
+                                        });
+                                      })()}
                                   </tbody>
                                 </table>
                               )}
@@ -2073,6 +2211,11 @@ const ProductionPage: React.FC = () => {
               </table>
             </div>
           )}
+          <p className="text-[11px] text-brand-text-secondary mt-2">
+            In a finding's detail, <span className="bg-status-amber/15 px-1 rounded font-semibold">highlighted cells</span> are the values that
+            changed between the two periods; <span className="bg-status-red/15 px-1 rounded font-semibold">red cells</span> flag a treatment-grave
+            change (HQLA level) or an implausible combination (e.g. a Bank counterparty in a customer dataset — hover the ⚠ for the reason).
+          </p>
           {entityLogs.length > 0 && (
             <div className="mt-5">
               <SectionHeader title="Decision history" suffix={`${entityLogs.length} logged decision(s) — ${entity}`} />

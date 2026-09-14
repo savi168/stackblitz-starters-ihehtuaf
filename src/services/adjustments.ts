@@ -400,7 +400,23 @@ const numOrSelf = (v: string): number | string => (/^-?\d+(\.\d+)?$/.test(v) ? N
 export interface AdjustmentBuildOptions {
   /** BookingCenterId stamped on brand-new positions. */
   bookingCenterId?: string;
+  /** When the CLIENT is unknown in MERCURY (no-match line), book the position
+   * on a SHARED generic counterparty per industry type (GEN-BANK, GEN-CORP…)
+   * instead of creating one referential row per client. The real client
+   * number is kept on the position in InternalReference2. */
+  genericCounterparty?: boolean;
+  /** Optional RatingClass stamped on generated generic counterparties. */
+  genericRating?: string;
 }
+
+/** Shared generic counterparty id for a line: GEN-<industry TypeOf, else
+ * RT01→QDL, else OTHER> — one row per type, reused by every unknown client. */
+export const genericIdOf = (line: AdjustmentLine, mappings: AdjustmentMappings): string => {
+  const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
+  const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
+  const t = (ind?.typeOf || rt || 'OTHER').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return `GEN-${t || 'OTHER'}`;
+};
 
 /** Intercompany lookup: IND code → HYPERIOD_INTERCO of the INDUSTRY sheet —
  * when set, the counterparty is a group company and the value goes into
@@ -444,6 +460,7 @@ const newPositionValues = (
     row.SecurityId = newSecurityId(line);
     row.SecurityPIT = numOrSelf(loadId);
   }
+  const generic = opts?.genericCounterparty === true;
   Object.assign(row, {
     Id: `ADJ-${line.ligne}-${line.row}`,
     LoadId: numOrSelf(loadId),
@@ -451,11 +468,13 @@ const newPositionValues = (
     LegalAccountNumber: numOrSelf(glEntry?.legalAccountNumber ?? '0'),
     Currency: line.ccy,
     InternalReference1: String(line.reference),
+    // Generic counterparty: the real client number stays on the position.
+    InternalReference2: generic ? line.client ?? '' : '',
     DataSource: 'ADJUSTMENT',
     PositionCurrencyBookAmount: line.montant,
     BookAmount: chf,
     Notional: line.nominal ?? 0,
-    CounterpartyId: line.client ?? '',
+    CounterpartyId: generic ? genericIdOf(line, mappings) : line.client ?? '',
     CounterpartyPIT: numOrSelf(loadId),
     CounterpartyBookingCenterId: intercoOf(line, mappings)?.interco ?? '',
     TypeOf: glEntry?.typeOf ?? '',
@@ -532,7 +551,9 @@ export const buildNewPositionInsert = (
   return [
     `-- New position for accounting line ${line.ligne} (row ${line.row}) — no match found in load ${loadId}`,
     `-- GL mapping: account ${lan}, TypeOf ${glEntry?.typeOf ?? '?'}${glEntry?.subType ? `/${glEntry.subType}` : ''}${glEntry?.description ? ` (${glEntry.description})` : ''}`,
-    `-- Counterparty ${line.client ?? '?'} — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'}/${ind?.economicActivityType ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`,
+    opts?.genericCounterparty
+      ? `-- Counterparty: GENERIC ${genericIdOf(line, mappings)} (real client ${line.client ?? '?'} in InternalReference2) — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`
+      : `-- Counterparty ${line.client ?? '?'} — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'}/${ind?.economicActivityType ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`,
     ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- ⚠ Review every default before executing (all NOT NULL columns get neutral values).`,
     `-- 1) CHECK:`,
@@ -590,21 +611,25 @@ const listDefaults = (cols: Array<[string, PosColKind]>): Record<string, unknown
 /** list_counterparties row for the CLIENT of a new position — TypeOf and
  * EconomicActivityType prefilled from the IND→INDUSTRY / CATEG→RT01 maps. */
 export const counterpartyValues = (
-  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
   const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
+  const generic = opts?.genericCounterparty === true;
   const row = listDefaults(LIST_CPTY_COLS);
   Object.assign(row, {
-    Id: line.client ?? '',
+    Id: generic ? genericIdOf(line, mappings) : line.client ?? '',
     PointInTime: numOrSelf(loadId),
     CreationDate: new Date().toISOString().slice(0, 10),
-    Name: line.libelle ?? line.client ?? '',
+    Name: generic ? `GENERIC ${ind?.typeOf || rt || 'counterparty'}` : line.libelle ?? line.client ?? '',
     TypeOf: ind?.typeOf ?? rt ?? '',
     EconomicActivityType: ind?.economicActivityType ?? '',
     IsEdited: 1,
     ReportingDate: reportingDate,
   });
+  if (generic && opts?.genericRating && /^\d+$/.test(opts.genericRating.trim()))
+    row.RatingClass = Number(opts.genericRating.trim());
   return row;
 };
 
@@ -653,10 +678,14 @@ export const buildNewPositionPackage = (
 ): string => {
   const parts: string[] = [];
   const sec = isSecurityLine(line, mappings);
-  if (line.client) {
+  const generic = opts?.genericCounterparty === true;
+  if (line.client || generic) {
+    const who = generic
+      ? `generic counterparty ${genericIdOf(line, mappings)} (real client ${line.client ?? '?'} kept in InternalReference2 of the position)`
+      : `${sec ? 'issuer' : 'counterparty'} ${line.client}`;
     parts.push(buildListInsert('list_counterparties', LIST_CPTY_COLS,
-      counterpartyValues(line, loadId, reportingDate, mappings),
-      `Referential: ${sec ? 'issuer' : 'counterparty'} ${line.client} at PIT ${loadId} (skipped if it already exists → no C5 orphan)`));
+      counterpartyValues(line, loadId, reportingDate, mappings, opts),
+      `Referential: ${who} at PIT ${loadId} (skipped if it already exists → no C5 orphan)`));
   }
   if (sec) {
     parts.push(buildListInsert('list_securities', LIST_SEC_COLS,

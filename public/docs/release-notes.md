@@ -6,6 +6,42 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.8.0 — 14 September 2026
+
+**Theme: production usability — see the differences, tame large adjustment
+batches.**
+
+- **Controls — differences highlighted per column**: in a finding's
+  detail, the cells whose value changed between the two periods are
+  highlighted; an HQLA-level change shows in red (treatment change), and
+  **implausible combinations** are flagged with a ⚠ and an explanation
+  (e.g. a Bank counterparty sitting in *Due from customers*).
+- **Data step simplified**: with a collection picked, the one-click
+  *Feed counterparties + securities* is the whole step — the per-target /
+  per-loadid form moved behind an *advanced* link.
+- **Balance sheet**: the consolidation scope is inherited from the Scope
+  step (shown as a chip, with a *change* link to override), and account
+  labels now fall back to the GL mapping descriptions when no explicit
+  label sheet was stored.
+- **Adjustments**:
+  - a *what-you-need* checklist on top (mapping stored ✓ · adjustments
+    file ✓ · load collection ✓) plus the flow in one line;
+  - built for **large batches**: candidate details are collapsed (click a
+    line to open it) and status chips filter matched / to-disambiguate /
+    new lines;
+  - **generic counterparties**: for lines whose CLIENT is unknown in
+    MERCURY, an option books them on a shared generic counterparty per
+    industry type (GEN-BANK, GEN-CORP…, optional rating) instead of
+    creating one referential row per client — the real client number is
+    kept on the position in `InternalReference2`;
+  - the balance-sheet impact opens automatically after a matching run;
+  - the ⊘ *out of scope* / ✂ *eliminated* tags now explain (hover) that
+    they concern the consolidated preview only — the generated INSERT
+    still copies the chosen position's attributes unchanged.
+- No schema changes.
+
+---
+
 ## v3.7.0 — 14 September 2026
 
 **Theme: the guided production line — scope, certified baselines, balance
