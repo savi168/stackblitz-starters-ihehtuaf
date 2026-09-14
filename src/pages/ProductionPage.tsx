@@ -6,7 +6,6 @@ import {
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
 import type { AdjustmentLine, AdjustmentMappings, MatchCandidate, NewPositionOverrides } from '../services/adjustments';
-import { hfmKeyOf } from '../services/hfm';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -471,7 +470,8 @@ const AdjustmentsCard: React.FC<{
       setRowOverrides(prev => ({ ...prev, [row]: { ...prev[row], [field]: value } }));
       setScripts(prev => { const n = { ...prev }; delete n[row]; return n; });
     };
-    const [baseRows, setBaseRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [baseRows, setBaseRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; currency?: string; amount: number }> | null>(null);
+    const [viewDim, setViewDim] = useState<'account' | 'currency' | 'bc'>('account');
     const [gaapAdj, setGaapAdj] = useState<'swiss' | 'ifrs'>('swiss');
     const [conso, setConso] = useState<{
       entities: Array<{ id: string; name?: string; bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }>;
@@ -479,7 +479,7 @@ const AdjustmentsCard: React.FC<{
       bcNames: Record<string, string>;
     } | null>(null);
     const [scopeSel, setScopeSel] = useState('');
-    const [showImpact, setShowImpact] = useState(false);
+    const [showImpact, setShowImpact] = useState(true);
     // The adjustments service is dynamically imported (keeps xlsx out of the
     // main chunk); the module is kept here so memos can use it once loaded.
     const [svcMod, setSvcMod] = useState<typeof import('../services/adjustments') | null>(null);
@@ -662,9 +662,7 @@ const AdjustmentsCard: React.FC<{
         const auto = Object.keys(pre).length;
         const target = collection ? `collection ${collection.loadCollectionId} (${collLoadIds.length} load(s))` : `load ${loadId}`;
         onNotice(`Matching done on ${target}: ${auto}/${total} line(s) resolved automatically, ${total - auto - none} to disambiguate, ${none} without match (new position).`);
-        // Surface the consolidated impact right away — the point of the whole
-        // exercise is to see the balance sheet move.
-        if (!showImpact) void toggleImpact();
+        if (!showImpact) setShowImpact(true);
       } catch (err) { onError(`Adjustments matching failed: ${err instanceof Error ? err.message : String(err)}`); }
       finally { setBusy(false); }
     };
@@ -797,22 +795,23 @@ const AdjustmentsCard: React.FC<{
     // booking center aggregate from MERCURY) + adjustment deltas per prefix,
     // optionally restricted to a consolidation scope (list_reporting_sets)
     // with intra-scope intercompany eliminations.
-    const toggleImpact = async () => {
-      if (showImpact) { setShowImpact(false); return; }
-      setShowImpact(true);
-      if (!baseRows && (loadId || collLoadIds.length > 0)) {
-        try {
-          const qs = collLoadIds.length > 0
-            ? `loadIds=${encodeURIComponent(collLoadIds.join(','))}`
-            : `loadId=${encodeURIComponent(loadId)}`;
-          const r = await fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' });
-          if (r.ok) {
-            const arr = await r.json() as Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>;
-            setBaseRows(arr.filter(b => b.prefix));
-          }
-        } catch { /* base unavailable — deltas shown alone */ }
-      }
-    };
+    const toggleImpact = async () => setShowImpact(v => !v);
+    const balanceIdsKey = collLoadIds.length > 0 ? collLoadIds.join(',') : loadId.trim();
+    useEffect(() => {
+      setBaseRows(null);
+      if (mode !== 'api' || !balanceIdsKey) return;
+      let cancelled = false;
+      const qs = collLoadIds.length > 0
+        ? `loadIds=${encodeURIComponent(balanceIdsKey)}`
+        : `loadId=${encodeURIComponent(balanceIdsKey)}`;
+      fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : null))
+        .then((arr: Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; currency?: string; amount: number }> | null) => {
+          if (!cancelled && arr) setBaseRows(arr.filter(b => b.prefix));
+        })
+        .catch(() => { /* base unavailable — deltas shown alone */ });
+      return () => { cancelled = true; };
+    }, [mode, apiBaseUrl, balanceIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const scopeSet = useMemo(() => {
       if (!scopeSel || !conso) return null;
@@ -1050,9 +1049,10 @@ const AdjustmentsCard: React.FC<{
         </div>
 
         <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-4 xl:items-start">
-        {showImpact && impact && mappings && (() => {
+        {showImpact && mappings && (impact || baseAgg) && (() => {
           const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 0 });
-          const per = impact.perPrefix;
+          const per = impact?.perPrefix ?? new Map<string, { gross: number; eliminated: number; net: number; lines: number }>();
+          const outOfScope = impact?.outOfScope ?? 0;
           const scoped = !!scopeSet;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
           const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : mappings.accountLabels.get(k);
@@ -1084,9 +1084,17 @@ const AdjustmentsCard: React.FC<{
                     <option key={e.id} value={e.id}>{e.id}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
                   ))}
                 </select>
-                {impact.outOfScope > 0 && (
+                <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[10px] font-semibold">
+                  {([['account', 'Account'], ['currency', 'CCY'], ['bc', 'Booking ctr']] as const).map(([k, lbl]) => (
+                    <button key={k} onClick={() => setViewDim(k)}
+                      className={`px-2 py-1 transition-colors ${viewDim === k ? 'bg-brand-secondary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-secondary'}`}>
+                      {lbl}
+                    </button>
+                  ))}
+                </span>
+                {outOfScope > 0 && (
                   <span className="text-[10px] text-status-amber font-semibold" title="Lines booked outside the reporting set — excluded from this consolidated view only; their INSERTs are unaffected.">
-                    ⊘ {impact.outOfScope} out of scope
+                    ⊘ {outOfScope} out of scope
                   </span>
                 )}
               </div>
@@ -1095,6 +1103,65 @@ const AdjustmentsCard: React.FC<{
                   ⚠ prefix fallback rules only — re-upload Mapping.xlsb + 💾 save for the account-level HFM mapping
                 </p>
               )}
+              {viewDim !== 'account' ? (() => {
+                // Currency / booking-center pivots: base net of intra-scope
+                // interco; adjustment deltas from the resolved lines (CHF).
+                const baseBy: Record<string, number> = {};
+                for (const b of baseRows || []) {
+                  if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
+                  const elim = scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId) ? b.amount : 0;
+                  const k = viewDim === 'currency' ? (b.currency || '?') : (b.bookingCenterId || '— none —');
+                  baseBy[k] = (baseBy[k] || 0) + b.amount - elim;
+                }
+                const rawS = (raw: Record<string, unknown> | undefined, name: string): string => {
+                  if (!raw) return '';
+                  const k = Object.keys(raw).find(x => x.toLowerCase() === name.toLowerCase());
+                  const v = k === undefined ? undefined : raw[k];
+                  return v === null || v === undefined ? '' : String(v).trim();
+                };
+                const adjBy: Record<string, number> = {};
+                if (results) for (const l of lines) {
+                  const cands = results[l.row] || [];
+                  const cand = cands.find(c => c.id === chosen[l.row]) || null;
+                  if (cands.length > 0 && !cand) continue; // ambiguous: excluded
+                  const bc = cand ? rawS(cand.raw, 'BookingCenterId') : (bookingCenter.trim() || '');
+                  if (scopeSet && bc && !scopeSet.has(bc)) continue;
+                  const chf = Math.round(l.montant * (mappings.fx.get(l.ccy) ?? 1) * 100) / 100;
+                  const k = viewDim === 'currency' ? l.ccy : (bc || '— none —');
+                  adjBy[k] = (adjBy[k] || 0) + chf;
+                }
+                const keys = Array.from(new Set([...Object.keys(baseBy), ...Object.keys(adjBy)]))
+                  .sort((a, b) => Math.abs(baseBy[b] || 0) - Math.abs(baseBy[a] || 0));
+                let tb = 0, ta = 0;
+                return (
+                  <table className="w-full text-[11px] whitespace-nowrap">
+                    <thead className="bg-brand-bg-body"><tr>
+                      {[viewDim === 'currency' ? 'CCY' : 'Booking center', 'Base', 'Adj', 'After'].map((h, hi) =>
+                        <th key={h} className={`px-2 py-1.5 text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {keys.map(k => {
+                        const b = baseBy[k] || 0, a = adjBy[k] || 0;
+                        tb += b; ta += a;
+                        return (
+                          <tr key={k} className={`border-t border-efg-line/60 ${a !== 0 ? 'font-semibold bg-brand-secondary/5' : ''}`}>
+                            <td className="px-2 py-1">{viewDim === 'bc' ? (conso?.bcNames[k] ? `${k} — ${conso.bcNames[k]}` : k) : k}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{fmt(b)}</td>
+                            <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(a)}`}>{a === 0 ? '—' : fmt(a)}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">{fmt(b + a)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t border-efg-line font-semibold">
+                        <td className="px-2 py-1">Total</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{fmt(tb)}</td>
+                        <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(ta)}`}>{ta === 0 ? '—' : fmt(ta)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">{fmt(tb + ta)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                );
+              })() : (
               <table className="w-full text-[11px] whitespace-nowrap">
                 <thead className="bg-brand-bg-body"><tr>
                   {[gaapAdj === 'ifrs' ? 'HFM' : 'Acct', 'Base', 'Adj', 'After'].map((h, hi) =>
@@ -1142,8 +1209,10 @@ const AdjustmentsCard: React.FC<{
                   })}
                 </tbody>
               </table>
+              )}
               <p className="text-[10px] text-brand-text-secondary px-3 py-2 border-t border-efg-line whitespace-normal">
-                CHF, rounded. Each line is booked on its LIGNE's GL account — the match only supplies qualitative data. Hover a row for gross / IC-eliminated detail.
+                CHF, rounded. Each line is booked on its LIGNE's GL account — the match only supplies qualitative data.
+                {viewDim === 'account' ? ' Hover a row for gross / IC-eliminated detail.' : ' Pivot view: ambiguous lines excluded until a candidate is picked.'}
                 {!baseAgg && ' Base unavailable — deltas only.'}
               </p>
             </div>
@@ -1544,14 +1613,16 @@ type ConsoInfo = {
   bcNames: Record<string, string>;
 };
 
+// The CERTIFICATION line: the monthly control battery, concluded by the
+// certified baseline. Reco & adjustments is a separate workspace (the live
+// balance sheet lives there — it is a reconciliation concern, not a control).
 const STEPS = [
   { key: 'scope', n: 1, label: 'Scope' },
   { key: 'data', n: 2, label: 'Data' },
   { key: 'controls', n: 3, label: 'Controls' },
-  { key: 'balance', n: 4, label: 'Balance sheet' },
-  { key: 'certify', n: 5, label: 'Certify' },
+  { key: 'certify', n: 4, label: 'Certify' },
 ] as const;
-type Step = typeof STEPS[number]['key'];
+type Step = typeof STEPS[number]['key'] | 'reco';
 
 /** What each control checks — shown on the dashboard so the reviewer always
  * knows what a finding means and what to do with it. */
@@ -1588,226 +1659,11 @@ const CONTROL_DOCS: Array<{ id: string; title: string; what: string; base: strin
   },
 ];
 
-/** Balance sheet of the selected loads, consolidated: positions restricted to
- * the reporting set's booking centers, intra-scope intercompany eliminated —
- * per LEFT(LegalAccountNumber, 3), split assets / liabilities / off-balance. */
-const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: string[]; conso: ConsoInfo | null }> =
-  ({ collection, collLoadIds, conso }) => {
-    const { data, mode, apiBaseUrl } = useData();
-    const [rows, setRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
-    const [err, setErr] = useState('');
-    const [gaap, setGaap] = useState<'swiss' | 'ifrs'>('swiss');
-    const [manualLoadId, setManualLoadId] = useState('');
-    const [scopeSel, setScopeSel] = useState('');
-    const [scopeOverride, setScopeOverride] = useState(false);
-    useEffect(() => {
-      const re = collection?.reportingEntityId ? String(collection.reportingEntityId) : '';
-      if (re && conso?.sets[re]) setScopeSel(re);
-    }, [collection, conso]);
-
-    const ids = collLoadIds.length > 0 ? collLoadIds : (manualLoadId.trim() ? [manualLoadId.trim()] : []);
-    const idsKey = ids.join(',');
-    useEffect(() => {
-      setRows(null); setErr('');
-      if (mode !== 'api' || ids.length === 0) return;
-      const qs = ids.length > 1 ? `loadIds=${encodeURIComponent(idsKey)}` : `loadId=${encodeURIComponent(ids[0])}`;
-      fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' })
-        .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-        .then((arr: Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>) =>
-          setRows(arr.filter(b => b.prefix)))
-        .catch(e => setErr(e instanceof Error ? e.message : String(e)));
-    }, [mode, apiBaseUrl, idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // IFRS (HFM) mapping persisted with the workbook: account → HFM account,
-    // HFM account → label, and per-prefix fallback rule overrides.
-    const hfmMaps = useMemo(() => {
-      const direct = new Map<string, string>(), lbl = new Map<string, string>(), rules = new Map<string, string>();
-      for (const e of data.prodMappingEntries || []) {
-        if (!e.textValue) continue;
-        if (e.kind === 'hfm') direct.set(e.mapKey, e.textValue);
-        else if (e.kind === 'hfmlabel') lbl.set(e.mapKey, e.textValue);
-        else if (e.kind === 'hfmrule') rules.set(e.mapKey, e.textValue);
-      }
-      return { direct, lbl, rules };
-    }, [data.prodMappingEntries]);
-
-    // Account labels persisted with the mapping workbook (kind = label).
-    const labels = useMemo(() => {
-      const m = new Map<string, string>();
-      for (const e of data.prodMappingEntries || []) if (e.kind === 'label' && e.textValue) m.set(e.mapKey, e.textValue);
-      // Fallback: derive a prefix label from the GL mapping lines (first
-      // description seen for each LEFT-3 account prefix).
-      for (const e of data.prodMappingEntries || []) {
-        if (e.kind !== 'gl' || !e.textValue || !e.description) continue;
-        const pfx = e.textValue.slice(0, 3);
-        if (pfx && !m.has(pfx)) m.set(pfx, e.description);
-      }
-      return m;
-    }, [data.prodMappingEntries]);
-
-    const scopeSet = useMemo(() => {
-      if (!scopeSel || !conso) return null;
-      return new Set((conso.sets[scopeSel] || []).map(x => x.trim()));
-    }, [scopeSel, conso]);
-
-    const agg = useMemo(() => {
-      if (!rows) return null;
-      const per: Record<string, { amount: number; eliminated: number }> = {};
-      for (const b of rows) {
-        if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
-        const account = b.account || b.prefix;
-        let key: string;
-        if (gaap === 'ifrs') {
-          if (!/^[12]/.test(account)) continue; // IFRS view: balance sheet only
-          key = hfmKeyOf(account, hfmMaps.direct, hfmMaps.rules);
-        } else key = b.prefix;
-        const e = (per[key] ??= { amount: 0, eliminated: 0 });
-        e.amount += b.amount;
-        if (scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId)) e.eliminated += b.amount;
-      }
-      return per;
-    }, [rows, scopeSet, gaap, hfmMaps]);
-
-    const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
-      [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
-    const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 2 });
-    const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
-
-    if (mode !== 'api') {
-      return (
-        <Card>
-          <SectionHeader title="4 — Balance sheet" suffix="requires the API backend" />
-          <p className="text-sm text-brand-text-secondary">Connect the app to the .NET backend to aggregate the load's core_positions into a consolidated balance sheet.</p>
-        </Card>
-      );
-    }
-
-    return (
-      <Card>
-        <SectionHeader title="4 — Balance sheet"
-          suffix="SUM(BookAmount) of the collection's positions — scope restricted to the reporting set, intra-scope interco eliminated" />
-        <div className="flex flex-wrap items-end gap-3 mb-3">
-          <div className="pb-1">
-            <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
-              {(['swiss', 'ifrs'] as const).map(g => (
-                <button key={g} onClick={() => setGaap(g)}
-                  className={`px-2.5 py-1 transition-colors ${gaap === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
-                  {g === 'swiss' ? 'SWISS GAAP' : 'IFRS (HFM)'}
-                </button>
-              ))}
-            </span>
-            {gaap === 'ifrs' && hfmMaps.direct.size === 0 && (
-              <p className="text-[10px] text-status-amber font-semibold mt-1">prefix fallback rules only — upload &amp; save Mapping.xlsb (Adjustments → Mappings) for the account-level HFM mapping</p>
-            )}
-          </div>
-          {collLoadIds.length === 0 && (
-            <div>
-              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid (no collection picked)</label>
-              <input value={manualLoadId} onChange={e => setManualLoadId(e.target.value)} placeholder="e.g. 1002" className={input} />
-            </div>
-          )}
-          {collection?.reportingEntityId && scopeSel === String(collection.reportingEntityId) && !scopeOverride ? (
-            <div className="pb-1">
-              <span className="inline-flex items-center gap-2 text-[12px] px-3 py-1.5 rounded-full border border-brand-secondary/40 bg-brand-secondary/5">
-                Scope <strong>{scopeSel}</strong>{conso?.entities.find(e => e.id === scopeSel)?.name ? ` — ${conso?.entities.find(e => e.id === scopeSel)?.name}` : ''} · from the Scope step
-                <button onClick={() => setScopeOverride(true)} className="underline text-brand-text-secondary hover:text-brand-primary text-[11px]">change</button>
-              </span>
-            </div>
-          ) : (
-            <div>
-              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Consolidation scope</label>
-              <select value={scopeSel} onChange={e => setScopeSel(e.target.value)} className={input}>
-                <option value="">— entire load(s), no scope —</option>
-                {(conso?.entities || []).map(e => (
-                  <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {scopeSet && (
-            <p className="text-[11px] text-brand-text-secondary pb-2">
-              {scopeSet.size} booking center(s) in the reporting set — {Array.from(scopeSet).map(bc => conso?.bcNames[bc] || bc).join(', ')}
-            </p>
-          )}
-        </div>
-        {err && <p className="text-sm text-status-red">Balance unavailable: {err}</p>}
-        {ids.length === 0 ? (
-          <EmptyState title="No loads selected" hint="Pick a load collection in the Scope step (or type a loadid above) to aggregate its balance sheet." compact />
-        ) : !agg ? (
-          !err && <p className="text-sm text-brand-text-secondary">Loading balance from MERCURY…</p>
-        ) : (
-          (() => {
-            const prefixes = Object.keys(agg).sort();
-            const scoped = !!scopeSet;
-            const sections: Array<{ title: string; match: (p: string) => boolean }> = [
-              { title: 'Assets (1xx)', match: p => p.startsWith('1') },
-              { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
-              { title: gaap === 'ifrs' ? 'Equity / other' : 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
-            ];
-            const labelOf = (k: string) => gaap === 'ifrs' ? hfmMaps.lbl.get(k) : labels.get(k);
-            return (
-              <div className="overflow-x-auto border border-efg-line rounded-lg">
-                <table className="w-full text-xs whitespace-nowrap">
-                  <thead className="bg-brand-bg-body"><tr>
-                    {(scoped
-                      ? [gaap === 'ifrs' ? 'HFM account' : 'Account (LEFT 3)', 'Label', 'Gross (scope)', 'IC eliminated', 'Net']
-                      : [gaap === 'ifrs' ? 'HFM account' : 'Account (LEFT 3)', 'Label', 'Amount'])
-                      .map((h, hi) =>
-                        <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {sections.map(sec => {
-                      const ps = prefixes.filter(sec.match);
-                      if (ps.length === 0) return null;
-                      let tAmt = 0, tElim = 0;
-                      return (
-                        <React.Fragment key={sec.title}>
-                          <tr className="border-t border-efg-line bg-brand-bg-body/60">
-                            <td colSpan={scoped ? 5 : 3} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
-                          </tr>
-                          {ps.map(pfx => {
-                            const e = agg[pfx];
-                            tAmt += e.amount; tElim += e.eliminated;
-                            return (
-                              <tr key={pfx} className="border-t border-efg-line/60">
-                                <td className="px-3 py-1 font-semibold">{pfx}</td>
-                                <td className="px-3 py-1 text-brand-text-secondary max-w-xs truncate">{labelOf(pfx) || '—'}</td>
-                                <td className="px-3 py-1 text-right tabular-nums">{fmt(e.amount)}</td>
-                                {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{e.eliminated === 0 ? '—' : fmt(-e.eliminated)}</td>}
-                                {scoped && <td className="px-3 py-1 text-right tabular-nums font-semibold">{fmt(e.amount - e.eliminated)}</td>}
-                              </tr>
-                            );
-                          })}
-                          <tr className="border-t border-efg-line font-semibold">
-                            <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tAmt)}</td>
-                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tElim === 0 ? '—' : fmt(-tElim)}</td>}
-                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tAmt - tElim)}</td>}
-                          </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
-                  Load(s) {ids.join(', ')} — amounts as booked in MERCURY (BookAmount), {gaap === 'ifrs' ? 'grouped by HFM (IFRS) account: direct account mapping from Mapping_GL_BALANCESHEET, else the per-prefix fallback rules (mirroring the HFM Power Query); balance-sheet accounts (1xx/2xx) only' : 'grouped by Swiss GAAP rubrique (LEFT 3)'}.
-                  {scoped && ' Positions booked outside the reporting set are excluded; amounts facing an intra-scope CounterpartyBookingCenterId are shown as IC eliminated (net = consolidated view).'}
-                  {labels.size === 0 && ' Account labels appear once the mapping workbook has been saved to the database (Adjustments → Mappings).'}
-                </p>
-              </div>
-            );
-          })()
-        )}
-      </Card>
-    );
-  };
-
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities, currentUser, mode, apiBaseUrl } = useData();
   const [step, setStep] = useState<Step>('scope');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showAdj, setShowAdj] = useState(false);
 
   const cps = data.prodCounterparties || [];
   const secs = data.prodSecurities || [];
@@ -2039,10 +1895,18 @@ const ProductionPage: React.FC = () => {
       <BackButton />
       <PageHeader
         title="Production"
-        subtitle="Monthly production line: pick your scope, feed and control the data against the certified baseline, review the consolidated balance sheet, certify the period."
+        subtitle="Two workspaces: the monthly certification line (scope, feed, controls vs the certified baseline, certify) — and Reco & adjustments, with the live consolidated balance sheet."
       />
       <div className="flex flex-wrap items-center gap-2">
         {STEPS.map(stepBtn)}
+        <span className="mx-1 text-brand-text-secondary/40 select-none">|</span>
+        <button onClick={() => setStep('reco')}
+          className={`flex items-center gap-2 text-sm font-semibold py-1.5 px-3 rounded-full border transition-colors ${
+            step === 'reco' ? 'bg-brand-secondary text-white border-brand-secondary'
+              : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary'}`}
+          title="Reconciliation workspace: accounting adjustments matched against the load collection, with the live consolidated balance sheet at your side.">
+          🧾 Reco & adjustments
+        </button>
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
           <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
@@ -2454,44 +2318,24 @@ const ProductionPage: React.FC = () => {
             </div>
           )}
           <div className="flex justify-end mt-3">
-            <button onClick={() => setStep('balance')}
+            <button onClick={() => setStep('certify')}
               className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
-              Continue to Balance sheet →
+              Continue to Certify →
             </button>
           </div>
         </Card>
       )}
 
-      {/* ------------------------------------------------ 4 — BALANCE SHEET */}
-      {step === 'balance' && (
-        <>
-          <BalanceCard collection={collection} collLoadIds={collLoadIds} conso={conso} />
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={() => setShowAdj(v => !v)}
-              className={`text-sm font-semibold border py-2 px-4 rounded-md transition-colors ${showAdj
-                ? 'bg-brand-secondary text-white border-brand-secondary'
-                : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
-              {showAdj ? 'Hide the adjustments tool' : '🔧 Open the adjustments tool'}
-            </button>
-            <span className="text-[12px] text-brand-text-secondary">
-              A rubrique doesn't tie out with accounting? Match the adjustment lines against core_positions and prepare the INSERTs for MERCURY.
-            </span>
-            <button onClick={() => setStep('certify')}
-              className="ml-auto text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
-              Continue to Certify →
-            </button>
-          </div>
-          {showAdj && (
-            <AdjustmentsCard entity={entity} presetCollectionId={collectionSel || undefined}
-              onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
-          )}
-        </>
+      {/* ------------------------------------------------ RECO & ADJUSTMENTS */}
+      {step === 'reco' && (
+        <AdjustmentsCard entity={entity} presetCollectionId={collectionSel || undefined}
+          onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
       )}
 
-      {/* ------------------------------------------------ 5 — CERTIFY */}
+      {/* ------------------------------------------------ 4 — CERTIFY */}
       {step === 'certify' && (
         <Card>
-          <SectionHeader title="5 — Certify & referential"
+          <SectionHeader title="4 — Certify & referential"
             suffix={`${entityLabel(entity)} — declare the period's data correct; the next period's controls compare against it`} />
           {!date ? (
             <EmptyState title="Nothing to certify yet" hint="Feed a period in the Data step first." compact />

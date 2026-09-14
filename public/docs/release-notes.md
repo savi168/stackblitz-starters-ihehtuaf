@@ -6,6 +6,32 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.12.0 — 14 September 2026
+
+**Theme: certification line vs Reco — two workspaces, one live balance
+sheet.**
+
+- **The flow is split by intent**: the stepper is now the pure
+  certification line — *Scope → Data → Controls → Certify* (the baseline
+  concludes the control battery). The balance sheet left the stepper: it
+  is a **reconciliation** concern.
+- **New "Reco & adjustments" workspace** (its own button next to the
+  steps): pick the load collection (preset from Scope, changeable),
+  load the accounting file, work the lines — with **the one and only
+  balance sheet** docked live on the right. The duplicate standalone
+  Balance-sheet page is gone.
+- **The live panel got more dynamic**:
+  - the base balance loads **as soon as the collection is known** — you
+    see the consolidated balance sheet before any adjustment line;
+  - **pivot views**: by *Account* (Swiss GAAP / IFRS as before), by
+    *Currency*, or by *Booking center* — base net of intra-scope
+    interco, adjustment deltas per pivot, resolved lines only.
+- Next on this trail (noted): a real BI reading — trends across
+  periods, balance by counterparty residence, charts.
+- No schema changes.
+
+---
+
 ## v3.11.0 — 14 September 2026
 
 **Theme: the generic referential, wired in.**

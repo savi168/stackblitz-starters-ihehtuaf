@@ -197,13 +197,15 @@ WHERE LoadId IN ({inClause})
 SELECT CAST(LegalAccountNumber AS varchar(20)) AS Account,
        LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))) AS Bc,
        LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
+       LTRIM(RTRIM(ISNULL(CAST(Currency AS varchar(3)), ''))) AS Ccy,
        SUM(CAST(BookAmount AS float)) AS Amount,
        COUNT(*) AS Positions
 FROM core_positions
 WHERE LoadId IN ({inClause})
 GROUP BY CAST(LegalAccountNumber AS varchar(20)),
          LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))),
-         LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), '')))
+         LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))),
+         LTRIM(RTRIM(ISNULL(CAST(Currency AS varchar(3)), '')))
 ORDER BY Account";
         cmd.CommandTimeout = 120;
         for (var i = 0; i < ids.Count; i++)
@@ -218,8 +220,9 @@ ORDER BY Account";
                 prefix = account.Length >= 3 ? account[..3] : account,
                 bookingCenterId = rd.IsDBNull(1) ? "" : rd.GetString(1),
                 counterpartyBookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
-                amount = rd.IsDBNull(3) ? 0d : rd.GetDouble(3),
-                positions = rd.IsDBNull(4) ? 0 : rd.GetInt32(4),
+                currency = rd.IsDBNull(3) ? "" : rd.GetString(3),
+                amount = rd.IsDBNull(4) ? 0d : rd.GetDouble(4),
+                positions = rd.IsDBNull(5) ? 0 : rd.GetInt32(5),
             });
         }
         return rows;
