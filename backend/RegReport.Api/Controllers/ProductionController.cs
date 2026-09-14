@@ -198,6 +198,7 @@ SELECT CAST(LegalAccountNumber AS varchar(20)) AS Account,
        LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))) AS Bc,
        LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
        LTRIM(RTRIM(ISNULL(CAST(Currency AS varchar(3)), ''))) AS Ccy,
+       LTRIM(RTRIM(ISNULL(CAST(DataSource AS varchar(30)), ''))) AS Src,
        SUM(CAST(BookAmount AS float)) AS Amount,
        COUNT(*) AS Positions
 FROM core_positions
@@ -205,7 +206,8 @@ WHERE LoadId IN ({inClause})
 GROUP BY CAST(LegalAccountNumber AS varchar(20)),
          LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))),
          LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))),
-         LTRIM(RTRIM(ISNULL(CAST(Currency AS varchar(3)), '')))
+         LTRIM(RTRIM(ISNULL(CAST(Currency AS varchar(3)), ''))),
+         LTRIM(RTRIM(ISNULL(CAST(DataSource AS varchar(30)), '')))
 ORDER BY Account";
         cmd.CommandTimeout = 120;
         for (var i = 0; i < ids.Count; i++)
@@ -221,8 +223,63 @@ ORDER BY Account";
                 bookingCenterId = rd.IsDBNull(1) ? "" : rd.GetString(1),
                 counterpartyBookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
                 currency = rd.IsDBNull(3) ? "" : rd.GetString(3),
+                dataSource = rd.IsDBNull(4) ? "" : rd.GetString(4),
+                amount = rd.IsDBNull(5) ? 0d : rd.GetDouble(5),
+                positions = rd.IsDBNull(6) ? 0 : rd.GetInt32(6),
+            });
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// Balance by counterparty residence: SUM(BookAmount) joined to
+    /// list_counterparties.DomicileCountry at the position's PIT. Booking
+    /// centers are returned so the UI can apply the consolidation scope and
+    /// intra-scope interco elimination client-side, like the main balance.
+    /// </summary>
+    [HttpGet("mercury/balance-residence")]
+    public async Task<ActionResult<object>> BalanceResidence([FromQuery] string? loadId, [FromQuery] string? loadIds)
+    {
+        var cs = _config.GetConnectionString("Mercury");
+        if (string.IsNullOrWhiteSpace(cs))
+            return Problem("ConnectionStrings:Mercury is not configured.", statusCode: 400);
+        var ids = EffectiveLoadIds(loadId ?? "",
+            string.IsNullOrWhiteSpace(loadIds) ? null : loadIds.Split(',').ToList());
+        if (ids.Count == 0)
+            return Problem("loadId or loadIds is required.", statusCode: 400);
+
+        var inClause = string.Join(", ", ids.Select((_, i) => $"@l{i}"));
+        var rows = new List<object>();
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+SELECT LTRIM(RTRIM(ISNULL(CAST(lc.DomicileCountry AS varchar(2)), ''))) AS Country,
+       LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 1) AS Side,
+       LTRIM(RTRIM(ISNULL(CAST(cp.BookingCenterId AS varchar(100)), ''))) AS Bc,
+       LTRIM(RTRIM(ISNULL(CAST(cp.CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
+       SUM(CAST(cp.BookAmount AS float)) AS Amount
+FROM core_positions cp
+LEFT JOIN list_counterparties lc
+       ON lc.Id = cp.CounterpartyId AND lc.PointInTime = cp.CounterpartyPIT
+WHERE cp.LoadId IN ({inClause})
+GROUP BY LTRIM(RTRIM(ISNULL(CAST(lc.DomicileCountry AS varchar(2)), ''))),
+         LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 1),
+         LTRIM(RTRIM(ISNULL(CAST(cp.BookingCenterId AS varchar(100)), ''))),
+         LTRIM(RTRIM(ISNULL(CAST(cp.CounterpartyBookingCenterId AS varchar(100)), '')))";
+        cmd.CommandTimeout = 120;
+        for (var i = 0; i < ids.Count; i++)
+            cmd.Parameters.AddWithValue($"@l{i}", ids[i]);
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+        {
+            rows.Add(new
+            {
+                country = rd.IsDBNull(0) ? "" : rd.GetString(0),
+                side = rd.IsDBNull(1) ? "" : rd.GetString(1),
+                bookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
+                counterpartyBookingCenterId = rd.IsDBNull(3) ? "" : rd.GetString(3),
                 amount = rd.IsDBNull(4) ? 0d : rd.GetDouble(4),
-                positions = rd.IsDBNull(5) ? 0 : rd.GetInt32(5),
             });
         }
         return rows;

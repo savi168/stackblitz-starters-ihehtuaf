@@ -1,60 +1,50 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { BackButton, Card, PageHeader, SectionHeader, Sparkline } from '../components';
+import { useData } from '../context/DataContext';
+import { BackButton, Card, EmptyState, PageHeader, SectionHeader, Sparkline } from '../components';
 import { CHART_COLORS, PALETTE } from '../theme';
+import { hfmKeyOf } from '../services/hfm';
 
 /**
- * Balance sheet analytics — PREVIEW / MOCKUP.
+ * Balance sheet analytics — wired to MERCURY.
  *
- * Every number on this page is SAMPLE DATA: the page exists to validate the
- * reading before wiring it. The intended sources are noted under each block:
- *  - trend: /mercury/balance run per certified period (baselines = markers);
- *  - currency & booking center: the balance endpoint's existing dimensions;
- *  - residence: needs a core_positions × list_counterparties join (TVF or a
- *    dedicated query) — flagged.
+ * The period axis comes from the entity's load collections (one point per
+ * reporting date, ✔ when a certified baseline exists); each period's figures
+ * are the /mercury/balance aggregate of its loads, with the consolidation
+ * scope (list_reporting_sets) and intra-scope interco elimination applied
+ * client-side — identical to the Reco panel. Residence comes from the
+ * dedicated /mercury/balance-residence join.
  */
 
-const PERIODS = ['AUG-25', 'SEP-25', 'OCT-25', 'NOV-25', 'DEC-25', 'JAN-26'];
+type BalanceRow = {
+  account?: string; prefix: string; bookingCenterId: string;
+  counterpartyBookingCenterId: string; currency?: string; dataSource?: string;
+  amount: number; positions?: number;
+};
+type ResidenceRow = {
+  country: string; side: string; bookingCenterId: string;
+  counterpartyBookingCenterId: string; amount: number;
+};
+type CollectionInfo = {
+  loadCollectionId: number | string; name?: string | null; reportingDate?: string | null;
+  reportingEntityId?: string | null; isMaster?: boolean; loadIds: Array<number | string>;
+};
 
-const TREND = [
-  { p: 'AUG-25', assets: 226.1, liabilities: 60.9, certified: true },
-  { p: 'SEP-25', assets: 228.4, liabilities: 61.2, certified: true },
-  { p: 'OCT-25', assets: 231.0, liabilities: 61.0, certified: true },
-  { p: 'NOV-25', assets: 229.7, liabilities: 62.4, certified: true },
-  { p: 'DEC-25', assets: 233.1, liabilities: 62.5, certified: true },
-  { p: 'JAN-26', assets: 233.8, liabilities: 62.5, certified: false },
-];
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+const periodLabel = (iso: string): string => {
+  const m = iso.match(/^(\d{4})-(\d{2})/);
+  return m ? `${MONTHS[Number(m[2]) - 1]}-${m[1].slice(2)}` : iso;
+};
+const fmtM = (n: number) => (n / 1_000_000).toLocaleString('en-CH', { maximumFractionDigits: 1 });
 
-const BY_CCY = PERIODS.map((p, i) => ({
-  p,
-  CHF: 118 + i * 1.2, EUR: 54 + (i % 3), USD: 36 + i * 0.6, GBP: 9 + (i % 2) * 0.4, Other: 7.5 + i * 0.2,
-}));
+const SourceNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="text-[10px] text-brand-text-secondary mt-2 border-t border-efg-line pt-2">{children}</p>
+);
 
-const BY_BC = [
-  { bc: 'BC-GVA — Geneva', amount: 168.2, prev: 166.0 },
-  { bc: 'BC-ZH — Zurich', amount: 48.9, prev: 49.6 },
-  { bc: 'BC-LUG — Lugano', amount: 16.7, prev: 17.5 },
-];
-
-const BY_RES = [
-  { c: 'CH', amount: 121.4 }, { c: 'LU', amount: 28.9 }, { c: 'DE', amount: 24.1 },
-  { c: 'FR', amount: 18.7 }, { c: 'GB', amount: 14.2 }, { c: 'Other', amount: 26.5 },
-];
-
-const TOP_MOVES = [
-  { acct: '104', label: 'Due from customers — loans', prev: 58.4, now: 59.9, adj: 0.7 },
-  { acct: '106', label: 'Trading securities', prev: 66.9, now: 68.2, adj: 0 },
-  { acct: '201', label: 'Due to banks — term', prev: 42.1, now: 41.0, adj: -0.7 },
-  { acct: '103', label: 'Due from banks', prev: 89.2, now: 90.0, adj: 0 },
-  { acct: '105', label: 'Mortgages', prev: 15.0, now: 14.9, adj: 0 },
-];
-
-const fmtB = (n: number) => `${n.toFixed(1)}`;
-
-const Tile: React.FC<{ label: string; value: string; sub: string; trend: number[]; accent?: boolean }> =
+const Tile: React.FC<{ label: string; value: string; sub: string; trend: (number | null)[]; accent?: boolean }> =
   ({ label, value, sub, trend, accent }) => (
     <Card className="!p-4">
       <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">{label}</p>
@@ -64,29 +54,279 @@ const Tile: React.FC<{ label: string; value: string; sub: string; trend: number[
     </Card>
   );
 
-const SourceNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="text-[10px] text-brand-text-secondary mt-2 border-t border-efg-line pt-2">🔌 Wiring: {children}</p>
-);
-
 const BalanceAnalyticsPage: React.FC = () => {
+  const { data, mode, apiBaseUrl } = useData();
   const [gaap, setGaap] = useState<'swiss' | 'ifrs'>('swiss');
+  const [conso, setConso] = useState<{
+    entities: Array<{ id: string; name?: string }>;
+    sets: Record<string, string[]>;
+    bcNames: Record<string, string>;
+  } | null>(null);
+  const [collections, setCollections] = useState<CollectionInfo[]>([]);
+  const [entitySel, setEntitySel] = useState('');
+  const [balances, setBalances] = useState<Record<string, BalanceRow[]>>({});
+  const [residence, setResidence] = useState<ResidenceRow[] | null>(null);
+  const fetched = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (mode !== 'api') return;
+    fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(out => {
+        if (!out) return;
+        const sets: Record<string, string[]> = {};
+        for (const st of out.sets || []) (sets[String(st.reportingEntityId)] ??= []).push(String(st.bookingCenterId));
+        const bcNames: Record<string, string> = {};
+        for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
+        setConso({
+          entities: (out.entities || []).map((e: { id: unknown; name?: unknown }) => ({
+            id: String(e.id), name: e.name ? String(e.name) : undefined,
+          })),
+          sets, bcNames,
+        });
+      })
+      .catch(() => { /* unavailable */ });
+    fetch(`${apiBaseUrl}/production/mercury/load-collections`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : []))
+      .then(l => setCollections(Array.isArray(l)
+        ? l.map((c: CollectionInfo) => ({ ...c, loadIds: Array.isArray(c.loadIds) ? c.loadIds : [] }))
+        : []))
+      .catch(() => setCollections([]));
+  }, [mode, apiBaseUrl]);
+
+  // Entities that actually carry collections, most useful default first.
+  const entities = useMemo(() => {
+    const withCols = Array.from(new Set(collections.map(c => String(c.reportingEntityId ?? '')).filter(Boolean)));
+    return withCols.length > 0 ? withCols.sort() : (conso?.entities || []).map(e => e.id);
+  }, [collections, conso]);
+  const entity = entities.includes(entitySel) ? entitySel : entities[0] || '';
+  const entityName = conso?.entities.find(e => e.id === entity)?.name;
+
+  const baselines = useMemo(() =>
+    (data.prodBaselines || []).filter(b => b.entity === entity), [data.prodBaselines, entity]);
+
+  // One period per reporting date (master collections win), last 8, oldest first.
+  const periods = useMemo(() => {
+    const byDate = new Map<string, CollectionInfo>();
+    for (const c of collections) {
+      if (String(c.reportingEntityId ?? '') !== entity) continue;
+      const d = c.reportingDate ? String(c.reportingDate).slice(0, 10) : '';
+      if (!d || (c.loadIds || []).length === 0) continue;
+      const cur = byDate.get(d);
+      if (!cur || (c.isMaster && !cur.isMaster)) byDate.set(d, c);
+    }
+    return Array.from(byDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-8)
+      .map(([date, c]) => ({
+        date, label: periodLabel(date),
+        loadIds: (c.loadIds || []).map(String),
+        collectionId: String(c.loadCollectionId),
+        certified: baselines.some(b => b.date === date),
+      }));
+  }, [collections, entity, baselines]);
+
+  // Fetch each period's balance once (sequentially — a handful of aggregates).
+  useEffect(() => {
+    if (mode !== 'api' || periods.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const p of periods) {
+        const key = `${entity}|${p.date}`;
+        if (fetched.current.has(key)) continue;
+        fetched.current.add(key);
+        const qs = p.loadIds.length > 1 ? `loadIds=${encodeURIComponent(p.loadIds.join(','))}` : `loadId=${encodeURIComponent(p.loadIds[0])}`;
+        try {
+          const r = await fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' });
+          if (!r.ok) continue;
+          const arr = await r.json() as BalanceRow[];
+          if (cancelled) return;
+          setBalances(prev => ({ ...prev, [key]: arr.filter(b => b.prefix) }));
+        } catch { /* skip period */ }
+      }
+      // Residence for the latest period.
+      const last = periods[periods.length - 1];
+      if (last) {
+        const qs = last.loadIds.length > 1 ? `loadIds=${encodeURIComponent(last.loadIds.join(','))}` : `loadId=${encodeURIComponent(last.loadIds[0])}`;
+        try {
+          const r = await fetch(`${apiBaseUrl}/production/mercury/balance-residence?${qs}`, { credentials: 'include' });
+          if (r.ok) {
+            const arr = await r.json() as ResidenceRow[];
+            if (!cancelled) setResidence(arr);
+          }
+        } catch { /* block hidden */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mode, apiBaseUrl, periods, entity]);
+
+  const scopeSet = useMemo(() => {
+    const bcs = conso?.sets[entity];
+    return bcs && bcs.length > 0 ? new Set(bcs.map(x => x.trim())) : null;
+  }, [conso, entity]);
+
+  // HFM maps (IFRS view) + Swiss labels from the stored mapping workbook.
+  const maps = useMemo(() => {
+    const hfmDirect = new Map<string, string>(), hfmLbl = new Map<string, string>(), hfmRules = new Map<string, string>();
+    const swissLbl = new Map<string, string>();
+    for (const e of data.prodMappingEntries || []) {
+      if (!e.textValue) continue;
+      if (e.kind === 'hfm') hfmDirect.set(e.mapKey, e.textValue);
+      else if (e.kind === 'hfmlabel') hfmLbl.set(e.mapKey, e.textValue);
+      else if (e.kind === 'hfmrule') hfmRules.set(e.mapKey, e.textValue);
+      else if (e.kind === 'label') swissLbl.set(e.mapKey, e.textValue);
+    }
+    for (const e of data.prodMappingEntries || []) {
+      if (e.kind !== 'gl' || !e.textValue || !e.description) continue;
+      const pfx = e.textValue.slice(0, 3);
+      if (pfx && !swissLbl.has(pfx)) swissLbl.set(pfx, e.description);
+    }
+    return { hfmDirect, hfmLbl, hfmRules, swissLbl };
+  }, [data.prodMappingEntries]);
+
+  // Scope-filtered net rows of one period.
+  const netRows = (rows: BalanceRow[] | undefined): Array<BalanceRow & { net: number }> => {
+    if (!rows) return [];
+    const out: Array<BalanceRow & { net: number }> = [];
+    for (const b of rows) {
+      if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
+      const elim = scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId) ? b.amount : 0;
+      out.push({ ...b, net: b.amount - elim });
+    }
+    return out;
+  };
+  const rowsOf = (date: string) => netRows(balances[`${entity}|${date}`]);
+  const loaded = (date: string) => balances[`${entity}|${date}`] !== undefined;
+
+  const trend = useMemo(() => periods.map(p => {
+    const rows = rowsOf(p.date);
+    const assets = rows.filter(r => r.prefix.startsWith('1')).reduce((s, r) => s + r.net, 0);
+    const liabilities = rows.filter(r => r.prefix.startsWith('2')).reduce((s, r) => s + r.net, 0);
+    return { p: p.label, date: p.date, certified: p.certified, assets, liabilities, ok: loaded(p.date) };
+  }), [periods, balances, scopeSet]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const latest = trend.length > 0 ? trend[trend.length - 1] : null;
+  const prev = trend.length > 1 ? trend[trend.length - 2] : null;
+  const latestRows = latest ? rowsOf(latest.date) : [];
+  const prevRows = prev ? rowsOf(prev.date) : [];
+
+  // Assets by currency: top 4 currencies of the latest period, rest = Other.
+  const ccy = useMemo(() => {
+    const latestBy: Record<string, number> = {};
+    for (const r of latestRows) if (r.prefix.startsWith('1')) latestBy[r.currency || '?'] = (latestBy[r.currency || '?'] || 0) + r.net;
+    const top = Object.entries(latestBy).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 4).map(([k]) => k);
+    const series = periods.map(p => {
+      const row: Record<string, number | string> = { p: p.label };
+      for (const r of rowsOf(p.date)) {
+        if (!r.prefix.startsWith('1')) continue;
+        const k = top.includes(r.currency || '?') ? (r.currency || '?') : 'Other';
+        row[k] = (Number(row[k]) || 0) + r.net;
+      }
+      return row;
+    });
+    return { top: [...top, 'Other'], series };
+  }, [periods, balances, scopeSet]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const byBc = useMemo(() => {
+    const agg = (rows: Array<BalanceRow & { net: number }>) => {
+      const by: Record<string, number> = {};
+      for (const r of rows) if (r.prefix.startsWith('1')) by[r.bookingCenterId || '—'] = (by[r.bookingCenterId || '—'] || 0) + r.net;
+      return by;
+    };
+    const nowBy = agg(latestRows), prevBy = agg(prevRows);
+    return Object.keys({ ...nowBy, ...prevBy })
+      .sort((a, b) => (nowBy[b] || 0) - (nowBy[a] || 0))
+      .map(k => ({
+        bc: conso?.bcNames[k] ? `${k} — ${conso.bcNames[k]}` : k,
+        amount: nowBy[k] || 0, prev: prevBy[k] || 0,
+      }));
+  }, [latestRows, prevRows, conso]);
+
+  const byRes = useMemo(() => {
+    if (!residence) return null;
+    const by: Record<string, number> = {};
+    for (const r of residence) {
+      if (r.side !== '1') continue; // assets side
+      if (scopeSet && r.bookingCenterId && !scopeSet.has(r.bookingCenterId)) continue;
+      const elim = scopeSet && r.counterpartyBookingCenterId && scopeSet.has(r.counterpartyBookingCenterId) ? r.amount : 0;
+      const k = r.country || '—';
+      by[k] = (by[k] || 0) + r.amount - elim;
+    }
+    const sorted = Object.entries(by).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    const top = sorted.slice(0, 5);
+    const other = sorted.slice(5).reduce((s, [, v]) => s + v, 0);
+    return [...top.map(([c, amount]) => ({ c, amount })), ...(other !== 0 ? [{ c: 'Other', amount: other }] : [])];
+  }, [residence, scopeSet]);
+
+  // Top movements latest vs previous, grouped per the selected GAAP.
+  const topMoves = useMemo(() => {
+    if (!latest || !prev) return [];
+    const keyOf = (r: BalanceRow): string | null => {
+      const account = r.account || r.prefix;
+      if (gaap === 'ifrs') {
+        if (!/^[12]/.test(account)) return null;
+        return hfmKeyOf(account, maps.hfmDirect, maps.hfmRules);
+      }
+      return r.prefix;
+    };
+    const agg = (rows: Array<BalanceRow & { net: number }>, adjOnly = false) => {
+      const by: Record<string, number> = {};
+      for (const r of rows) {
+        if (adjOnly && (r.dataSource || '').toUpperCase() !== 'ADJUSTMENT') continue;
+        const k = keyOf(r);
+        if (k === null) continue;
+        by[k] = (by[k] || 0) + r.net;
+      }
+      return by;
+    };
+    const nowBy = agg(latestRows), prevBy = agg(prevRows), adjBy = agg(latestRows, true);
+    return Object.keys({ ...nowBy, ...prevBy })
+      .map(k => ({
+        k, label: (gaap === 'ifrs' ? maps.hfmLbl.get(k) : maps.swissLbl.get(k)) || '',
+        prev: prevBy[k] || 0, now: nowBy[k] || 0, adj: adjBy[k] || 0,
+      }))
+      .sort((a, b) => Math.abs(b.now - b.prev) - Math.abs(a.now - a.prev))
+      .slice(0, 8);
+  }, [latest, prev, latestRows, prevRows, gaap, maps]);
+
+  const adjTile = useMemo(() => {
+    const adj = latestRows.filter(r => (r.dataSource || '').toUpperCase() === 'ADJUSTMENT');
+    const sum = adj.reduce((s, r) => s + r.net, 0);
+    const n = adj.reduce((s, r) => s + (r.positions || 0), 0);
+    return { sum, n };
+  }, [latestRows]);
+  const elimTile = useMemo(() =>
+    latestRows.reduce((s, r) => s + (r.amount - r.net), 0), [latestRows]);
+  const trendOf = (get: (t: typeof trend[number]) => number) => trend.map(t => (t.ok ? get(t) : null));
+
   const tooltipStyle = { fontSize: 12 };
+
+  if (mode !== 'api') {
+    return (
+      <div className="p-5 md:p-8 space-y-6">
+        <BackButton />
+        <PageHeader title="Balance sheet analytics" subtitle="Requires the API backend and the MERCURY connection." />
+        <Card><EmptyState title="Not available in local mode" hint="Connect the app to the .NET backend (ConnectionStrings:Mercury) to aggregate the load collections into these views." /></Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-5 md:p-8 space-y-6">
       <BackButton />
-      <div className="flex flex-wrap items-center gap-3">
-        <PageHeader
-          title="Balance sheet analytics"
-          subtitle="The consolidated balance sheet as a BI reading: trends across certified periods, and the structure by currency, booking center and counterparty residence."
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-[0.1em] px-2.5 py-1 rounded-full bg-status-amber/15 text-status-amber border border-status-amber/40">
-          Preview — sample data
-        </span>
-        <span className="text-[12px] text-brand-text-secondary">
-          Mockup for validation: every figure is invented. Say what to keep / change and it gets wired to MERCURY.
-        </span>
+      <PageHeader
+        title="Balance sheet analytics"
+        subtitle="The consolidated balance sheet as a BI reading — one point per load collection, certified baselines marked, scope and intra-scope interco applied like everywhere else."
+      />
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
+          <select value={entity} onChange={e => setEntitySel(e.target.value)}
+            className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+            {entities.map(e => <option key={e} value={e}>{conso?.entities.find(x => x.id === e)?.name ? `${e} — ${conso.entities.find(x => x.id === e)!.name}` : e}</option>)}
+          </select>
+        </div>
+        {scopeSet && <p className="text-[11px] text-brand-text-secondary pb-2.5">{scopeSet.size} booking center(s) · intra-scope interco eliminated</p>}
         <span className="ml-auto inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
           {(['swiss', 'ifrs'] as const).map(g => (
             <button key={g} onClick={() => setGaap(g)}
@@ -97,140 +337,155 @@ const BalanceAnalyticsPage: React.FC = () => {
         </span>
       </div>
 
-      {/* KPI row */}
-      <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <Tile label="Total assets" value="233.8 mCHF" sub="+0.3% vs DEC-25 (certified)"
-          trend={TREND.map(t => t.assets)} accent />
-        <Tile label="Total liabilities & equity" value="62.5 mCHF" sub="stable vs DEC-25"
-          trend={TREND.map(t => t.liabilities)} />
-        <Tile label="Intercompany eliminated" value="1.6 mCHF" sub="MOCK-GROUP scope · 2 booking centers"
-          trend={[1.1, 1.3, 1.2, 1.5, 1.4, 1.6]} />
-        <Tile label="Adjustments this period" value="+0.74 mCHF" sub="3 lines · 2 matched · 1 new position"
-          trend={[0.2, -0.4, 0.5, 0.1, -0.2, 0.74]} />
-      </div>
-
-      {/* Trend */}
-      <Card>
-        <SectionHeader title="Balance sheet trend" suffix="six periods — ✔ = certified baseline; JAN-26 open" />
-        <div className="h-72">
-          <ResponsiveContainer>
-            <ComposedChart data={TREND} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="baFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={PALETTE.slate} stopOpacity={0.18} />
-                  <stop offset="100%" stopColor={PALETTE.slate} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-              <XAxis dataKey="p" tickFormatter={(p: string, i: number) => `${p}${TREND[i]?.certified ? ' ✔' : ''}`} />
-              <YAxis width={56} domain={['auto', 'auto']} tickFormatter={fmtB} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v.toFixed(1)} mCHF`, n]} />
-              <Legend />
-              <Area dataKey="assets" name="Assets" stroke="none" fill="url(#baFill)" tooltipType="none" legendType="none" />
-              <Line dataKey="assets" name="Assets" stroke={PALETTE.slate} strokeWidth={2} dot={{ r: 3 }} />
-              <Line dataKey="liabilities" name="Liabilities & equity" stroke={PALETTE.red} strokeWidth={2} dot={{ r: 3 }} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-        <SourceNote>/mercury/balance executed for each certified baseline's loads (the baselines give the period axis); {gaap === 'ifrs' ? 'IFRS totals via the HFM mapping' : 'Swiss GAAP totals by rubrique'}.</SourceNote>
-      </Card>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* By currency */}
-        <Card>
-          <SectionHeader title="Assets by currency" suffix="stacked, six periods" />
-          <div className="h-64">
-            <ResponsiveContainer>
-              <BarChart data={BY_CCY} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-                <XAxis dataKey="p" />
-                <YAxis width={56} tickFormatter={fmtB} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v.toFixed(1)} mCHF`, n]} />
-                <Legend />
-                {(['CHF', 'EUR', 'USD', 'GBP', 'Other'] as const).map((k, i) => (
-                  <Bar key={k} dataKey={k} stackId="ccy" fill={CHART_COLORS[i % CHART_COLORS.length]}
-                    radius={i === 4 ? [3, 3, 0, 0] : undefined} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
+      {periods.length === 0 ? (
+        <Card><EmptyState title="No load collection found"
+          hint={`No visible collection carries reporting entity ${entity || '—'} — the period axis comes from core_load_collections. Check the MERCURY connection (☰ → Logs).`} /></Card>
+      ) : (
+        <>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <Tile label="Total assets" value={latest && latest.ok ? `${fmtM(latest.assets)} mCHF` : '…'}
+              sub={prev && latest && prev.ok && prev.assets !== 0 ? `${(((latest.assets - prev.assets) / Math.abs(prev.assets)) * 100).toFixed(1)}% vs ${prev.p}${prev.certified ? ' ✔' : ''}` : `${latest?.p ?? ''}`}
+              trend={trendOf(t => t.assets)} accent />
+            <Tile label="Total liabilities & equity" value={latest && latest.ok ? `${fmtM(latest.liabilities)} mCHF` : '…'}
+              sub={prev && prev.ok ? `vs ${fmtM(prev.liabilities)} in ${prev.p}` : ''}
+              trend={trendOf(t => t.liabilities)} />
+            <Tile label="Intercompany eliminated" value={`${fmtM(elimTile)} mCHF`}
+              sub={scopeSet ? `${entity} scope · ${scopeSet.size} booking centers` : 'no reporting set — nothing eliminated'}
+              trend={trend.map(t => (t.ok ? rowsOf(t.date).reduce((s, r) => s + (r.amount - r.net), 0) : null))} />
+            <Tile label="Adjustments in the period" value={`${adjTile.sum >= 0 ? '+' : ''}${fmtM(adjTile.sum)} mCHF`}
+              sub={adjTile.n > 0 ? `${adjTile.n} position(s) flagged ADJUSTMENT` : 'none loaded in MERCURY yet'}
+              trend={trend.map(t => (t.ok ? rowsOf(t.date).filter(r => (r.dataSource || '').toUpperCase() === 'ADJUSTMENT').reduce((s, r) => s + r.net, 0) : null))} />
           </div>
-          <SourceNote>already available — the balance endpoint returns the currency dimension since v3.12.</SourceNote>
-        </Card>
 
-        {/* By booking center */}
-        <Card>
-          <SectionHeader title="By booking center" suffix="latest period vs previous" />
-          <div className="h-64">
-            <ResponsiveContainer>
-              <BarChart data={BY_BC} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} horizontal={false} />
-                <XAxis type="number" tickFormatter={fmtB} />
-                <YAxis type="category" dataKey="bc" width={150} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${v.toFixed(1)} mCHF`, n]} />
-                <Legend />
-                <Bar dataKey="prev" name="DEC-25" fill={PALETTE.mist} radius={[0, 3, 3, 0]} />
-                <Bar dataKey="amount" name="JAN-26" fill={PALETTE.slate} radius={[0, 3, 3, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <Card>
+            <SectionHeader title="Balance sheet trend" suffix={`${periods.length} period(s) — ✔ = certified baseline · ${entityName || entity}`} />
+            <div className="h-72">
+              <ResponsiveContainer>
+                <ComposedChart data={trend.filter(t => t.ok)} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+                  <defs>
+                    <linearGradient id="baFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={PALETTE.slate} stopOpacity={0.18} />
+                      <stop offset="100%" stopColor={PALETTE.slate} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+                  <XAxis dataKey="p" tickFormatter={(_, i) => {
+                    const t = trend.filter(x => x.ok)[i];
+                    return t ? `${t.p}${t.certified ? ' ✔' : ''}` : '';
+                  }} />
+                  <YAxis width={64} domain={['auto', 'auto']} tickFormatter={(v: number) => fmtM(v)} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${fmtM(v)} mCHF`, n]} />
+                  <Legend />
+                  <Area dataKey="assets" name="Assets" stroke="none" fill="url(#baFill)" tooltipType="none" legendType="none" />
+                  <Line dataKey="assets" name="Assets" stroke={PALETTE.slate} strokeWidth={2} dot={{ r: 3 }} />
+                  <Line dataKey="liabilities" name="Liabilities & equity" stroke={PALETTE.red} strokeWidth={2} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <SourceNote>SUM(BookAmount) of each collection's loads, net of intra-scope interco. With one or two collections in MERCURY_MOCK the trend is short — it grows with every monthly load{baselines.length === 0 ? '; certify periods (Production → Certify) to mark the ✔ baselines' : ''}.</SourceNote>
+          </Card>
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            <Card>
+              <SectionHeader title="Assets by currency" suffix="position currency, stacked" />
+              <div className="h-64">
+                <ResponsiveContainer>
+                  <BarChart data={ccy.series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+                    <XAxis dataKey="p" />
+                    <YAxis width={64} tickFormatter={(v: number) => fmtM(v)} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${fmtM(v)} mCHF`, n]} />
+                    <Legend />
+                    {ccy.top.map((k, i) => (
+                      <Bar key={k} dataKey={k} stackId="ccy" fill={CHART_COLORS[i % CHART_COLORS.length]}
+                        radius={i === ccy.top.length - 1 ? [3, 3, 0, 0] : undefined} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <SourceNote>Top {Math.max(ccy.top.length - 1, 0)} currencies of the latest period; the rest is bucketed as Other.</SourceNote>
+            </Card>
+
+            <Card>
+              <SectionHeader title="By booking center" suffix={prev ? `${latest?.p} vs ${prev.p}` : latest?.p || ''} />
+              <div className="h-64">
+                <ResponsiveContainer>
+                  <BarChart data={byBc} layout="vertical" margin={{ top: 8, right: 24, bottom: 0, left: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} horizontal={false} />
+                    <XAxis type="number" tickFormatter={(v: number) => fmtM(v)} />
+                    <YAxis type="category" dataKey="bc" width={170} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [`${fmtM(v)} mCHF`, n]} />
+                    <Legend />
+                    {prev && <Bar dataKey="prev" name={prev.p} fill={PALETTE.mist} radius={[0, 3, 3, 0]} />}
+                    <Bar dataKey="amount" name={latest?.p || 'latest'} fill={PALETTE.slate} radius={[0, 3, 3, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <SourceNote>Assets (1xx) per BookingCenterId, names from list_booking_centers; positions outside the reporting set are excluded.</SourceNote>
+            </Card>
+
+            <Card>
+              <SectionHeader title="By counterparty residence" suffix={`assets · ${latest?.p || ''}`} />
+              {!byRes ? (
+                <EmptyState title="Residence unavailable" hint="The balance-residence query did not answer — check the MERCURY connection." compact />
+              ) : (
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <BarChart data={byRes} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
+                      <XAxis dataKey="c" />
+                      <YAxis width={64} tickFormatter={(v: number) => fmtM(v)} />
+                      <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${fmtM(v)} mCHF`, 'Assets']} />
+                      <Bar dataKey="amount" radius={[3, 3, 0, 0]}>
+                        {byRes.map((e, i) => <Cell key={e.c} fill={e.c === 'CH' ? PALETTE.red : CHART_COLORS[i % CHART_COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <SourceNote>DomicileCountry of list_counterparties at the position's PIT (— = position without counterparty, e.g. pure security lines).</SourceNote>
+            </Card>
+
+            <Card>
+              <SectionHeader title="Top movements vs previous period" suffix={`${gaap === 'ifrs' ? 'HFM lines' : 'rubriques'} sorted by |Δ| — adjustments isolated`} />
+              {topMoves.length === 0 ? (
+                <EmptyState title="Needs two periods" hint="Load (and keep) at least two collections to compare period over period." compact />
+              ) : (
+                <div className="overflow-x-auto border border-efg-line rounded-lg">
+                  <table className="w-full text-xs whitespace-nowrap">
+                    <thead className="bg-brand-bg-body"><tr>
+                      {[gaap === 'ifrs' ? 'HFM' : 'Acct', 'Label', prev?.p || 'prev', latest?.p || 'now', 'Δ', 'of which adj'].map((h, hi) =>
+                        <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {topMoves.map(m => {
+                        const d = m.now - m.prev;
+                        return (
+                          <tr key={m.k} className="border-t border-efg-line/60">
+                            <td className="px-3 py-1.5 font-semibold">{m.k}</td>
+                            <td className="px-3 py-1.5 text-brand-text-secondary max-w-[220px] truncate">{m.label || '—'}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{fmtM(m.prev)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{fmtM(m.now)}</td>
+                            <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${d > 0 ? 'text-status-green' : d < 0 ? 'text-status-red' : ''}`}>
+                              {d > 0 ? '+' : ''}{fmtM(d)}
+                            </td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{m.adj !== 0 ? `${m.adj > 0 ? '+' : ''}${fmtM(m.adj)}` : '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <SourceNote>Per-{gaap === 'ifrs' ? 'HFM-line' : 'rubrique'} diff of the two latest periods; the adjustment column sums the positions flagged DataSource = ADJUSTMENT.</SourceNote>
+            </Card>
           </div>
-          <SourceNote>already available — booking-center dimension of the balance endpoint, names from list_booking_centers.</SourceNote>
-        </Card>
 
-        {/* By residence */}
-        <Card>
-          <SectionHeader title="By counterparty residence" suffix="exposure country of risk — latest period" />
-          <div className="h-64">
-            <ResponsiveContainer>
-              <BarChart data={BY_RES} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
-                <XAxis dataKey="c" />
-                <YAxis width={56} tickFormatter={fmtB} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v.toFixed(1)} mCHF`, 'Assets']} />
-                <Bar dataKey="amount" radius={[3, 3, 0, 0]}>
-                  {BY_RES.map((e, i) => <Cell key={e.c} fill={e.c === 'CH' ? PALETTE.red : CHART_COLORS[i % CHART_COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <SourceNote>needs a core_positions × list_counterparties (DomicileCountry) join — a small TVF/query extension on MERCURY; to validate with IT.</SourceNote>
-        </Card>
-
-        {/* Top movements */}
-        <Card>
-          <SectionHeader title="Top movements vs previous period" suffix="rubriques sorted by |Δ| — adjustments isolated" />
-          <div className="overflow-x-auto border border-efg-line rounded-lg">
-            <table className="w-full text-xs whitespace-nowrap">
-              <thead className="bg-brand-bg-body"><tr>
-                {['Acct', 'Label', 'DEC-25', 'JAN-26', 'Δ', 'of which adj'].map((h, hi) =>
-                  <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {TOP_MOVES.map(m => {
-                  const d = m.now - m.prev;
-                  return (
-                    <tr key={m.acct} className="border-t border-efg-line/60">
-                      <td className="px-3 py-1.5 font-semibold">{m.acct}</td>
-                      <td className="px-3 py-1.5 text-brand-text-secondary">{m.label}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{m.prev.toFixed(1)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{m.now.toFixed(1)}</td>
-                      <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${d > 0 ? 'text-status-green' : d < 0 ? 'text-status-red' : ''}`}>
-                        {d > 0 ? '+' : ''}{d.toFixed(1)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{m.adj ? `${m.adj > 0 ? '+' : ''}${m.adj.toFixed(1)}` : '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <SourceNote>period-over-period diff of the per-rubrique balance; the adjustment column comes from the positions flagged DataSource = 'ADJUSTMENT'.</SourceNote>
-        </Card>
-      </div>
-
-      <p className="text-[11px] text-brand-text-secondary">
-        All amounts mCHF, sample data. Planned filters (not mocked): reporting entity / scope, GAAP (toggle above), period range —
-        and a click on any bar drills into the Reco workspace filtered on that dimension.
-      </p>
+          <p className="text-[11px] text-brand-text-secondary">
+            All amounts mCHF as booked (BookAmount). Certify periods in the Production line to mark the ✔ baselines on the trend.
+          </p>
+        </>
+      )}
     </div>
   );
 };

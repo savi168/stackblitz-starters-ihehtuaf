@@ -6,6 +6,35 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.14.0 — 14 September 2026
+
+**Theme: Balance sheet analytics — wired to MERCURY.**
+
+- The analytics page (📈) now runs on **real data** — the preview badge
+  is gone:
+  - **period axis** = the entity's load collections (one point per
+    reporting date, master collections preferred, last 8), ✔ marking
+    the certified baselines;
+  - every figure = the `/mercury/balance` aggregate of that period's
+    loads, with the reporting-set scope and intra-scope interco
+    elimination applied exactly like the Reco panel;
+  - **KPI tiles** (assets, liabilities, interco eliminated, adjustments
+    of the period) with real sparklines; **trend**, **assets by
+    currency** (top-4 + Other), **booking centers** (latest vs
+    previous), **top movements** with the adjustment share isolated
+    (positions flagged `DataSource = ADJUSTMENT` — new dimension on the
+    balance endpoint);
+  - **by counterparty residence**: new read-only endpoint
+    `mercury/balance-residence` joining `list_counterparties.
+    DomicileCountry` at the position's PIT — works on MERCURY_MOCK and
+    on the real MERCURY alike (same schema), no IT development needed;
+  - SWISS GAAP / IFRS (HFM) toggle on the top-movements view; entity
+    selector; graceful empty states when MERCURY is unreachable.
+- No schema changes (two read-only query changes on the MERCURY side of
+  the API).
+
+---
+
 ## v3.13.0 — 14 September 2026
 
 **Theme: analytics preview & the reco flow made simple.**
