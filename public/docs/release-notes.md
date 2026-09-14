@@ -6,6 +6,41 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.9.0 — 14 September 2026
+
+**Theme: dual-GAAP balance sheet & the adjustment booking rule.**
+
+- **Adjustments are booked on their accounting line's GL account** — both
+  in the impact preview and in the generated INSERT (`LegalAccountNumber`,
+  and `cp_TypeOf`/`cp_SubType` when the mapping provides them, now
+  override the matched position's values). The matched position only
+  supplies the **qualitative attributes** (counterparty, booking center,
+  references…). Example: LIGNE 155 → account 102001 lands in *Due from
+  banks*, even when the matched position sits on 104001.
+- **IFRS (HFM) view**: the Balance sheet step and the adjustments impact
+  preview both gain a **SWISS GAAP / IFRS (HFM)** toggle. The IFRS view
+  maps each MERCURY account to its HFM account using the
+  `Mapping_GL_BALANCESHEET` sheet's `HFM_Account` column (stored when you
+  re-upload the workbook and 💾 save), with **per-prefix fallback rules**
+  mirroring the team's HFM Power Query (101 → 111 00 02, 102/103 →
+  113 00 01, …) when an account has no mapping or is `IGNORE` — rules
+  overridable in the database (rows of kind `hfmrule`). Balance-sheet
+  accounts (1xx/2xx) only, HFM labels from the workbook.
+- **Mapping manageable in the app**: `ProdMappingEntries` (the whole
+  workbook, including the new HFM rows) and `ProdBaselines` now appear in
+  **Backend → Data Explorer** — single rows (a CCY rate, an HFM rule…)
+  are editable in place with the usual audit trail; bulk update stays
+  re-upload + 💾 save. A **📚 Store workbook in Library** button keeps the
+  Mapping.xlsb file itself in the Library (folder *Production/Mappings*).
+- The MERCURY balance endpoint now aggregates by full account (the
+  prefix view is unchanged).
+- Note: to activate the account-level HFM mapping, **re-upload
+  Mapping.xlsb once and 💾 save** — until then the IFRS view uses the
+  fallback rules only (a banner says so).
+- No schema changes.
+
+---
+
 ## v3.8.0 — 14 September 2026
 
 **Theme: production usability — see the differences, tame large adjustment

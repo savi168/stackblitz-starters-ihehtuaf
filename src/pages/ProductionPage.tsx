@@ -6,6 +6,7 @@ import {
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
 import type { AdjustmentLine, AdjustmentMappings, MatchCandidate } from '../services/adjustments';
+import { hfmKeyOf } from '../services/hfm';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -442,6 +443,7 @@ const AdjustmentsCard: React.FC<{
     const { mode, apiBaseUrl, data, setData, currentUser } = useData();
     const [mappings, setMappings] = useState<AdjustmentMappings | null>(null);
     const [mappingInfo, setMappingInfo] = useState('');
+    const [mappingFile, setMappingFile] = useState<File | null>(null);
     const [lines, setLines] = useState<AdjustmentLine[]>([]);
     const [linesInfo, setLinesInfo] = useState('');
     const [loads, setLoads] = useState<Array<{ loadId: number | string; reportingDate: string; name?: string | null }>>([]);
@@ -462,7 +464,8 @@ const AdjustmentsCard: React.FC<{
     const [genericRating, setGenericRating] = useState('');
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
-    const [baseRows, setBaseRows] = useState<Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [baseRows, setBaseRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [gaapAdj, setGaapAdj] = useState<'swiss' | 'ifrs'>('swiss');
     const [conso, setConso] = useState<{
       entities: Array<{ id: string; name?: string; bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }>;
       sets: Record<string, string[]>;
@@ -526,6 +529,24 @@ const AdjustmentsCard: React.FC<{
       onNotice(`Mappings saved to the database (${entries.length} rows in ProdMappingEntries) — no re-upload needed next session; re-upload the workbook and save again to update (e.g. new CCY rates).`);
     };
 
+    // Keep the workbook FILE itself in the Library (versioned, downloadable
+    // by the team) — the relational save above only stores the lookups.
+    const storeInLibrary = async () => {
+      if (!mappingFile || mode !== 'api') return;
+      try {
+        const form = new FormData();
+        form.append('File', mappingFile);
+        form.append('Folder', 'Production/Mappings');
+        form.append('Title', `Mapping workbook — uploaded ${new Date().toISOString().slice(0, 10)}`);
+        form.append('Kind', 'mapping');
+        const res = await fetch(`${apiBaseUrl}/documents`, { method: 'POST', credentials: 'include', body: form });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        onNotice(`${mappingFile.name} stored in the Library (folder Production/Mappings).`);
+      } catch (err) {
+        onError(`Library upload failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
     const collection = useMemo(() =>
       collections.find(c => String(c.loadCollectionId) === collectionSel) || null, [collections, collectionSel]);
     const collLoadIds = useMemo(() => (collection?.loadIds || []).map(String), [collection]);
@@ -569,6 +590,7 @@ const AdjustmentsCard: React.FC<{
         const svc = await import('../services/adjustments');
         setSvcMod(svc);
         const m = svc.parseMappingWorkbook(await f.arrayBuffer());
+        setMappingFile(f);
         setMappings(m);
         setMappingInfo(`${f.name} — ${m.gl.size} GL lines, ${m.fx.size} FX rates, ${m.rt01.size} RT01→QDL, ${m.industry.size} industry codes`);
       } catch (err) { onError(`Mapping workbook: ${err instanceof Error ? err.message : String(err)}`); }
@@ -769,7 +791,7 @@ const AdjustmentsCard: React.FC<{
             : `loadId=${encodeURIComponent(loadId)}`;
           const r = await fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' });
           if (r.ok) {
-            const arr = await r.json() as Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>;
+            const arr = await r.json() as Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>;
             setBaseRows(arr.filter(b => b.prefix));
           }
         } catch { /* base unavailable — deltas shown alone */ }
@@ -781,28 +803,52 @@ const AdjustmentsCard: React.FC<{
       return new Set((conso.sets[scopeSel] || []).map(s => s.trim()));
     }, [scopeSel, conso]);
 
-    const impact = useMemo(() => {
+    const impactByAccount = useMemo(() => {
       if (!svcMod || !mappings || lines.length === 0) return null;
       const items = lines.map(l => {
         const cands = results?.[l.row] || [];
         return { line: l, cand: cands.find(c => c.id === chosen[l.row]) || null };
       });
-      return svcMod.computeImpactByPrefix(items, mappings, { bookingCenterId: bookingCenter.trim() || undefined }, scopeSet);
+      return svcMod.computeImpactByAccount(items, mappings, { bookingCenterId: bookingCenter.trim() || undefined }, scopeSet);
     }, [svcMod, mappings, lines, results, chosen, bookingCenter, scopeSet]);
 
-    // Base per prefix, scope-filtered: amounts booked outside the scope drop
-    // out; intra-scope interco amounts are the base eliminations.
+    // View key of a MERCURY account: Swiss GAAP = LEFT-3 rubrique; IFRS = the
+    // HFM account (direct mapping, else the prefix fallback rules).
+    const viewKeyOf = (account: string): string | null => {
+      if (gaapAdj === 'swiss') return account.slice(0, 3) || '???';
+      if (!/^[12]/.test(account)) return null; // IFRS view: balance sheet only
+      return svcMod && mappings ? svcMod.hfmOf(account, mappings) : account;
+    };
+
+    // Impact regrouped for the selected GAAP.
+    const impact = useMemo(() => {
+      if (!impactByAccount) return null;
+      const per = new Map<string, { gross: number; eliminated: number; net: number; lines: number }>();
+      for (const [account, e] of impactByAccount.perAccount) {
+        const key = viewKeyOf(account);
+        if (key === null) continue;
+        const t = per.get(key) ?? { gross: 0, eliminated: 0, net: 0, lines: 0 };
+        t.gross += e.gross; t.eliminated += e.eliminated; t.net += e.net; t.lines += e.lines;
+        per.set(key, t);
+      }
+      return { perPrefix: per, outOfScope: impactByAccount.outOfScope };
+    }, [impactByAccount, gaapAdj, svcMod, mappings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Base per view key, scope-filtered: amounts booked outside the scope
+    // drop out; intra-scope interco amounts are the base eliminations.
     const baseAgg = useMemo(() => {
       if (!baseRows) return null;
       const per: Record<string, { amount: number; eliminated: number }> = {};
       for (const b of baseRows) {
         if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
-        const e = (per[b.prefix] ??= { amount: 0, eliminated: 0 });
+        const key = viewKeyOf(b.account || b.prefix);
+        if (key === null) continue;
+        const e = (per[key] ??= { amount: 0, eliminated: 0 });
         e.amount += b.amount;
         if (scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId)) e.eliminated += b.amount;
       }
       return per;
-    }, [baseRows, scopeSet]);
+    }, [baseRows, scopeSet, gaapAdj, svcMod, mappings]); // eslint-disable-line react-hooks/exhaustive-deps
 
     if (mode !== 'api') {
       return (
@@ -857,10 +903,18 @@ const AdjustmentsCard: React.FC<{
                 💾 Save to database
               </button>
             )}
+            {mappingFile && mode === 'api' && (
+              <button onClick={storeInLibrary}
+                title="Keep the workbook file itself in the Library (folder Production/Mappings) so the team always finds the version in force"
+                className="text-[12px] font-semibold border border-gray-300 text-brand-text-secondary hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-3 rounded-md transition-colors">
+                📚 Store workbook in Library
+              </button>
+            )}
           </div>
           {mappingInfo && <p className="text-[11px] text-status-green mt-1">✓ Mappings loaded from {mappingInfo}</p>}
           <p className="text-[11px] text-brand-text-secondary mt-1">
             GL and INDUSTRY are static; to refresh the CCY rates, re-upload the workbook and 💾 save again — stored relationally in ProdMappingEntries.
+            Individual rows (a rate, an HFM rule…) are editable in place in Backend → Data Explorer → ProdMappingEntries (audited like any data change).
           </p>
         </div>
 
@@ -985,16 +1039,30 @@ const AdjustmentsCard: React.FC<{
           const scoped = !!scopeSet;
           const nCols = scoped ? 8 : 6;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
+          const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : mappings.accountLabels.get(k);
           const sections: Array<{ title: string; match: (p: string) => boolean }> = [
             { title: 'Assets (1xx)', match: p => p.startsWith('1') },
             { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
-            { title: 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
+            { title: gaapAdj === 'ifrs' ? 'Equity / other' : 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
           ];
           const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
             [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
           return (
             <div className="border border-efg-line rounded-lg mb-3 overflow-x-auto">
               <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40">
+                <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
+                  {(['swiss', 'ifrs'] as const).map(g => (
+                    <button key={g} onClick={() => setGaapAdj(g)}
+                      className={`px-2.5 py-1 transition-colors ${gaapAdj === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
+                      {g === 'swiss' ? 'SWISS GAAP' : 'IFRS (HFM)'}
+                    </button>
+                  ))}
+                </span>
+                {gaapAdj === 'ifrs' && mappings.hfm.size === 0 && (
+                  <span className="text-[11px] text-status-amber font-semibold">
+                    ⚠ prefix fallback rules only — re-upload Mapping.xlsb and 💾 save to store the account-level HFM mapping
+                  </span>
+                )}
                 <label className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Consolidation scope</label>
                 <select value={scopeSel} onChange={e => setScopeSel(e.target.value)}
                   className="p-1.5 border border-gray-200 rounded-md text-[12px] bg-white">
@@ -1045,7 +1113,7 @@ const AdjustmentsCard: React.FC<{
                           return (
                             <tr key={p} className={`border-t border-efg-line/60 ${gross !== 0 ? 'font-semibold' : ''}`}>
                               <td className="px-3 py-1">{p}</td>
-                              <td className="px-3 py-1 text-brand-text-secondary font-normal max-w-xs truncate">{mappings.accountLabels.get(p) || '—'}</td>
+                              <td className="px-3 py-1 text-brand-text-secondary font-normal max-w-xs truncate">{labelOf(p) || '—'}</td>
                               <td className="px-3 py-1 text-right tabular-nums">{baseAgg ? fmt(baseNet) : '—'}</td>
                               <td className={`px-3 py-1 text-right tabular-nums ${deltaCls(gross)}`}>{gross === 0 ? '—' : fmt(gross)}</td>
                               {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{elim === 0 ? '—' : fmt(-elim)}</td>}
@@ -1072,8 +1140,8 @@ const AdjustmentsCard: React.FC<{
                 </tbody>
               </table>
               <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
-                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} by LEFT(LegalAccountNumber, 3);
-                matched lines hit the account of the chosen position, unmatched lines the Mapping_GL_BALANCESHEET account of their LIGNE.
+                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} grouped {gaapAdj === 'ifrs' ? 'by HFM account (IFRS) — direct account mapping, else the prefix fallback rules; balance-sheet accounts (1xx/2xx) only' : 'by LEFT(LegalAccountNumber, 3)'}.
+                Every adjustment line is BOOKED on the Mapping_GL_BALANCESHEET account of its LIGNE — the matched position only supplies the qualitative attributes (counterparty, booking center, references…), exactly like the generated INSERT.
                 {scoped && ' Scope: base restricted to positions booked in the reporting set (list_reporting_sets); amounts facing an intra-scope CounterpartyBookingCenterId are eliminated (base and adjustments); positions with no booking center are kept.'}
                 {!baseAgg && ' Base balance unavailable (MERCURY not reachable or loadid empty) — showing adjustment deltas only.'}
               </p>
@@ -1419,8 +1487,9 @@ const CONTROL_DOCS: Array<{ id: string; title: string; what: string; base: strin
 const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: string[]; conso: ConsoInfo | null }> =
   ({ collection, collLoadIds, conso }) => {
     const { data, mode, apiBaseUrl } = useData();
-    const [rows, setRows] = useState<Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [rows, setRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
     const [err, setErr] = useState('');
+    const [gaap, setGaap] = useState<'swiss' | 'ifrs'>('swiss');
     const [manualLoadId, setManualLoadId] = useState('');
     const [scopeSel, setScopeSel] = useState('');
     const [scopeOverride, setScopeOverride] = useState(false);
@@ -1437,10 +1506,23 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
       const qs = ids.length > 1 ? `loadIds=${encodeURIComponent(idsKey)}` : `loadId=${encodeURIComponent(ids[0])}`;
       fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' })
         .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-        .then((arr: Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>) =>
+        .then((arr: Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>) =>
           setRows(arr.filter(b => b.prefix)))
         .catch(e => setErr(e instanceof Error ? e.message : String(e)));
     }, [mode, apiBaseUrl, idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // IFRS (HFM) mapping persisted with the workbook: account → HFM account,
+    // HFM account → label, and per-prefix fallback rule overrides.
+    const hfmMaps = useMemo(() => {
+      const direct = new Map<string, string>(), lbl = new Map<string, string>(), rules = new Map<string, string>();
+      for (const e of data.prodMappingEntries || []) {
+        if (!e.textValue) continue;
+        if (e.kind === 'hfm') direct.set(e.mapKey, e.textValue);
+        else if (e.kind === 'hfmlabel') lbl.set(e.mapKey, e.textValue);
+        else if (e.kind === 'hfmrule') rules.set(e.mapKey, e.textValue);
+      }
+      return { direct, lbl, rules };
+    }, [data.prodMappingEntries]);
 
     // Account labels persisted with the mapping workbook (kind = label).
     const labels = useMemo(() => {
@@ -1466,12 +1548,18 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
       const per: Record<string, { amount: number; eliminated: number }> = {};
       for (const b of rows) {
         if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
-        const e = (per[b.prefix] ??= { amount: 0, eliminated: 0 });
+        const account = b.account || b.prefix;
+        let key: string;
+        if (gaap === 'ifrs') {
+          if (!/^[12]/.test(account)) continue; // IFRS view: balance sheet only
+          key = hfmKeyOf(account, hfmMaps.direct, hfmMaps.rules);
+        } else key = b.prefix;
+        const e = (per[key] ??= { amount: 0, eliminated: 0 });
         e.amount += b.amount;
         if (scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId)) e.eliminated += b.amount;
       }
       return per;
-    }, [rows, scopeSet]);
+    }, [rows, scopeSet, gaap, hfmMaps]);
 
     const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
       [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
@@ -1490,8 +1578,21 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
     return (
       <Card>
         <SectionHeader title="4 — Balance sheet"
-          suffix="SUM(BookAmount) of the collection's positions per LEFT(LegalAccountNumber, 3) — scope restricted to the reporting set, intra-scope interco eliminated" />
+          suffix="SUM(BookAmount) of the collection's positions — scope restricted to the reporting set, intra-scope interco eliminated" />
         <div className="flex flex-wrap items-end gap-3 mb-3">
+          <div className="pb-1">
+            <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
+              {(['swiss', 'ifrs'] as const).map(g => (
+                <button key={g} onClick={() => setGaap(g)}
+                  className={`px-2.5 py-1 transition-colors ${gaap === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
+                  {g === 'swiss' ? 'SWISS GAAP' : 'IFRS (HFM)'}
+                </button>
+              ))}
+            </span>
+            {gaap === 'ifrs' && hfmMaps.direct.size === 0 && (
+              <p className="text-[10px] text-status-amber font-semibold mt-1">prefix fallback rules only — upload &amp; save Mapping.xlsb (Adjustments → Mappings) for the account-level HFM mapping</p>
+            )}
+          </div>
           {collLoadIds.length === 0 && (
             <div>
               <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid (no collection picked)</label>
@@ -1534,13 +1635,16 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
             const sections: Array<{ title: string; match: (p: string) => boolean }> = [
               { title: 'Assets (1xx)', match: p => p.startsWith('1') },
               { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
-              { title: 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
+              { title: gaap === 'ifrs' ? 'Equity / other' : 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
             ];
+            const labelOf = (k: string) => gaap === 'ifrs' ? hfmMaps.lbl.get(k) : labels.get(k);
             return (
               <div className="overflow-x-auto border border-efg-line rounded-lg">
                 <table className="w-full text-xs whitespace-nowrap">
                   <thead className="bg-brand-bg-body"><tr>
-                    {(scoped ? ['Account (LEFT 3)', 'Label', 'Gross (scope)', 'IC eliminated', 'Net'] : ['Account (LEFT 3)', 'Label', 'Amount'])
+                    {(scoped
+                      ? [gaap === 'ifrs' ? 'HFM account' : 'Account (LEFT 3)', 'Label', 'Gross (scope)', 'IC eliminated', 'Net']
+                      : [gaap === 'ifrs' ? 'HFM account' : 'Account (LEFT 3)', 'Label', 'Amount'])
                       .map((h, hi) =>
                         <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
                   </tr></thead>
@@ -1560,7 +1664,7 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
                             return (
                               <tr key={pfx} className="border-t border-efg-line/60">
                                 <td className="px-3 py-1 font-semibold">{pfx}</td>
-                                <td className="px-3 py-1 text-brand-text-secondary max-w-xs truncate">{labels.get(pfx) || '—'}</td>
+                                <td className="px-3 py-1 text-brand-text-secondary max-w-xs truncate">{labelOf(pfx) || '—'}</td>
                                 <td className="px-3 py-1 text-right tabular-nums">{fmt(e.amount)}</td>
                                 {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{e.eliminated === 0 ? '—' : fmt(-e.eliminated)}</td>}
                                 {scoped && <td className="px-3 py-1 text-right tabular-nums font-semibold">{fmt(e.amount - e.eliminated)}</td>}
@@ -1579,7 +1683,7 @@ const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: st
                   </tbody>
                 </table>
                 <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
-                  Load(s) {ids.join(', ')} — amounts as booked in MERCURY (BookAmount).
+                  Load(s) {ids.join(', ')} — amounts as booked in MERCURY (BookAmount), {gaap === 'ifrs' ? 'grouped by HFM (IFRS) account: direct account mapping from Mapping_GL_BALANCESHEET, else the per-prefix fallback rules (mirroring the HFM Power Query); balance-sheet accounts (1xx/2xx) only' : 'grouped by Swiss GAAP rubrique (LEFT 3)'}.
                   {scoped && ' Positions booked outside the reporting set are excluded; amounts facing an intra-scope CounterpartyBookingCenterId are shown as IC eliminated (net = consolidated view).'}
                   {labels.size === 0 && ' Account labels appear once the mapping workbook has been saved to the database (Adjustments → Mappings).'}
                 </p>

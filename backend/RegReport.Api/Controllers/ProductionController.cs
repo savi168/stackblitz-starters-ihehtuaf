@@ -191,27 +191,31 @@ WHERE LoadId IN ({inClause})
         // Grouped by booking center + counterparty booking center so the UI
         // can restrict the base to a consolidation scope (list_reporting_sets)
         // and eliminate intra-scope intercompany amounts.
+        // Grouped by FULL account since v3.9 (the IFRS/HFM view maps account →
+        // HFM line); the prefix is still returned for the Swiss GAAP view.
         cmd.CommandText = $@"
-SELECT LEFT(CAST(LegalAccountNumber AS varchar(20)), 3) AS Prefix,
+SELECT CAST(LegalAccountNumber AS varchar(20)) AS Account,
        LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))) AS Bc,
        LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
        SUM(CAST(BookAmount AS float)) AS Amount,
        COUNT(*) AS Positions
 FROM core_positions
 WHERE LoadId IN ({inClause})
-GROUP BY LEFT(CAST(LegalAccountNumber AS varchar(20)), 3),
+GROUP BY CAST(LegalAccountNumber AS varchar(20)),
          LTRIM(RTRIM(ISNULL(CAST(BookingCenterId AS varchar(100)), ''))),
          LTRIM(RTRIM(ISNULL(CAST(CounterpartyBookingCenterId AS varchar(100)), '')))
-ORDER BY Prefix";
+ORDER BY Account";
         cmd.CommandTimeout = 120;
         for (var i = 0; i < ids.Count; i++)
             cmd.Parameters.AddWithValue($"@l{i}", ids[i]);
         await using var rd = await cmd.ExecuteReaderAsync();
         while (await rd.ReadAsync())
         {
+            var account = rd.IsDBNull(0) ? "" : rd.GetString(0);
             rows.Add(new
             {
-                prefix = rd.IsDBNull(0) ? "" : rd.GetString(0),
+                account,
+                prefix = account.Length >= 3 ? account[..3] : account,
                 bookingCenterId = rd.IsDBNull(1) ? "" : rd.GetString(1),
                 counterpartyBookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
                 amount = rd.IsDBNull(3) ? 0d : rd.GetDouble(3),

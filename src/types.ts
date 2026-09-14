@@ -402,7 +402,7 @@ export interface ProdSecurityRecord {
  * does not re-upload the file for every adjustment session. */
 export interface ProdMappingEntry {
   id: number;
-  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label';
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule';
   mapKey: string;
   textValue?: string;
   numValue?: number;

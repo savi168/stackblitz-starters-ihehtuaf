@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { hfmKeyOf } from './hfm';
 
 /**
  * Adjustments module (Production): accounting adjustment lines (LIGNE,
@@ -36,7 +37,22 @@ export interface AdjustmentMappings {
   /** LEFT(LegalAccountNumber,3) → label, derived from the GL sheet (most
    * frequent HFM description per prefix) — used by the impact preview. */
   accountLabels: Map<string, string>;
+  /** Full LegalAccountNumber → HFM (IFRS) account, from the GL sheet. */
+  hfm: Map<string, string>;
+  /** HFM account → label ("Cash in hand"), from CAO_DM.RepLineHFMDsc. */
+  hfmLabels: Map<string, string>;
+  /** Prefix → HFM fallback overrides (ProdMappingEntries kind "hfmrule"),
+   * taking precedence over the built-in HFM_PREFIX_RULES. */
+  hfmRules: Map<string, string>;
 }
+
+export { HFM_PREFIX_RULES } from './hfm';
+
+/** IFRS (HFM) account of a MERCURY LegalAccountNumber: the GL sheet's
+ * HFM_Account when present and not IGNORE, else the prefix fallback rule
+ * (overridable via kind "hfmrule" entries). */
+export const hfmOf = (account: string, mappings: AdjustmentMappings): string =>
+  hfmKeyOf(account, mappings.hfm, mappings.hfmRules);
 
 export interface AdjustmentLine {
   row: number;           // 1-based row in the file
@@ -93,9 +109,12 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     return wb.Sheets[key];
   };
 
-  // GL balance sheet mapping (+ account-prefix labels for the impact preview)
+  // GL balance sheet mapping (+ account-prefix labels for the impact preview,
+  // + LegalAccountNumber → HFM_Account for the IFRS view)
   const gl = new Map<string, GlMapEntry>();
   const accountLabels = new Map<string, string>();
+  const hfm = new Map<string, string>();
+  const hfmLabels = new Map<string, string>();
   {
     const rows = sheetRows(need('Mapping_GL_BALANCESHEET'));
     const h = rows[0] || [];
@@ -105,6 +124,7 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     const iSub = headerIndex(h, 'cp_SubType');
     const iDesc = headerIndex(h, 'Combined.DESC', 'CAO_DM.RepLineHFMDsc');
     const iHfm = headerIndex(h, 'CAO_DM.RepLineHFMDsc');
+    const iHfmAcc = headerIndex(h, 'HFM_Account');
     if (iLine === -1 || iLan === -1) throw new Error('Mapping_GL_BALANCESHEET: columns "Line" and "Legal Account Number" are required.');
     const labelVotes = new Map<string, Map<string, number>>();
     for (let r = 1; r < rows.length; r++) {
@@ -120,11 +140,19 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
           description: iDesc >= 0 ? norm(rows[r]?.[iDesc]) || undefined : undefined,
         });
       }
+      if (iHfmAcc >= 0) {
+        const hfmAcc = norm(rows[r]?.[iHfmAcc]);
+        if (hfmAcc && !hfm.has(lan)) hfm.set(lan, hfmAcc);
+        if (hfmAcc && iHfm >= 0) {
+          const lbl = norm(rows[r]?.[iHfm]).split(' - ').slice(1).join(' - ');
+          if (lbl && !hfmLabels.has(hfmAcc)) hfmLabels.set(hfmAcc, lbl);
+        }
+      }
       if (/^\d{3}/.test(lan)) {
         // Label of the LEFT3 prefix = most frequent HFM description ("111 00 01
         // - Cash in hand" → "Cash in hand"), falling back to Combined.DESC.
-        const hfm = iHfm >= 0 ? norm(rows[r]?.[iHfm]).split(' - ').slice(1).join(' - ') : '';
-        const label = hfm || (iDesc >= 0 ? norm(rows[r]?.[iDesc]) : '');
+        const hfmDesc = iHfm >= 0 ? norm(rows[r]?.[iHfm]).split(' - ').slice(1).join(' - ') : '';
+        const label = hfmDesc || (iDesc >= 0 ? norm(rows[r]?.[iDesc]) : '');
         if (label) {
           const prefix = lan.slice(0, 3);
           const votes = labelVotes.get(prefix) ?? new Map<string, number>();
@@ -190,7 +218,7 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     }
   }
 
-  return { gl, fx, rt01, industry, accountLabels };
+  return { gl, fx, rt01, industry, accountLabels, hfm, hfmLabels, hfmRules: new Map() };
 };
 
 /** Parses the accounting adjustments file (Book6-like: header row with LIGNE…). */
@@ -250,7 +278,7 @@ const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
 /** Persisted-mapping row (mirror of the ProdMappingEntry API shape). */
 export interface MappingEntryRow {
   id: number;
-  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label';
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule';
   mapKey: string;
   textValue?: string;
   numValue?: number;
@@ -273,18 +301,27 @@ export const mappingsToEntries = (m: AdjustmentMappings): MappingEntryRow[] => {
   for (const [k, v] of m.industry)
     rows.push({ id: id++, kind: 'industry', mapKey: k, typeOf: v.typeOf, economicActivityType: v.economicActivityType, interco: v.interco, description: v.description });
   for (const [k, v] of m.accountLabels) rows.push({ id: id++, kind: 'label', mapKey: k, textValue: v });
+  for (const [k, v] of m.hfm) rows.push({ id: id++, kind: 'hfm', mapKey: k, textValue: v });
+  for (const [k, v] of m.hfmLabels) rows.push({ id: id++, kind: 'hfmlabel', mapKey: k, textValue: v });
+  for (const [k, v] of m.hfmRules) rows.push({ id: id++, kind: 'hfmrule', mapKey: k, textValue: v });
   return rows;
 };
 
 /** Rebuilds the AdjustmentMappings lookups from the persisted rows. */
 export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings => {
-  const m: AdjustmentMappings = { gl: new Map(), fx: new Map(), rt01: new Map(), industry: new Map(), accountLabels: new Map() };
+  const m: AdjustmentMappings = {
+    gl: new Map(), fx: new Map(), rt01: new Map(), industry: new Map(),
+    accountLabels: new Map(), hfm: new Map(), hfmLabels: new Map(), hfmRules: new Map(),
+  };
   for (const r of rows) {
     if (r.kind === 'gl') m.gl.set(r.mapKey, { line: r.mapKey, legalAccountNumber: r.textValue ?? '0', typeOf: r.typeOf || undefined, subType: r.subType || undefined, description: r.description || undefined });
     else if (r.kind === 'fx' && r.numValue !== undefined && r.numValue !== null) m.fx.set(r.mapKey.toUpperCase(), r.numValue);
     else if (r.kind === 'rt01' && r.textValue) m.rt01.set(r.mapKey, r.textValue);
     else if (r.kind === 'industry') m.industry.set(r.mapKey, { typeOf: r.typeOf || undefined, economicActivityType: r.economicActivityType || undefined, interco: r.interco || undefined, description: r.description || undefined });
     else if (r.kind === 'label' && r.textValue) m.accountLabels.set(r.mapKey, r.textValue);
+    else if (r.kind === 'hfm' && r.textValue) m.hfm.set(r.mapKey, r.textValue);
+    else if (r.kind === 'hfmlabel' && r.textValue) m.hfmLabels.set(r.mapKey, r.textValue);
+    else if (r.kind === 'hfmrule' && r.textValue) m.hfmRules.set(r.mapKey, r.textValue);
   }
   m.fx.set('CHF', 1);
   return m;
@@ -492,8 +529,16 @@ const adjustmentOverrides = (
 ): Record<string, unknown> => {
   const { chf } = chfOf(line, mappings);
   const interco = intercoOf(line, mappings);
+  // The adjustment is BOOKED on the accounting LIGNE's GL account (and its
+  // cp_TypeOf/cp_SubType when the mapping provides them) — the matched
+  // position only supplies the qualitative attributes (counterparty, booking
+  // center, references…).
+  const glEntry = mappings.gl.get(line.ligne);
   return {
     Id: `${cand.id}-ADJ-${line.row}`,
+    ...(glEntry?.legalAccountNumber ? { LegalAccountNumber: numOrSelf(glEntry.legalAccountNumber) } : {}),
+    ...(glEntry?.typeOf ? { TypeOf: glEntry.typeOf } : {}),
+    ...(glEntry?.subType ? { SubType: glEntry.subType } : {}),
     Currency: line.ccy,
     InternalReference1: String(line.reference),
     DataSource: 'ADJUSTMENT',
@@ -522,7 +567,8 @@ export const buildAdjustmentInsert = (
   const targetLoad = cand.loadId ?? loadId;
   return [
     `-- Adjustment for accounting line ${line.ligne} (row ${line.row})${line.libelle ? ` — ${line.libelle}` : ''}`,
-    `-- Matched position ${cand.id} (load ${targetLoad}, account ${cand.legalAccountNumber}); MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
+    `-- Matched position ${cand.id} (load ${targetLoad}, account ${cand.legalAccountNumber}) supplies the qualitative attributes;`,
+    `-- the adjustment is booked on the LIGNE's GL account ${mappings.gl.get(line.ligne)?.legalAccountNumber ?? cand.legalAccountNumber}. MONTANT ${line.montant} ${line.ccy}${line.ccy !== 'CHF' ? ` → ${chf} CHF @${rate}` : ''}`,
     ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- 1) CHECK:`,
     `SELECT * FROM core_positions WHERE LoadId = ${targetLoad} AND Id = ${q(adjId)};`,
@@ -759,24 +805,24 @@ const rawStr = (raw: Record<string, unknown> | undefined, name: string): string 
   return v === null || v === undefined ? '' : String(v).trim();
 };
 
-/** Balance-sheet impact of the adjustments, aggregated by
- * LEFT(LegalAccountNumber,3): matched lines hit the account of the chosen
- * position, new lines the GL-mapping account; amounts in CHF (CCY sheet).
+/** Balance-sheet impact of the adjustments, aggregated by FULL
+ * LegalAccountNumber. Every line hits the GL-mapping account of its LIGNE —
+ * the matched position only supplies qualitative attributes, exactly like
+ * the generated INSERT; amounts in CHF (CCY sheet).
  * With a consolidation `scope` (booking-center ids of a reporting set):
  * lines booked outside the scope are excluded (counted in `outOfScope`),
  * and intra-scope intercompany deltas are flagged as eliminated. */
-export const computeImpactByPrefix = (
+export const computeImpactByAccount = (
   items: AdjustmentItem[], mappings: AdjustmentMappings,
   opts?: AdjustmentBuildOptions, scope?: Set<string> | null
-): { perPrefix: Map<string, ImpactEntry>; outOfScope: number } => {
+): { perAccount: Map<string, ImpactEntry>; outOfScope: number } => {
   const per = new Map<string, ImpactEntry>();
   let outOfScope = 0;
   const r2 = (n: number) => Math.round(n * 100) / 100;
   for (const { line, cand } of items) {
-    const lan = cand
-      ? String(cand.legalAccountNumber ?? '')
-      : (mappings.gl.get(line.ligne)?.legalAccountNumber ?? '');
-    const prefix = lan.slice(0, 3) || '???';
+    const lan = (mappings.gl.get(line.ligne)?.legalAccountNumber ?? '')
+      || (cand ? String(cand.legalAccountNumber ?? '') : '');
+    const prefix = lan || '???';
     const { chf } = chfOf(line, mappings);
     // Where the position is booked / who the (interco) counterparty is —
     // same values the generated INSERT will carry.
@@ -790,7 +836,7 @@ export const computeImpactByPrefix = (
     e.lines += 1;
     per.set(prefix, e);
   }
-  return { perPrefix: per, outOfScope };
+  return { perAccount: per, outOfScope };
 };
 
 /** Excel workbook: Summary sheet + the core_positions rows to insert (all
