@@ -80,9 +80,11 @@ public class ProductionController : ControllerBase
             }
             return list;
         }
-        catch
+        catch (Exception ex)
         {
-            return new List<object>(); // core_loads absent: the manual loadid input still works
+            // core_loads absent or unreachable: the manual loadid input still works
+            _logger.LogWarning("mercury/loads query failed: {Message}", ex.Message);
+            return new List<object>();
         }
     }
 
