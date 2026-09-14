@@ -421,7 +421,7 @@ export const BACKEND_TABLES: TableMeta[] = [
     table: 'ProdMappingEntries',
     entity: 'ProdMappingEntry',
     kind: 'list',
-    description: 'Adjustments mapping workbook (Mapping.xlsb), stored relationally: gl (LIGNE → GL account + cp_TypeOf/SubType) · fx (CCY → CHF rate) · rt01 (CATEG → QDL) · industry (IND code, interco flags) · label (prefix labels) · hfm / hfmlabel / hfmrule (IFRS-HFM mapping) · generic (generic-counterparty overrides: mapKey = id, TypeOf, EconomicActivityType, Description = name, NumValue = SMEFlag). Editable here in place (audited); bulk update = re-upload the workbook in Production → Adjustments and 💾 save.',
+    description: 'Adjustments mapping workbook (Mapping.xlsb), stored relationally: gl (LIGNE → GL account + cp_TypeOf/SubType) · fx (CCY → CHF rate) · rt01 (CATEG → QDL) · industry (IND code, interco flags) · label (prefix labels) · hfm / hfmlabel / hfmrule (IFRS-HFM mapping) · generic (generic-counterparty overrides: mapKey = id, TypeOf, EconomicActivityType, Description = name, NumValue = SMEFlag, TextValue = GroupLexId) · lanlabel (official FINMA LegalAccountNumber nomenclature, seeded at API startup) · hfmname (official HFM nomenclature — overrides workbook labels). Editable here in place (audited); bulk update = re-upload the workbook in Production → Adjustments and 💾 save.',
     columns: [
       { name: 'Id', type: 'bigint', pk: true },
       { name: 'Kind', type: 'string', note: 'gl | fx | rt01 | industry | label | hfm | hfmlabel | hfmrule' },

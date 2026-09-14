@@ -6,6 +6,27 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.17.0 — 14 September 2026
+
+**Theme: the nomenclatures live in the database.**
+
+- **LegalAccountNumber nomenclature seeded into the database**: at API
+  startup, the 216 official FINMA labels are inserted into
+  `ProdMappingEntries` as kind `lanlabel` rows (account → label) —
+  **only when absent**, so your edits are never overwritten. They are
+  editable in Backend → Data Explorer like any mapping row, survive
+  workbook re-uploads, and travel with backups. Every screen reads the
+  stored rows first (live balance sheet, Analytics, reco detail,
+  account suggestions); the embedded copy remains only as a fallback
+  for local mode.
+- **kind `hfmname` reserved for the official HFM nomenclature** (HFM
+  account → label): rows of this kind override the labels derived from
+  the mapping workbook everywhere the IFRS view is shown. Send the
+  official HFM nomenclature file and it will be seeded the same way.
+- No schema changes.
+
+---
+
 ## v3.16.0 — 14 September 2026
 
 **Theme: referential fidelity — official account names, HFM refs,

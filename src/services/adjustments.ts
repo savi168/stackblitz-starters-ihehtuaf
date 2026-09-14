@@ -288,7 +288,7 @@ const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
 /** Persisted-mapping row (mirror of the ProdMappingEntry API shape). */
 export interface MappingEntryRow {
   id: number;
-  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule' | 'generic';
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule' | 'generic' | 'lanlabel' | 'hfmname';
   mapKey: string;
   textValue?: string;
   numValue?: number;
@@ -339,6 +339,9 @@ export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings =
       groupLexId: r.textValue || undefined,
     });
   }
+  // Official HFM nomenclature (kind "hfmname") takes precedence over the
+  // labels derived from the mapping workbook.
+  for (const r of rows) if (r.kind === 'hfmname' && r.textValue) m.hfmLabels.set(r.mapKey, r.textValue);
   m.fx.set('CHF', 1);
   return m;
 };

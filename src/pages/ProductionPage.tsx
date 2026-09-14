@@ -6,7 +6,7 @@ import {
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
 import type { AdjustmentLine, AdjustmentMappings, MatchCandidate, NewPositionOverrides } from '../services/adjustments';
-import { accountPrefixLabel, legalAccountLabel } from '../services/legalAccountLabels';
+import { accountLabelOf, lanLabelsFrom, prefixLabelOf } from '../services/legalAccountLabels';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -522,6 +522,8 @@ const AdjustmentsCard: React.FC<{
     // Mappings persisted in the RegReport database (ProdMappingEntries):
     // loaded automatically so the workbook is not re-uploaded every session.
     const storedMappings = data.prodMappingEntries || [];
+    // Official account nomenclature from the database (kind lanlabel).
+    const lanMap = useMemo(() => lanLabelsFrom(storedMappings), [storedMappings]);
     useEffect(() => {
       if (mappings || storedMappings.length === 0) return;
       import('../services/adjustments').then(svc => {
@@ -542,7 +544,8 @@ const AdjustmentsCard: React.FC<{
         ...prev,
         prodMappingEntries: [
           ...entries,
-          ...(prev.prodMappingEntries || []).filter(e => e.kind === 'generic' || e.kind === 'hfmrule'),
+          ...(prev.prodMappingEntries || []).filter(e =>
+            e.kind === 'generic' || e.kind === 'hfmrule' || e.kind === 'lanlabel' || e.kind === 'hfmname'),
         ],
       }));
       onNotice(`Mappings saved to the database (${entries.length} rows in ProdMappingEntries) — no re-upload needed next session; re-upload the workbook and save again to update (e.g. new CCY rates).`);
@@ -1093,7 +1096,7 @@ const AdjustmentsCard: React.FC<{
           const outOfScope = impact?.outOfScope ?? 0;
           const scoped = !!scopeSet;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
-          const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : (accountPrefixLabel(k) ?? mappings.accountLabels.get(k));
+          const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : (prefixLabelOf(k, lanMap) ?? mappings.accountLabels.get(k));
           const sections: Array<{ title: string; match: (p: string) => boolean }> = [
             { title: 'Assets', match: p => p.startsWith('1') },
             { title: 'Liabilities & equity', match: p => p.startsWith('2') },
@@ -1378,7 +1381,7 @@ const AdjustmentsCard: React.FC<{
                             </span>
                             <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
                               GL {gl?.legalAccountNumber || <span className="text-status-red font-semibold">no map</span>}
-                              {gl?.legalAccountNumber ? ` — ${legalAccountLabel(gl.legalAccountNumber) ?? gl.description ?? ''}` : ''}
+                              {gl?.legalAccountNumber ? ` — ${accountLabelOf(gl.legalAccountNumber, lanMap) ?? gl.description ?? ''}` : ''}
                             </span>
                             {l.matDate && <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">mat {l.matDate}</span>}
                             {scopeTag && <span title={scopeTag.tip} className={`px-2 py-0.5 rounded-full border border-current cursor-help font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
@@ -1441,7 +1444,7 @@ const AdjustmentsCard: React.FC<{
                                 <input list={`adj-accounts-${l.row}`} value={ov.legalAccountNumber ?? glE?.legalAccountNumber ?? ''}
                                   onChange={e => setOverride(l.row, 'legalAccountNumber', e.target.value)} className={`${inp} w-28`} />
                                 <datalist id={`adj-accounts-${l.row}`}>
-                                  {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{legalAccountLabel(g.legalAccountNumber) || g.description || g.line}</option>)}
+                                  {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{accountLabelOf(g.legalAccountNumber, lanMap) || g.description || g.line}</option>)}
                                 </datalist>
                               </div>
                               <div>

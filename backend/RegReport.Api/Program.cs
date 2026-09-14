@@ -96,6 +96,17 @@ using (var scope = app.Services.CreateScope())
     SchemaMigrator.Apply(db, app.Logger);
     if (app.Environment.IsDevelopment()) DbSeeder.Seed(db);
 
+    // Official account nomenclature into the database (kind "lanlabel"), so
+    // the labels are data — editable in the Data Explorer, part of backups.
+    // Seeded only when absent: user edits are never overwritten.
+    if (!db.ProdMappingEntries.Any(e => e.Kind == "lanlabel"))
+    {
+        db.ProdMappingEntries.AddRange(AccountNomenclature.Labels.Select(kv =>
+            new RegReport.Api.Models.ProdMappingEntry { Kind = "lanlabel", MapKey = kv.Key, TextValue = kv.Value }));
+        db.SaveChanges();
+        app.Logger.LogInformation("Seeded {N} LegalAccountNumber labels (kind lanlabel) into ProdMappingEntries.", AccountNomenclature.Labels.Count);
+    }
+
     // Optional audit retention (App:ChangeLogRetentionDays). Default 0 = keep
     // everything — in banking the audit trail usually stays for years, and the
     // (Dataset, RowKey)/(At) indexes keep it fast even with millions of rows.

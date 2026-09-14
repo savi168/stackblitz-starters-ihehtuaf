@@ -239,3 +239,28 @@ export const legalAccountLabel = (account: string): string | undefined =>
 /** Official rubrique label of a LEFT-3 prefix (the `<prefix>000` header). */
 export const accountPrefixLabel = (prefix: string): string | undefined =>
   LEGAL_ACCOUNT_LABELS[`${prefix.slice(0, 3)}000`];
+
+// ---------------------------------------------------------------------------
+// Database-first lookups: the API seeds the nomenclature into
+// ProdMappingEntries (kind "lanlabel") at startup, so the labels are DATA —
+// editable in the Data Explorer and part of backups. These helpers read the
+// stored rows first and fall back to the embedded copy above (local mode,
+// or rows not yet seeded).
+// ---------------------------------------------------------------------------
+
+type EntryLike = { kind: string; mapKey: string; textValue?: string };
+
+/** Map of the stored "lanlabel" rows (account → label). */
+export const lanLabelsFrom = (entries?: EntryLike[]): Map<string, string> => {
+  const m = new Map<string, string>();
+  for (const e of entries || []) if (e.kind === 'lanlabel' && e.textValue) m.set(e.mapKey, e.textValue);
+  return m;
+};
+
+/** Exact account label — stored rows first, embedded fallback. */
+export const accountLabelOf = (account: string, db?: Map<string, string>): string | undefined =>
+  db?.get(account) ?? db?.get(account.slice(0, 6)) ?? legalAccountLabel(account);
+
+/** LEFT-3 rubrique label — stored rows first, embedded fallback. */
+export const prefixLabelOf = (prefix: string, db?: Map<string, string>): string | undefined =>
+  db?.get(`${prefix.slice(0, 3)}000`) ?? accountPrefixLabel(prefix);

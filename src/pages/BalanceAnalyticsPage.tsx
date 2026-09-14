@@ -7,7 +7,7 @@ import { useData } from '../context/DataContext';
 import { BackButton, Card, EmptyState, PageHeader, SectionHeader, Sparkline } from '../components';
 import { CHART_COLORS, PALETTE } from '../theme';
 import { hfmKeyOf } from '../services/hfm';
-import { accountPrefixLabel } from '../services/legalAccountLabels';
+import { lanLabelsFrom, prefixLabelOf } from '../services/legalAccountLabels';
 
 /**
  * Balance sheet analytics — wired to MERCURY.
@@ -182,7 +182,11 @@ const BalanceAnalyticsPage: React.FC = () => {
       const pfx = e.textValue.slice(0, 3);
       if (pfx && !swissLbl.has(pfx)) swissLbl.set(pfx, e.description);
     }
-    return { hfmDirect, hfmLbl, hfmRules, swissLbl };
+    // Official nomenclatures stored in the database win.
+    for (const e of data.prodMappingEntries || [])
+      if (e.kind === 'hfmname' && e.textValue) hfmLbl.set(e.mapKey, e.textValue);
+    const lan = lanLabelsFrom(data.prodMappingEntries);
+    return { hfmDirect, hfmLbl, hfmRules, swissLbl, lan };
   }, [data.prodMappingEntries]);
 
   // Scope-filtered net rows of one period.
@@ -283,7 +287,7 @@ const BalanceAnalyticsPage: React.FC = () => {
     const nowBy = agg(latestRows), prevBy = agg(prevRows), adjBy = agg(latestRows, true);
     return Object.keys({ ...nowBy, ...prevBy })
       .map(k => ({
-        k, label: (gaap === 'ifrs' ? maps.hfmLbl.get(k) : (accountPrefixLabel(k) ?? maps.swissLbl.get(k))) || '',
+        k, label: (gaap === 'ifrs' ? maps.hfmLbl.get(k) : (prefixLabelOf(k, maps.lan) ?? maps.swissLbl.get(k))) || '',
         prev: prevBy[k] || 0, now: nowBy[k] || 0, adj: adjBy[k] || 0,
       }))
       .sort((a, b) => Math.abs(b.now - b.prev) - Math.abs(a.now - a.prev))
