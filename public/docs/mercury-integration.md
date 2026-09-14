@@ -39,7 +39,11 @@ configured and reachable.
 ## 2. TVF column contract
 
 Column names are case-insensitive; any missing column is imported as
-empty/NULL. Rows without a key (ClientNumber / Isin) are ignored.
+empty/NULL — so an older, narrower TVF keeps working. Rows without a key
+(ClientNumber / Isin) are ignored. Since v3.6.0 the contract covers the
+**full MERCURY referential set** (see the extended tables below and
+`docs/SQL_MERCURY_TVFS.sql`, aligned with the real DDL): controls C1/C2/C3
+then flag drift on every attribute, not just amounts and basic types.
 
 ### `fn_regreport_prod_counterparties(@loadId nvarchar, @productType nvarchar NULL)`
 
@@ -53,6 +57,12 @@ empty/NULL. Rows without a key (ClientNumber / Isin) are ignored.
 | `IssuerRating` (or `Rating`) | nvarchar | |
 | `Amount` | float | mCHF |
 | `Currency` | nvarchar | |
+| `DomicileCountry`, `HQDomicile`, `Nationality` | char(2) | full referential set (v3.6+) |
+| `RelatedPartyType`, `CreditQuality`, `SIScode`, `LEI` | nvarchar | optional |
+| `RatingClass` | int | internal rating |
+| `ExternalRatingId` | nvarchar | |
+| `SMEFlag`, `AdequateSupervisionFlag`, `LEXLimitFlag` | bit | optional |
+| `PD` | real | metric only — excluded from drift |
 
 ### `fn_regreport_prod_securities(@loadId nvarchar, @productType nvarchar NULL)`
 
@@ -63,6 +73,12 @@ empty/NULL. Rows without a key (ClientNumber / Isin) are ignored.
 | `DailyReval` | bit / 0-1 / 'true' |
 | `IssuerLexId`, `GuarantorLexId`, `GuarantorName`, `HqlaLevel` | nvarchar |
 | `Amount` | float |
+| `Currency` | char(3) |
+| `RevaluationFrequency` | char(1) — 'D' = daily |
+| `SNBEligibleFlag`, `CMASARwFlag`, `InvestmentGradeFlag`, `LEXGuaranteedFlag` | bit |
+| `CMAApproachType`, `SubType`, `ListedType`, `ExternalRatingId` | nvarchar |
+| `CMARiskIndicator`, `RatingClass` | int |
+| `MaturityDate` | date |
 
 ## 3. TVFs on the Quadrum Data Lake model
 

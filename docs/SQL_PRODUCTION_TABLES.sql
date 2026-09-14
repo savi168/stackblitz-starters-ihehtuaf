@@ -96,3 +96,36 @@ IF OBJECT_ID('ProdMappingEntries') IS NOT NULL AND NOT EXISTS
    (SELECT 1 FROM sys.indexes WHERE name = 'IX_ProdMappingEntries_Kind_MapKey')
 CREATE INDEX [IX_ProdMappingEntries_Kind_MapKey] ON [ProdMappingEntries] ([Kind], [MapKey]);
 GO
+
+
+-- ---------------------------------------------------------------------------
+-- v3.6.0 — full MERCURY referential attributes on the control tables
+-- (manual equivalent of migration 010_prod_full_mercury_fields; the API
+-- applies this automatically at startup).
+IF COL_LENGTH('ProdCounterparties', 'DomicileCountry') IS NULL ALTER TABLE [ProdCounterparties] ADD [DomicileCountry] nvarchar(2) NULL;
+IF COL_LENGTH('ProdCounterparties', 'HqDomicile') IS NULL ALTER TABLE [ProdCounterparties] ADD [HqDomicile] nvarchar(2) NULL;
+IF COL_LENGTH('ProdCounterparties', 'Nationality') IS NULL ALTER TABLE [ProdCounterparties] ADD [Nationality] nvarchar(2) NULL;
+IF COL_LENGTH('ProdCounterparties', 'RelatedPartyType') IS NULL ALTER TABLE [ProdCounterparties] ADD [RelatedPartyType] nvarchar(20) NULL;
+IF COL_LENGTH('ProdCounterparties', 'RatingClass') IS NULL ALTER TABLE [ProdCounterparties] ADD [RatingClass] int NULL;
+IF COL_LENGTH('ProdCounterparties', 'ExternalRatingId') IS NULL ALTER TABLE [ProdCounterparties] ADD [ExternalRatingId] nvarchar(20) NULL;
+IF COL_LENGTH('ProdCounterparties', 'CreditQuality') IS NULL ALTER TABLE [ProdCounterparties] ADD [CreditQuality] nvarchar(2) NULL;
+IF COL_LENGTH('ProdCounterparties', 'SmeFlag') IS NULL ALTER TABLE [ProdCounterparties] ADD [SmeFlag] bit NULL;
+IF COL_LENGTH('ProdCounterparties', 'AdequateSupervisionFlag') IS NULL ALTER TABLE [ProdCounterparties] ADD [AdequateSupervisionFlag] bit NULL;
+IF COL_LENGTH('ProdCounterparties', 'LexLimitFlag') IS NULL ALTER TABLE [ProdCounterparties] ADD [LexLimitFlag] bit NULL;
+IF COL_LENGTH('ProdCounterparties', 'Pd') IS NULL ALTER TABLE [ProdCounterparties] ADD [Pd] float NULL;
+IF COL_LENGTH('ProdCounterparties', 'SisCode') IS NULL ALTER TABLE [ProdCounterparties] ADD [SisCode] nvarchar(5) NULL;
+IF COL_LENGTH('ProdCounterparties', 'Lei') IS NULL ALTER TABLE [ProdCounterparties] ADD [Lei] nvarchar(20) NULL;
+GO
+IF COL_LENGTH('ProdSecurities', 'Currency') IS NULL ALTER TABLE [ProdSecurities] ADD [Currency] nvarchar(3) NULL;
+IF COL_LENGTH('ProdSecurities', 'RevaluationFrequency') IS NULL ALTER TABLE [ProdSecurities] ADD [RevaluationFrequency] nvarchar(1) NULL;
+IF COL_LENGTH('ProdSecurities', 'SnbEligibleFlag') IS NULL ALTER TABLE [ProdSecurities] ADD [SnbEligibleFlag] bit NULL;
+IF COL_LENGTH('ProdSecurities', 'CmaApproachType') IS NULL ALTER TABLE [ProdSecurities] ADD [CmaApproachType] nvarchar(20) NULL;
+IF COL_LENGTH('ProdSecurities', 'CmaRiskIndicator') IS NULL ALTER TABLE [ProdSecurities] ADD [CmaRiskIndicator] int NULL;
+IF COL_LENGTH('ProdSecurities', 'CmaSaRwFlag') IS NULL ALTER TABLE [ProdSecurities] ADD [CmaSaRwFlag] bit NULL;
+IF COL_LENGTH('ProdSecurities', 'RatingClass') IS NULL ALTER TABLE [ProdSecurities] ADD [RatingClass] int NULL;
+IF COL_LENGTH('ProdSecurities', 'ExternalRatingId') IS NULL ALTER TABLE [ProdSecurities] ADD [ExternalRatingId] nvarchar(20) NULL;
+IF COL_LENGTH('ProdSecurities', 'MaturityDate') IS NULL ALTER TABLE [ProdSecurities] ADD [MaturityDate] nvarchar(10) NULL;
+IF COL_LENGTH('ProdSecurities', 'SubType') IS NULL ALTER TABLE [ProdSecurities] ADD [SubType] nvarchar(20) NULL;
+IF COL_LENGTH('ProdSecurities', 'InvestmentGradeFlag') IS NULL ALTER TABLE [ProdSecurities] ADD [InvestmentGradeFlag] bit NULL;
+IF COL_LENGTH('ProdSecurities', 'ListedType') IS NULL ALTER TABLE [ProdSecurities] ADD [ListedType] nvarchar(20) NULL;
+IF COL_LENGTH('ProdSecurities', 'LexGuaranteedFlag') IS NULL ALTER TABLE [ProdSecurities] ADD [LexGuaranteedFlag] bit NULL;

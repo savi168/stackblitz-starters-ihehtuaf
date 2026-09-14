@@ -574,6 +574,21 @@ public class ProdCounterpartyRecord
     public string? IssuerRating { get; set; }
     public double? Amount { get; set; }
     public string? Currency { get; set; }
+    // Full MERCURY referential attributes (list_counterparties) — nullable so
+    // older TVFs / CSV feeds that don't provide them keep working.
+    public string? DomicileCountry { get; set; }
+    public string? HqDomicile { get; set; }
+    public string? Nationality { get; set; }
+    public string? RelatedPartyType { get; set; }
+    public int? RatingClass { get; set; }
+    public string? ExternalRatingId { get; set; }
+    public string? CreditQuality { get; set; }
+    public bool? SmeFlag { get; set; }
+    public bool? AdequateSupervisionFlag { get; set; }
+    public bool? LexLimitFlag { get; set; }
+    public double? Pd { get; set; }
+    public string? SisCode { get; set; }
+    public string? Lei { get; set; }
 }
 
 /// <summary>One security record (ISIN vs security master, CSV-fed).</summary>
@@ -592,6 +607,21 @@ public class ProdSecurityRecord
     public string? GuarantorName { get; set; }
     public string? HqlaLevel { get; set; }
     public double? Amount { get; set; }
+    // Full MERCURY referential attributes (list_securities) — nullable for
+    // backward compatibility with narrower feeds.
+    public string? Currency { get; set; }
+    public string? RevaluationFrequency { get; set; }
+    public bool? SnbEligibleFlag { get; set; }
+    public string? CmaApproachType { get; set; }
+    public int? CmaRiskIndicator { get; set; }
+    public bool? CmaSaRwFlag { get; set; }
+    public int? RatingClass { get; set; }
+    public string? ExternalRatingId { get; set; }
+    public string? MaturityDate { get; set; }
+    public string? SubType { get; set; }
+    public bool? InvestmentGradeFlag { get; set; }
+    public string? ListedType { get; set; }
+    public bool? LexGuaranteedFlag { get; set; }
 }
 
 /// <summary>Decision taken on a production control finding (audit trail of validations/corrections).</summary>

@@ -479,6 +479,12 @@ FROM list_booking_centers");
             var s = Convert.ToString(v)?.Trim().ToLowerInvariant();
             return s is "1" or "true" or "yes" or "y" or "x";
         }
+        static int? I(Dictionary<string, object?> r, string name) =>
+            r.TryGetValue(name, out var v) && v is not null ? Convert.ToInt32(v) : null;
+        static string? Dt(Dictionary<string, object?> r, string name) =>
+            r.TryGetValue(name, out var v) && v is not null
+                ? (v is DateTime dt2 ? dt2.ToString("yyyy-MM-dd") : Convert.ToString(v)?.Trim())
+                : null;
 
         int inserted;
         if (key == "counterparties")
@@ -495,6 +501,20 @@ FROM list_booking_centers");
                 IssuerRating = S(r, "IssuerRating") ?? S(r, "Rating"),
                 Amount = D(r, "Amount"),
                 Currency = S(r, "Currency"),
+                // Full list_counterparties referential attributes (optional).
+                DomicileCountry = S(r, "DomicileCountry"),
+                HqDomicile = S(r, "HqDomicile") ?? S(r, "HQDomicile"),
+                Nationality = S(r, "Nationality"),
+                RelatedPartyType = S(r, "RelatedPartyType"),
+                RatingClass = I(r, "RatingClass"),
+                ExternalRatingId = S(r, "ExternalRatingId"),
+                CreditQuality = S(r, "CreditQuality"),
+                SmeFlag = B(r, "SmeFlag") ?? B(r, "SMEFlag"),
+                AdequateSupervisionFlag = B(r, "AdequateSupervisionFlag"),
+                LexLimitFlag = B(r, "LexLimitFlag") ?? B(r, "LEXLimitFlag"),
+                Pd = D(r, "Pd") ?? D(r, "PD"),
+                SisCode = S(r, "SisCode") ?? S(r, "SIScode"),
+                Lei = S(r, "Lei") ?? S(r, "LEI"),
             }).Where(x => x.ClientNumber != "").ToList();
 
             var datasets = records.Select(x => x.Dataset).Distinct().ToList();
@@ -517,7 +537,21 @@ FROM list_booking_centers");
                 IssuerLexId = S(r, "IssuerLexId"),
                 GuarantorLexId = S(r, "GuarantorLexId"),
                 GuarantorName = S(r, "GuarantorName"),
-                HqlaLevel = S(r, "HqlaLevel"),
+                HqlaLevel = S(r, "HqlaLevel") ?? S(r, "HQLACategory"),
+                // Full list_securities referential attributes (optional).
+                Currency = S(r, "Currency"),
+                RevaluationFrequency = S(r, "RevaluationFrequency"),
+                SnbEligibleFlag = B(r, "SnbEligibleFlag") ?? B(r, "SNBEligibleFlag"),
+                CmaApproachType = S(r, "CmaApproachType") ?? S(r, "CMAApproachType"),
+                CmaRiskIndicator = I(r, "CmaRiskIndicator") ?? I(r, "CMARiskIndicator"),
+                CmaSaRwFlag = B(r, "CmaSaRwFlag") ?? B(r, "CMASARwFlag"),
+                RatingClass = I(r, "RatingClass"),
+                ExternalRatingId = S(r, "ExternalRatingId"),
+                MaturityDate = Dt(r, "MaturityDate"),
+                SubType = S(r, "SubType"),
+                InvestmentGradeFlag = B(r, "InvestmentGradeFlag"),
+                ListedType = S(r, "ListedType"),
+                LexGuaranteedFlag = B(r, "LexGuaranteedFlag") ?? B(r, "LEXGuaranteedFlag"),
                 Amount = D(r, "Amount"),
             }).Where(x => x.Isin != "").ToList();
 

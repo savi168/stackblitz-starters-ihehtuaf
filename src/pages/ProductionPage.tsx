@@ -1545,9 +1545,9 @@ const ProductionPage: React.FC = () => {
             </div>
           )}
           <p className="text-[11px] text-brand-text-secondary mt-3">
-            C1 — attribute drift per client between the two periods (client type, grouplexid, counterparty type, rating).
+            C1 — attribute drift per client between the two periods, across the FULL MERCURY referential set (client type, grouplexid, counterparty type, ratings, domicile/HQ/nationality, related party, credit quality, SME/supervision/LEX flags, SIS code, LEI).
             C2 — the same client number must carry one single treatment across all datasets of the period (grouplexid = ultimate parent, legitimately shared within a group). Click a finding to see the underlying records of both periods.
-            C3 — security attribute drift per ISIN (HQLA level change = error).
+            C3 — security attribute drift per ISIN across the full set (type/sub-type, ratings, revaluation frequency, CMA fields, maturity, investment grade, listed type, guarantor); HQLA level or SNB-eligibility change = error.
             C4 — guarantor & HQLA level vs the Grouplexid reference (physical data must match the HQLA report treatment).
             C5 — orphan positions: the counterparty resolved by the MERCURY feed (issuer for securities) was not found in list_counterparties at the load PIT.
           </p>

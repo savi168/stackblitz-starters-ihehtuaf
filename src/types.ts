@@ -346,6 +346,21 @@ export interface ProdCounterpartyRecord {
   issuerRating?: string;
   amount?: number; // mCHF
   currency?: string;
+  // Full MERCURY referential attributes (list_counterparties) — optional,
+  // present when the TVF provides them (see docs/SQL_MERCURY_TVFS.sql).
+  domicileCountry?: string;
+  hqDomicile?: string;
+  nationality?: string;
+  relatedPartyType?: string;
+  ratingClass?: number;
+  externalRatingId?: string;
+  creditQuality?: string;
+  smeFlag?: boolean;
+  adequateSupervisionFlag?: boolean;
+  lexLimitFlag?: boolean;
+  pd?: number;
+  sisCode?: string;
+  lei?: string;
 }
 
 /** One security record (ISIN vs security master, CSV-fed). */
@@ -365,6 +380,20 @@ export interface ProdSecurityRecord {
   guarantorName?: string;
   hqlaLevel?: string; // L1 | L2a | L2b | nonHqla
   amount?: number; // mCHF
+  // Full MERCURY referential attributes (list_securities) — optional.
+  currency?: string;
+  revaluationFrequency?: string; // char(1), 'D' = daily
+  snbEligibleFlag?: boolean;
+  cmaApproachType?: string;
+  cmaRiskIndicator?: number;
+  cmaSaRwFlag?: boolean;
+  ratingClass?: number;
+  externalRatingId?: string;
+  maturityDate?: string; // YYYY-MM-DD
+  subType?: string;
+  investmentGradeFlag?: boolean;
+  listedType?: string;
+  lexGuaranteedFlag?: boolean;
 }
 
 /** Decision taken on a production control finding (validated as correct, or corrected). */

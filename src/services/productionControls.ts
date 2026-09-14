@@ -43,9 +43,18 @@ export const runCounterpartyDrift = (
     for (const [client, b] of mapB) {
       const a = mapA.get(client);
       if (!a) { findings.push({ severity: 'info', control: 'C1 drift', dataset: label, key: client, message: `New client in ${label} (${b.clientType || '—'}, ${b.groupLexId || '—'})` }); continue; }
+      // Full MERCURY attribute set: any referential change between the two
+      // periods is surfaced. PD and amounts are deliberately excluded — they
+      // move legitimately every period (metrics, not treatment).
       const diffs = diffAttrs(a, b, [
         ['clientType', 'client type'], ['groupLexId', 'grouplexid'],
         ['counterpartyType', 'counterparty type'], ['issuerRating', 'issuer rating'],
+        ['domicileCountry', 'domicile'], ['hqDomicile', 'HQ domicile'],
+        ['nationality', 'nationality'], ['relatedPartyType', 'related party'],
+        ['ratingClass', 'rating class'], ['externalRatingId', 'external rating'],
+        ['creditQuality', 'credit quality'], ['smeFlag', 'SME flag'],
+        ['adequateSupervisionFlag', 'adequate supervision'],
+        ['lexLimitFlag', 'LEX limit flag'], ['sisCode', 'SIS code'], ['lei', 'LEI'],
       ]);
       if (diffs.length > 0) {
         findings.push({ severity: 'warning', control: 'C1 drift', dataset: label, key: client, message: diffs.join(' · ') });
@@ -84,6 +93,12 @@ export const runCrossDataset = (
     check(r => r.groupLexId, 'grouplexids', 'error');
     check(r => r.counterpartyType, 'counterparty types', 'error');
     check(r => r.issuerRating, 'issuer ratings', 'warning');
+    check(r => r.domicileCountry, 'domiciles', 'error');
+    check(r => r.relatedPartyType, 'related party types', 'error');
+    check(r => r.ratingClass != null ? String(r.ratingClass) : undefined, 'rating classes', 'warning');
+    check(r => r.creditQuality, 'credit qualities', 'warning');
+    check(r => r.smeFlag != null ? String(r.smeFlag) : undefined, 'SME flags', 'warning');
+    check(r => r.lei, 'LEIs', 'warning');
   }
   return findings;
 };
@@ -101,13 +116,23 @@ export const runSecurityDrift = (
   for (const [isin, b] of mapB) {
     const a = mapA.get(isin);
     if (!a) { findings.push({ severity: 'info', control: 'C3 security drift', key: isin, message: `New security (${b.securityType || '—'}, HQLA ${b.hqlaLevel || '—'})` }); continue; }
+    // Full MERCURY attribute set (see docs/SQL_MERCURY_TVFS.sql). HQLA level
+    // and SNB eligibility changes are graded as errors — they change the
+    // liquidity treatment directly.
     const diffs = diffAttrs(a, b, [
       ['securityMaster', 'security master'], ['securityType', 'type'], ['rating', 'rating'],
       ['dailyReval', 'daily reval'], ['issuerLexId', 'issuer lexid'],
       ['guarantorLexId', 'guarantor lexid'], ['hqlaLevel', 'HQLA level'],
+      ['currency', 'currency'], ['revaluationFrequency', 'revaluation frequency'],
+      ['snbEligibleFlag', 'SNB eligible'], ['cmaApproachType', 'CMA approach'],
+      ['cmaRiskIndicator', 'CMA risk indicator'], ['cmaSaRwFlag', 'CMA SA RW flag'],
+      ['ratingClass', 'rating class'], ['externalRatingId', 'external rating'],
+      ['maturityDate', 'maturity'], ['subType', 'sub-type'],
+      ['investmentGradeFlag', 'investment grade'], ['listedType', 'listed type'],
+      ['lexGuaranteedFlag', 'LEX guaranteed'],
     ]);
     if (diffs.length > 0) {
-      const grave = diffs.some(d => d.startsWith('HQLA level'));
+      const grave = diffs.some(d => d.startsWith('HQLA level') || d.startsWith('SNB eligible'));
       findings.push({ severity: grave ? 'error' : 'warning', control: 'C3 security drift', key: isin, message: diffs.join(' · ') });
     }
   }

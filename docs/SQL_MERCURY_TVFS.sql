@@ -61,7 +61,21 @@ SELECT
     lc.EconomicActivityType                  AS CounterpartyType,  -- NOGA/NACE sector
     CAST(lc.RatingClass AS varchar(10))      AS IssuerRating,
     SUM(p.BookAmount) / 1000000.0            AS Amount,            -- reporting ccy → mn
-    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency
+    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency,
+    -- Full list_counterparties referential attributes (control set)
+    lc.DomicileCountry                       AS DomicileCountry,
+    lc.HQDomicile                            AS HqDomicile,
+    lc.Nationality                           AS Nationality,
+    lc.RelatedPartyType                      AS RelatedPartyType,
+    lc.RatingClass                           AS RatingClass,
+    lc.ExternalRatingId                      AS ExternalRatingId,
+    lc.CreditQuality                         AS CreditQuality,
+    lc.SMEFlag                               AS SmeFlag,
+    lc.AdequateSupervisionFlag               AS AdequateSupervisionFlag,
+    lc.LEXLimitFlag                          AS LexLimitFlag,
+    lc.PD                                    AS Pd,
+    lc.SIScode                               AS SisCode,
+    lc.LEI                                   AS Lei
 FROM list_counterparties lc
 JOIN pos p
   ON  p.ResolvedId  = lc.Id
@@ -76,7 +90,10 @@ CROSS APPLY (SELECT CASE
     WHEN LEFT(CAST(p.LegalAccountNumber AS varchar(20)), 1) = '2'                     THEN 'dueToCustomers'
     ELSE 'dueFromCustomers' END AS Dataset) ds
 GROUP BY ds.Dataset, lc.Id, lc.TypeOf, lc.GroupLEXId,
-         lc.EconomicActivityType, lc.RatingClass
+         lc.EconomicActivityType, lc.RatingClass,
+         lc.DomicileCountry, lc.HQDomicile, lc.Nationality, lc.RelatedPartyType,
+         lc.ExternalRatingId, lc.CreditQuality, lc.SMEFlag,
+         lc.AdequateSupervisionFlag, lc.LEXLimitFlag, lc.PD, lc.SIScode, lc.LEI
 
 UNION ALL
 
@@ -95,7 +112,20 @@ SELECT
     ''                                       AS CounterpartyType,
     CAST(NULL AS varchar(10))                AS IssuerRating,
     SUM(p.BookAmount) / 1000000.0            AS Amount,
-    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency
+    CASE WHEN COUNT(DISTINCT p.Currency) = 1 THEN MIN(p.Currency) END AS Currency,
+    CAST(NULL AS char(2))   AS DomicileCountry,
+    CAST(NULL AS char(2))   AS HqDomicile,
+    CAST(NULL AS char(2))   AS Nationality,
+    CAST(NULL AS varchar(20)) AS RelatedPartyType,
+    CAST(NULL AS int)       AS RatingClass,
+    CAST(NULL AS varchar(20)) AS ExternalRatingId,
+    CAST(NULL AS char(2))   AS CreditQuality,
+    CAST(NULL AS bit)       AS SmeFlag,
+    CAST(NULL AS bit)       AS AdequateSupervisionFlag,
+    CAST(NULL AS bit)       AS LexLimitFlag,
+    CAST(NULL AS real)      AS Pd,
+    CAST(NULL AS char(5))   AS SisCode,
+    CAST(NULL AS varchar(20)) AS Lei
 FROM pos p
 LEFT JOIN list_counterparties lc
   ON  lc.Id          = p.ResolvedId
@@ -129,7 +159,21 @@ SELECT
     g.GroupLEXId                             AS GuarantorLexId,  -- covered bonds / received guarantees
     g.Name                                   AS GuarantorName,
     ls.HQLACategory                          AS HqlaLevel,       -- as computed by the QDL rules
-    SUM(cp.BookAmount) / 1000000.0           AS Amount
+    SUM(cp.BookAmount) / 1000000.0           AS Amount,
+    -- Full list_securities referential attributes (control set)
+    ls.Currency                              AS Currency,
+    ls.RevaluationFrequency                  AS RevaluationFrequency,
+    ls.SNBEligibleFlag                       AS SnbEligibleFlag,
+    ls.CMAApproachType                       AS CmaApproachType,
+    ls.CMARiskIndicator                      AS CmaRiskIndicator,
+    ls.CMASARwFlag                           AS CmaSaRwFlag,
+    ls.RatingClass                           AS RatingClass,
+    ls.ExternalRatingId                      AS ExternalRatingId,
+    ls.MaturityDate                          AS MaturityDate,
+    ls.SubType                               AS SubType,
+    ls.InvestmentGradeFlag                   AS InvestmentGradeFlag,
+    ls.ListedType                            AS ListedType,
+    ls.LEXGuaranteedFlag                     AS LexGuaranteedFlag
 FROM core_positions cp
 JOIN list_securities ls
   ON  ls.Id          = cp.SecurityId
@@ -148,5 +192,8 @@ WHERE cp.LoadId = @loadId
   AND ls.ISIN IS NOT NULL
   AND (@productType IS NULL OR ls.TypeOf = @productType)
 GROUP BY ls.ISIN, ls.Id, ls.TypeOf, ls.RatingClass, ls.RevaluationFrequency,
-         iss.GroupLEXId, g.GroupLEXId, g.Name, ls.HQLACategory;
+         iss.GroupLEXId, g.GroupLEXId, g.Name, ls.HQLACategory,
+         ls.Currency, ls.SNBEligibleFlag, ls.CMAApproachType, ls.CMARiskIndicator,
+         ls.CMASARwFlag, ls.ExternalRatingId, ls.MaturityDate, ls.SubType,
+         ls.InvestmentGradeFlag, ls.ListedType, ls.LEXGuaranteedFlag;
 GO

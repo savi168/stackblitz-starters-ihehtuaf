@@ -6,6 +6,37 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.6.0 — 14 September 2026
+
+**Theme: production controls on the full MERCURY field set.**
+
+- **Controls C1/C2/C3 now cover the complete MERCURY referential**
+  (aligned with the real Quadrum DDL):
+  - *Counterparties*: domicile / HQ domicile / nationality, related-party
+    type, internal rating class + external rating, credit quality,
+    SME / adequate-supervision / LEX-limit flags, SIS code, LEI — on top
+    of the existing client type, grouplexid, counterparty type, rating.
+  - *Securities*: currency, revaluation frequency, SNB eligibility,
+    CMA approach / risk indicator / SA-RW flag, rating class + external
+    rating, maturity, sub-type, investment grade, listed type,
+    LEX-guaranteed — HQLA level or **SNB-eligibility** change = error.
+  - PD is carried but deliberately excluded from drift (a metric, not a
+    treatment).
+- **TVFs extended** (`docs/SQL_MERCURY_TVFS.sql`): both functions now
+  return the full attribute set, with the exact PIT joins of the real
+  DDL — re-run the script on MERCURY to activate the wider contract.
+  Older, narrower TVFs keep working (missing columns import as NULL).
+- Integration guide (`MERCURY — integration & adjustments`) updated with
+  the extended column contract.
+
+### Database schema (automatic at first startup)
+
+| Migration | What it does |
+|---|---|
+| `010_prod_full_mercury_fields` | Adds 13 nullable referential columns to `ProdCounterparties` and 13 to `ProdSecurities` |
+
+---
+
 ## v3.5.0 — 14 September 2026
 
 **Theme: find anything — command palette & friendly empty states.**
