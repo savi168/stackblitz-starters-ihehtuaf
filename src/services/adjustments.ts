@@ -444,6 +444,18 @@ export interface AdjustmentBuildOptions {
   genericCounterparty?: boolean;
   /** Optional RatingClass stamped on generated generic counterparties. */
   genericRating?: string;
+  /** Per-line field overrides from the new-position form (no-match lines):
+   * the user confirms/adjusts the few fields that matter, the rest keeps
+   * neutral defaults. */
+  overrides?: NewPositionOverrides;
+}
+
+export interface NewPositionOverrides {
+  legalAccountNumber?: string;
+  typeOf?: string;
+  subType?: string;
+  /** ISO date — also stamped on the generated list_securities row. */
+  maturityDate?: string;
 }
 
 /** Shared generic counterparty id for a line: GEN-<industry TypeOf, else
@@ -498,11 +510,12 @@ const newPositionValues = (
     row.SecurityPIT = numOrSelf(loadId);
   }
   const generic = opts?.genericCounterparty === true;
+  const ov = opts?.overrides;
   Object.assign(row, {
     Id: `ADJ-${line.ligne}-${line.row}`,
     LoadId: numOrSelf(loadId),
     BookingCenterId: opts?.bookingCenterId ?? '',
-    LegalAccountNumber: numOrSelf(glEntry?.legalAccountNumber ?? '0'),
+    LegalAccountNumber: numOrSelf(ov?.legalAccountNumber?.trim() || glEntry?.legalAccountNumber || '0'),
     Currency: line.ccy,
     InternalReference1: String(line.reference),
     // Generic counterparty: the real client number stays on the position.
@@ -514,8 +527,8 @@ const newPositionValues = (
     CounterpartyId: generic ? genericIdOf(line, mappings) : line.client ?? '',
     CounterpartyPIT: numOrSelf(loadId),
     CounterpartyBookingCenterId: intercoOf(line, mappings)?.interco ?? '',
-    TypeOf: glEntry?.typeOf ?? '',
-    SubType: glEntry?.subType ?? '',
+    TypeOf: ov?.typeOf?.trim() || glEntry?.typeOf || '',
+    SubType: ov?.subType?.trim() || glEntry?.subType || '',
     IsEdited: 1,
     ReportingDate: reportingDate,
   });
@@ -681,7 +694,8 @@ export const counterpartyValues = (
 
 /** list_securities row created for a security line (issuer = CLIENT). */
 export const securityValues = (
-  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const glEntry = mappings.gl.get(line.ligne);
   const row = listDefaults(LIST_SEC_COLS);
@@ -692,8 +706,8 @@ export const securityValues = (
     Name: line.libelle ?? String(line.reference),
     ISIN: isIsin(String(line.reference)) ? String(line.reference) : '',
     Currency: line.ccy,
-    MaturityDate: line.matDate ?? '1900-01-01',
-    TypeOf: glEntry?.subType ?? '',
+    MaturityDate: opts?.overrides?.maturityDate?.trim() || line.matDate || '1900-01-01',
+    TypeOf: opts?.overrides?.subType?.trim() || glEntry?.subType || '',
     IssuerId: line.client ?? '',
     IssuerPIT: line.client ? numOrSelf(loadId) : null,
     IsEdited: 1,
@@ -735,7 +749,7 @@ export const buildNewPositionPackage = (
   }
   if (sec) {
     parts.push(buildListInsert('list_securities', LIST_SEC_COLS,
-      securityValues(line, loadId, reportingDate, mappings),
+      securityValues(line, loadId, reportingDate, mappings, opts),
       `Referential: security ${newSecurityId(line)} at PIT ${loadId} (GL line is cp_TypeOf = Security)`));
   }
   parts.push(buildNewPositionInsert(line, loadId, reportingDate, mappings, opts));
@@ -746,7 +760,12 @@ export const buildNewPositionPackage = (
 // One-shot generation: combined SQL script + Excel of the rows to insert
 // ---------------------------------------------------------------------------
 
-export interface AdjustmentItem { line: AdjustmentLine; cand: MatchCandidate | null }
+export interface AdjustmentItem {
+  line: AdjustmentLine;
+  cand: MatchCandidate | null;
+  /** New-position form overrides for this line (no-match lines). */
+  overrides?: NewPositionOverrides;
+}
 
 /** JS values (all core_positions columns) of the row a line will generate —
  * copied attributes + overrides when matched, mapping defaults otherwise. */
@@ -755,7 +774,8 @@ export const buildPositionRow = (
   opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const { line, cand } = item;
-  if (!cand?.raw) return newPositionValues(line, loadId, reportingDate, mappings, opts);
+  if (!cand?.raw) return newPositionValues(line, loadId, reportingDate, mappings,
+    item.overrides ? { ...opts, overrides: item.overrides } : opts);
   const rawKeys = Object.keys(cand.raw);
   const row: Record<string, unknown> = {};
   for (const [name] of CORE_POSITION_COLS) {
@@ -785,7 +805,8 @@ export const buildAllSql = (
   ].join('\n');
   return [header, ...items.map(i => (i.cand
     ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings)
-    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings, opts)))].join('\n\n');
+    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings,
+        i.overrides ? { ...opts, overrides: i.overrides } : opts)))].join('\n\n');
 };
 
 export interface ImpactEntry {

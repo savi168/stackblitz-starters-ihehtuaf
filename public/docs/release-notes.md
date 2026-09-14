@@ -6,6 +6,32 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.10.0 — 14 September 2026
+
+**Theme: adjustments made workable — sticky balance sheet & simple
+new-position form.**
+
+- **The balance sheet follows you**: on wide screens the impact panel is
+  docked to the right and stays in view while you scroll the adjustment
+  lines — every candidate you pick updates it live. Compact columns
+  (account · base · adj · after, CHF rounded), GAAP toggle and scope on
+  top; hover a row for the gross / IC-eliminated detail.
+- **New-position lines get a simple form** instead of raw SQL first: for
+  a no-match line, confirm the four fields that matter — legal account
+  (prefilled from the LIGNE's GL mapping, with a suggestion list),
+  TypeOf, SubType, and Maturity date (prefilled from the file's MAT
+  DATE) — everything else keeps safe defaults, and the referential rows
+  (list_counterparties, list_securities for security lines) are
+  generated with the generic logic. Per-line choices are carried into
+  the one-shot .sql and Excel exports.
+- A **generic-referential template** (Excel) was handed over: define the
+  generic counterparties per MERCURY TypeOf (GEN-BANK, GEN-CORP…) and
+  the security defaults for bond lines — it will be wired into the tool
+  once filled.
+- No schema changes.
+
+---
+
 ## v3.9.0 — 14 September 2026
 
 **Theme: dual-GAAP balance sheet & the adjustment booking rule.**

@@ -464,6 +464,13 @@ const AdjustmentsCard: React.FC<{
     const [genericRating, setGenericRating] = useState('');
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
+    // New-position form (no-match lines): the few fields that matter, editable
+    // per line — everything else keeps neutral defaults / generic referential.
+    const [rowOverrides, setRowOverrides] = useState<Record<number, { legalAccountNumber?: string; typeOf?: string; subType?: string; maturityDate?: string }>>({});
+    const setOverride = (row: number, field: string, value: string) => {
+      setRowOverrides(prev => ({ ...prev, [row]: { ...prev[row], [field]: value } }));
+      setScripts(prev => { const n = { ...prev }; delete n[row]; return n; });
+    };
     const [baseRows, setBaseRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
     const [gaapAdj, setGaapAdj] = useState<'swiss' | 'ifrs'>('swiss');
     const [conso, setConso] = useState<{
@@ -661,7 +668,8 @@ const AdjustmentsCard: React.FC<{
       const cand = cands.find(c => c.id === chosen[line.row]);
       const sql = cand
         ? svc.buildAdjustmentInsert(line, cand, loadId, mappings)
-        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, buildOpts());
+        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings,
+            { ...buildOpts(), overrides: rowOverrides[line.row] });
       setScripts(prev => ({ ...prev, [line.row]: sql }));
     };
 
@@ -688,16 +696,16 @@ const AdjustmentsCard: React.FC<{
     // "no match" → new position) — lines still ambiguous are excluded.
     const oneShotItems = useMemo(() => {
       if (!results) return null;
-      const ready: Array<{ line: AdjustmentLine; cand: MatchCandidate | null }> = [];
+      const ready: Array<{ line: AdjustmentLine; cand: MatchCandidate | null; overrides?: typeof rowOverrides[number] }> = [];
       let pending = 0;
       for (const l of lines) {
         const cands = results[l.row] || [];
         const cand = cands.find(c => c.id === chosen[l.row]) || null;
         if (cands.length > 0 && !cand) pending += 1;
-        else ready.push({ line: l, cand });
+        else ready.push({ line: l, cand, overrides: rowOverrides[l.row] });
       }
       return { ready, pending };
-    }, [results, lines, chosen]);
+    }, [results, lines, chosen, rowOverrides]);
 
     const logBatch = (what: string, n: number) => {
       setData(prev => ({
@@ -1033,122 +1041,108 @@ const AdjustmentsCard: React.FC<{
           </button>
         </div>
 
+        <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-4 xl:items-start">
         {showImpact && impact && mappings && (() => {
-          const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 2 });
+          const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 0 });
           const per = impact.perPrefix;
           const scoped = !!scopeSet;
-          const nCols = scoped ? 8 : 6;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
           const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : mappings.accountLabels.get(k);
           const sections: Array<{ title: string; match: (p: string) => boolean }> = [
-            { title: 'Assets (1xx)', match: p => p.startsWith('1') },
-            { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
-            { title: gaapAdj === 'ifrs' ? 'Equity / other' : 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
+            { title: 'Assets', match: p => p.startsWith('1') },
+            { title: 'Liabilities & equity', match: p => p.startsWith('2') },
+            { title: gaapAdj === 'ifrs' ? 'Equity / other' : 'Off-balance / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
           ];
           const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
             [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
+          const deltaCls = (n: number) => n > 0 ? 'text-status-green' : n < 0 ? 'text-status-red' : 'text-brand-text-secondary';
           return (
-            <div className="border border-efg-line rounded-lg mb-3 overflow-x-auto">
-              <div className="flex flex-wrap items-center gap-3 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40">
+            // Sticky on wide screens: the balance sheet stays in view while
+            // you scroll through the adjustment lines — every pick updates it.
+            <div className="xl:col-start-2 xl:row-start-1 xl:sticky xl:top-4 min-w-0 border border-efg-line rounded-lg mb-3 xl:mb-0 xl:max-h-[88vh] xl:overflow-y-auto bg-white dark:bg-transparent">
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40 sticky top-0">
                 <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
                   {(['swiss', 'ifrs'] as const).map(g => (
                     <button key={g} onClick={() => setGaapAdj(g)}
-                      className={`px-2.5 py-1 transition-colors ${gaapAdj === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
+                      className={`px-2 py-1 transition-colors ${gaapAdj === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
                       {g === 'swiss' ? 'SWISS GAAP' : 'IFRS (HFM)'}
                     </button>
                   ))}
                 </span>
-                {gaapAdj === 'ifrs' && mappings.hfm.size === 0 && (
-                  <span className="text-[11px] text-status-amber font-semibold">
-                    ⚠ prefix fallback rules only — re-upload Mapping.xlsb and 💾 save to store the account-level HFM mapping
-                  </span>
-                )}
-                <label className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Consolidation scope</label>
                 <select value={scopeSel} onChange={e => setScopeSel(e.target.value)}
-                  className="p-1.5 border border-gray-200 rounded-md text-[12px] bg-white">
-                  <option value="">— entire load (no scope) —</option>
+                  className="p-1 border border-gray-200 rounded-md text-[11px] bg-white max-w-[160px]">
+                  <option value="">— no scope —</option>
                   {(conso?.entities || []).map(e => (
-                    <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
+                    <option key={e.id} value={e.id}>{e.id}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
                   ))}
                 </select>
-                {scoped && (
-                  <span className="text-[11px] text-brand-text-secondary">
-                    {scopeSet!.size} booking center(s) in the reporting set — intra-scope interco is eliminated
-                  </span>
-                )}
                 {impact.outOfScope > 0 && (
-                  <span className="text-[11px] text-status-amber font-semibold">
-                    ⊘ {impact.outOfScope} adjustment line(s) booked outside the scope (excluded)
+                  <span className="text-[10px] text-status-amber font-semibold" title="Lines booked outside the reporting set — excluded from this consolidated view only; their INSERTs are unaffected.">
+                    ⊘ {impact.outOfScope} out of scope
                   </span>
                 )}
-                {!conso && <span className="text-[11px] text-brand-text-secondary">conso referential unavailable</span>}
               </div>
-              <table className="w-full text-xs whitespace-nowrap">
+              {gaapAdj === 'ifrs' && mappings.hfm.size === 0 && (
+                <p className="text-[10px] text-status-amber font-semibold px-3 py-1.5 border-b border-efg-line">
+                  ⚠ prefix fallback rules only — re-upload Mapping.xlsb + 💾 save for the account-level HFM mapping
+                </p>
+              )}
+              <table className="w-full text-[11px] whitespace-nowrap">
                 <thead className="bg-brand-bg-body"><tr>
-                  {(scoped
-                    ? ['Account (LEFT 3)', 'Label', 'Base (scope, net IC)', 'Adj gross', 'IC eliminated', 'Adj net', 'After', 'Adj lines']
-                    : ['Account (LEFT 3)', 'Label', 'Base (load)', 'Adjustments', 'After', 'Adj lines']
-                  ).map((h, hi) =>
-                    <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                  {[gaapAdj === 'ifrs' ? 'HFM' : 'Acct', 'Base', 'Adj', 'After'].map((h, hi) =>
+                    <th key={h} className={`px-2 py-1.5 text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {sections.map(sec => {
                     const ps = prefixes.filter(sec.match);
                     if (ps.length === 0) return null;
-                    let tBase = 0, tGross = 0, tElim = 0, tLines = 0;
+                    let tBase = 0, tNet = 0;
                     return (
                       <React.Fragment key={sec.title}>
                         <tr className="border-t border-efg-line bg-brand-bg-body/60">
-                          <td colSpan={nCols} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
+                          <td colSpan={4} className="px-2 py-1 font-semibold text-[10px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
                         </tr>
                         {ps.map(p => {
                           const b = baseAgg?.[p];
                           const baseNet = (b?.amount ?? 0) - (b?.eliminated ?? 0);
                           const d = per.get(p);
                           const gross = d?.gross ?? 0;
-                          const elim = d?.eliminated ?? 0;
+                          const elim = scoped ? (d?.eliminated ?? 0) : 0;
                           const net = scoped ? (d?.net ?? 0) : gross;
-                          tBase += baseNet; tGross += gross; tElim += elim; tLines += d?.lines ?? 0;
-                          const deltaCls = (n: number) => n > 0 ? 'text-status-green' : n < 0 ? 'text-status-red' : 'text-brand-text-secondary';
+                          tBase += baseNet; tNet += net;
                           return (
-                            <tr key={p} className={`border-t border-efg-line/60 ${gross !== 0 ? 'font-semibold' : ''}`}>
-                              <td className="px-3 py-1">{p}</td>
-                              <td className="px-3 py-1 text-brand-text-secondary font-normal max-w-xs truncate">{labelOf(p) || '—'}</td>
-                              <td className="px-3 py-1 text-right tabular-nums">{baseAgg ? fmt(baseNet) : '—'}</td>
-                              <td className={`px-3 py-1 text-right tabular-nums ${deltaCls(gross)}`}>{gross === 0 ? '—' : fmt(gross)}</td>
-                              {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{elim === 0 ? '—' : fmt(-elim)}</td>}
-                              {scoped && <td className={`px-3 py-1 text-right tabular-nums ${deltaCls(net)}`}>{net === 0 ? '—' : fmt(net)}</td>}
-                              <td className="px-3 py-1 text-right tabular-nums">{baseAgg ? fmt(baseNet + net) : '—'}</td>
-                              <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary font-normal">{d?.lines || ''}</td>
+                            <tr key={p} className={`border-t border-efg-line/60 ${net !== 0 ? 'font-semibold bg-brand-secondary/5' : ''}`}
+                              title={`${labelOf(p) || p}${d ? ` — ${d.lines} line(s), gross ${fmt(gross)}${elim ? `, IC eliminated ${fmt(-elim)}` : ''}` : ''}`}>
+                              <td className="px-2 py-1 max-w-[150px]">
+                                <span className="font-semibold">{p}</span>
+                                {labelOf(p) && <span className="block text-[9px] text-brand-text-secondary font-normal truncate leading-tight">{labelOf(p)}</span>}
+                              </td>
+                              <td className="px-2 py-1 text-right tabular-nums align-top">{baseAgg ? fmt(baseNet) : '—'}</td>
+                              <td className={`px-2 py-1 text-right tabular-nums align-top ${deltaCls(net)}`}>{net === 0 ? '—' : fmt(net)}</td>
+                              <td className="px-2 py-1 text-right tabular-nums align-top">{baseAgg ? fmt(baseNet + net) : '—'}</td>
                             </tr>
                           );
                         })}
-                        {(() => { const tNet = scoped ? tGross - tElim : tGross; return (
-                          <tr className="border-t border-efg-line font-semibold">
-                            <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{baseAgg ? fmt(tBase) : '—'}</td>
-                            <td className={`px-3 py-1.5 text-right tabular-nums ${tGross > 0 ? 'text-status-green' : tGross < 0 ? 'text-status-red' : ''}`}>{tGross === 0 ? '—' : fmt(tGross)}</td>
-                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tElim === 0 ? '—' : fmt(-tElim)}</td>}
-                            {scoped && <td className={`px-3 py-1.5 text-right tabular-nums ${tNet > 0 ? 'text-status-green' : tNet < 0 ? 'text-status-red' : ''}`}>{tNet === 0 ? '—' : fmt(tNet)}</td>}
-                            <td className="px-3 py-1.5 text-right tabular-nums">{baseAgg ? fmt(tBase + tNet) : '—'}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tLines || ''}</td>
-                          </tr>
-                        ); })()}
+                        <tr className="border-t border-efg-line font-semibold">
+                          <td className="px-2 py-1">Total</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{baseAgg ? fmt(tBase) : '—'}</td>
+                          <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(tNet)}`}>{tNet === 0 ? '—' : fmt(tNet)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{baseAgg ? fmt(tBase + tNet) : '—'}</td>
+                        </tr>
                       </React.Fragment>
                     );
                   })}
                 </tbody>
               </table>
-              <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
-                Amounts in CHF (CCY sheet, BS_RATE_6). Base = SUM(BookAmount) of load {loadId || '?'} grouped {gaapAdj === 'ifrs' ? 'by HFM account (IFRS) — direct account mapping, else the prefix fallback rules; balance-sheet accounts (1xx/2xx) only' : 'by LEFT(LegalAccountNumber, 3)'}.
-                Every adjustment line is BOOKED on the Mapping_GL_BALANCESHEET account of its LIGNE — the matched position only supplies the qualitative attributes (counterparty, booking center, references…), exactly like the generated INSERT.
-                {scoped && ' Scope: base restricted to positions booked in the reporting set (list_reporting_sets); amounts facing an intra-scope CounterpartyBookingCenterId are eliminated (base and adjustments); positions with no booking center are kept.'}
-                {!baseAgg && ' Base balance unavailable (MERCURY not reachable or loadid empty) — showing adjustment deltas only.'}
+              <p className="text-[10px] text-brand-text-secondary px-3 py-2 border-t border-efg-line whitespace-normal">
+                CHF, rounded. Each line is booked on its LIGNE's GL account — the match only supplies qualitative data. Hover a row for gross / IC-eliminated detail.
+                {!baseAgg && ' Base unavailable — deltas only.'}
               </p>
             </div>
           );
         })()}
 
+        <div className="xl:col-start-1 xl:row-start-1 min-w-0">
         {lines.length > 0 && results && (() => {
           const statusOf = (l: AdjustmentLine): 'matched' | 'ambiguous' | 'new' => {
             const cands = results[l.row] || [];
@@ -1263,11 +1257,61 @@ const AdjustmentsCard: React.FC<{
                                 </tbody>
                               </table>
                             )}
+                            {cands.length === 0 && mappings && (() => {
+                              const glE = mappings.gl.get(l.ligne);
+                              const ov = rowOverrides[l.row] || {};
+                              const glAccounts = Array.from(new Map(Array.from(mappings.gl.values()).map(g => [g.legalAccountNumber, g])).values());
+                              const typeOfs = Array.from(new Set([...Array.from(mappings.gl.values()).map(g => g.typeOf || ''), 'Account', 'Contract', 'Security', 'Cash'].filter(Boolean))).sort();
+                              const subTypes = Array.from(new Set(Array.from(mappings.gl.values()).map(g => g.subType || '').filter(Boolean))).sort();
+                              const isSec = (ov.typeOf || glE?.typeOf || '').toLowerCase() === 'security';
+                              const inp = 'p-1.5 border border-gray-200 rounded-md text-[11px] bg-white';
+                              return (
+                                <div className="border border-efg-line rounded-lg bg-white/60 p-2.5 mb-2">
+                                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1.5">
+                                    New position — confirm the key fields, the rest gets safe defaults
+                                  </p>
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Legal account</label>
+                                      <input list={`adj-accounts-${l.row}`} value={ov.legalAccountNumber ?? glE?.legalAccountNumber ?? ''}
+                                        onChange={e => setOverride(l.row, 'legalAccountNumber', e.target.value)} className={`${inp} w-28`} />
+                                      <datalist id={`adj-accounts-${l.row}`}>
+                                        {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{g.description || g.line}</option>)}
+                                      </datalist>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">TypeOf</label>
+                                      <select value={ov.typeOf ?? glE?.typeOf ?? ''} onChange={e => setOverride(l.row, 'typeOf', e.target.value)} className={`${inp} w-28`}>
+                                        <option value="">—</option>
+                                        {typeOfs.map(t => <option key={t} value={t}>{t}</option>)}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">SubType</label>
+                                      <input list="adj-subtypes" value={ov.subType ?? glE?.subType ?? ''}
+                                        onChange={e => setOverride(l.row, 'subType', e.target.value)} className={`${inp} w-28`} />
+                                      <datalist id="adj-subtypes">{subTypes.map(t => <option key={t} value={t} />)}</datalist>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Maturity date</label>
+                                      <input type="date" value={ov.maturityDate ?? l.matDate ?? ''}
+                                        onChange={e => setOverride(l.row, 'maturityDate', e.target.value)} className={inp} />
+                                    </div>
+                                  </div>
+                                  <p className="text-[10px] text-brand-text-secondary mt-1.5">
+                                    Counterparty: {genericCpty
+                                      ? <>generic <strong>{svcMod ? svcMod.genericIdOf(l, mappings) : 'GEN-…'}</strong> (client {l.client || '?'} kept in InternalReference2{genericRating.trim() ? `, rating ${genericRating.trim()}` : ''})</>
+                                      : <><strong>{l.client || '?'}</strong> — a list_counterparties row is created if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'})</>}.
+                                    {isSec && ' Security line: a list_securities row is also created and linked to the counterparty (issuer).'}
+                                  </p>
+                                </div>
+                              );
+                            })()}
                             <div className="flex gap-2">
                               <button onClick={() => makeScript(l)}
                                 disabled={cands.length > 0 && !cand}
                                 className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-2.5 rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-secondary">
-                                {cands.length === 0 ? '✚ Prepare new-position INSERT (from mappings)' : cand ? `Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
+                                {cands.length === 0 ? '✚ Generate the INSERT (position + referential)' : cand ? `Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
                               </button>
                             </div>
                             {scripts[l.row] && (
@@ -1375,6 +1419,9 @@ const AdjustmentsCard: React.FC<{
             )}
           </div>
         )}
+
+        </div>
+        </div>
 
         <p className="text-[11px] text-brand-text-secondary mt-3">
           Matching key (agreed rules): (InternalReference1 LIKE '%REFERENCE%' OR ContractId LIKE '%REFERENCE%') AND CounterpartyId LIKE '%CLIENT%',
