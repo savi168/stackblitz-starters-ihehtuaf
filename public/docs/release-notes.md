@@ -6,6 +6,22 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.18.1 — 14 September 2026
+
+**Theme: the data model at your fingertips.**
+
+- **Field tooltips from the Quadrum data model**: the advanced
+  all-fields editor now documents every column — hover a field name (ⓘ)
+  to read its official definition, extracted from
+  *docs/mercury-model/datamodel (1).pdf* (101 fields across
+  `core_positions`, `list_counterparties`, `list_securities`, legal
+  references included, e.g. *LEXGuaranteedFlag — Set to 1 for bonds
+  guaranteed according to OFR Art.118 al.1 let.c and Finma circ. 2019/1
+  cm 52-62*). Chain-managed fields say so in the tooltip.
+- No schema changes.
+
+---
+
 ## v3.18.0 — 14 September 2026
 
 **Theme: every field at hand — and the Excel referential fixed.**

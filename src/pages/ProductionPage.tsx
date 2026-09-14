@@ -7,6 +7,7 @@ import {
 } from '../services/productionControls';
 import type { AdjustmentLine, AdjustmentMappings, MatchCandidate, NewPositionOverrides } from '../services/adjustments';
 import { accountLabelOf, lanLabelsFrom, prefixLabelOf } from '../services/legalAccountLabels';
+import { fieldDoc } from '../services/fieldDocs';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -1575,10 +1576,14 @@ const AdjustmentsCard: React.FC<{
                                           const chain = svcMod.CHAIN_COLS.has(name) || name === 'ReportingDate';
                                           const overridden = ov.raw?.[g.key]?.[name] !== undefined && ov.raw?.[g.key]?.[name] !== '';
                                           const shown = overridden ? ov.raw![g.key]![name] : String(g.row![name] ?? '');
+                                          const doc = fieldDoc(g.title, name);
+                                          const tip = `${name}${doc ? ` — ${doc}` : ''}${chain ? ' (chain-managed by the tool)' : ''}`;
                                           return (
                                             <div key={name}>
-                                              <label className={`block text-[8px] uppercase tracking-wider truncate ${overridden ? 'text-brand-primary font-bold' : 'text-brand-text-secondary'}`} title={name}>{name}</label>
-                                              <input value={shown} disabled={chain}
+                                              <label className={`block text-[8px] uppercase tracking-wider truncate cursor-help ${overridden ? 'text-brand-primary font-bold' : 'text-brand-text-secondary'}`} title={tip}>
+                                                {name}{doc ? ' ⓘ' : ''}
+                                              </label>
+                                              <input value={shown} disabled={chain} title={tip}
                                                 onChange={e => setRawOverride(l.row, g.key, name, e.target.value)}
                                                 className={`w-full p-1 border rounded text-[11px] ${chain ? 'bg-brand-bg-body/60 text-brand-text-secondary border-efg-line' : overridden ? 'bg-white border-brand-primary' : 'bg-white border-gray-200'}`} />
                                             </div>
