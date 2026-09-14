@@ -387,9 +387,10 @@ GO
 
 -- core_loads: links each loadid to its reporting date (the app resolves the
 -- period automatically when the date field is left blank).
-INSERT INTO core_loads (LoadId, ReportingDate, Name, CreationDate) VALUES
-    (1001, '2025-12-31', 'DEC-25 monthly', '2026-01-02'),
-    (1002, '2026-01-31', 'JAN-26 monthly', '2026-02-02');
+-- IsVisible = 1 is required: the app lists loads WHERE IsVisible = 1.
+INSERT INTO core_loads (LoadId, ReportingDate, Name, CreationDate, IsVisible) VALUES
+    (1001, '2025-12-31', 'DEC-25 monthly', '2026-01-02', 1),
+    (1002, '2026-01-31', 'JAN-26 monthly', '2026-02-02', 1);
 
 -- Load collections: the adjustments unit of work — a collection carries the
 -- reporting entity (consolidation level) and groups its loads.
