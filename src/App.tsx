@@ -37,6 +37,7 @@ const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').t
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
 const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
 const ProductionPage = lazy(() => import('./pages/ProductionPage'));
+const BalanceAnalyticsPage = lazy(() => import('./pages/BalanceAnalyticsPage'));
 const LogsPage = lazy(() => import('./pages/LogsPage').then(m => ({ default: m.LogsPage })));
 
 /** Skeleton placeholder shaped like a typical page (header + cards) — reads
@@ -285,6 +286,7 @@ const App: React.FC = () => {
                   <Route path="/report" element={<ManagementReportPage />} />
                   <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />
                   <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
+                  <Route path="/production/analytics" element={<AdminRoute><BalanceAnalyticsPage /></AdminRoute>} />
                   <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
                 </Routes>
               </Suspense>

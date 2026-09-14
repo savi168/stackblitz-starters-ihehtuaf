@@ -5,7 +5,7 @@
  * badge, VERSION.txt, the zip name and GET /api/meta all agree.
  * Bump it when cutting a release.
  */
-export const APP_VERSION = '3.12.0';
+export const APP_VERSION = '3.13.0';
 
 export interface ApiMeta {
   version: string;

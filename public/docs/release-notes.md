@@ -6,6 +6,30 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.13.0 — 14 September 2026
+
+**Theme: analytics preview & the reco flow made simple.**
+
+- **Balance sheet analytics — preview** (📈 next to the steps, or
+  `/production/analytics`): a BI mockup on **sample data** to validate
+  the reading before wiring — KPI tiles with sparklines, six-period
+  trend with certified-baseline markers, assets by currency (stacked),
+  booking centers vs previous period, counterparty residence, and a
+  top-movements table isolating the adjustments. Each block states its
+  wiring: trend/currency/booking center come from the existing balance
+  endpoint; **residence needs a small MERCURY join to validate with
+  IT**.
+- **Reco & adjustments, the simple flow**: *1 · Load your file* (the
+  **matching runs automatically** — no button), *2 · Review the lines*
+  (progress bar: matched / new / to-pick), *3 · Export*. The scope shows
+  as a chip (change on demand), and the mapping workbook, booking
+  center, generics and the manual-line tool moved behind ⚙ settings —
+  the day-to-day screen is: drop the file, fix the flagged lines, watch
+  the live balance sheet, export.
+- No schema changes.
+
+---
+
 ## v3.12.0 — 14 September 2026
 
 **Theme: certification line vs Reco — two workspaces, one live balance

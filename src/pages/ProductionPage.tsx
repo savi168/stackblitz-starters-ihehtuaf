@@ -461,6 +461,9 @@ const AdjustmentsCard: React.FC<{
     const [bookingCenter, setBookingCenter] = useState('');
     const [genericCpty, setGenericCpty] = useState(false);
     const [genericRating, setGenericRating] = useState('');
+    const [showSettings, setShowSettings] = useState(false);
+    const [showManualLine, setShowManualLine] = useState(false);
+    const [showCollectionPicker, setShowCollectionPicker] = useState(false);
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
     // New-position form (no-match lines): the few fields that matter, editable
@@ -592,6 +595,14 @@ const AdjustmentsCard: React.FC<{
       const c = collections.find(x => String(x.loadCollectionId) === presetCollectionId);
       if (c) pickCollection(c);
     }, [presetCollectionId, collections]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Friendly flow: the matching runs by itself as soon as the file, the
+    // mappings and a load scope are all there — no button to remember.
+    useEffect(() => {
+      if (!mappings || lines.length === 0 || results || busy) return;
+      if (!loadId && collLoadIds.length === 0) return;
+      void runMatch();
+    }, [lines, mappings, results, busy, loadId, collLoadIds.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reportingDate = useMemo(() => {
       if (collection?.reportingDate) return String(collection.reportingDate).slice(0, 10);
@@ -904,9 +915,11 @@ const AdjustmentsCard: React.FC<{
           </span>
         </div>
 
-        {/* 1 — Mappings (persisted in the RegReport database) */}
+        {/* Mappings & options live behind the settings toggle — the workbook is
+            stored once; day-to-day use is: drop the file, review, export. */}
+        {(showSettings || (storedMappings.length === 0 && !mappings)) && (
         <div className="border border-efg-line rounded-lg p-3 mb-3">
-          <p className={stepTitle}>1 — Mappings {storedMappings.length > 0 ? '· stored in database' : '· not stored yet'}</p>
+          <p className={stepTitle}>⚙ Mappings {storedMappings.length > 0 ? '· stored in database' : '· not stored yet'}</p>
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Mapping workbook (Mapping.xlsb) — only to update</label>
@@ -932,18 +945,38 @@ const AdjustmentsCard: React.FC<{
             Individual rows (a rate, an HFM rule…) are editable in place in Backend → Data Explorer → ProdMappingEntries (audited like any data change).
           </p>
         </div>
+        )}
 
-        {/* 2 — Adjustments file */}
+        {/* 1 — Adjustments file (matching runs automatically) */}
         <div className="border border-efg-line rounded-lg p-3 mb-3">
-          <p className={stepTitle}>2 — Accounting adjustments file</p>
-          <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={fileBtn} />
-          {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}</p>}
+          <div className="flex flex-wrap items-center gap-3">
+            <p className={`${stepTitle} !mb-0`}>1 · Load your adjustments file</p>
+            <span className="text-[11px] text-brand-text-secondary">the matching against MERCURY runs automatically</span>
+            <button onClick={() => setShowSettings(v => !v)}
+              className="ml-auto text-[11px] underline text-brand-text-secondary hover:text-brand-primary">
+              {showSettings ? 'hide settings' : '⚙ settings (mappings, booking center, generics)'}
+            </button>
+          </div>
+          <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={`${fileBtn} mt-2`} />
+          {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}{busy ? ' — matching…' : results ? ' — matched' : ''}</p>}
         </div>
 
-        {/* 3 — Load collection (consolidation level) */}
+        {/* 2 — Scope (load collection) */}
         <div className="border border-efg-line rounded-lg p-3 mb-3">
+          {collection && !showCollectionPicker && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={`${stepTitle} !mb-0`}>2 · Scope</p>
+              <span className="px-2.5 py-1 rounded-full border border-brand-secondary/40 bg-brand-secondary/5 text-[12px]">
+                📦 {collection.name || `Collection ${String(collection.loadCollectionId)}`} · {reportingDate || '—'} · load(s) {collLoadIds.join(', ')}
+                {collection.reportingEntityId ? <> · scope <strong>{String(collection.reportingEntityId)}</strong></> : null}
+              </span>
+              <button onClick={() => setShowCollectionPicker(true)}
+                className="text-[11px] underline text-brand-text-secondary hover:text-brand-primary">change</button>
+            </div>
+          )}
+          {(!collection || showCollectionPicker) && (<>
           <p className={stepTitle}>
-            3 — Load collection · filtered on reporting entity {entity}
+            2 · Scope — load collection · filtered on reporting entity {entity}
             {collections.length > visibleCollections.length && (
               <button onClick={() => setShowAllCollections(true)} className="ml-2 underline text-brand-text-secondary font-normal normal-case tracking-normal">
                 show all {collections.length}
@@ -997,6 +1030,7 @@ const AdjustmentsCard: React.FC<{
               </table>
             </div>
           )}
+          </>)}
           <div className="flex flex-wrap items-end gap-3">
             {collLoadIds.length > 1 ? (
               <div>
@@ -1018,6 +1052,7 @@ const AdjustmentsCard: React.FC<{
                 {scopeSet ? ` (${scopeSet.size} booking centers)` : ' (not in list_reporting_sets)'}
               </p>
             )}
+            {showSettings && (<>
             <div>
               <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Booking center (new positions)</label>
               <input value={bookingCenter} onChange={e => setBookingCenter(e.target.value)} placeholder="BookingCenterId" className={input} />
@@ -1033,20 +1068,22 @@ const AdjustmentsCard: React.FC<{
                   placeholder="RatingClass (optional)" className="mt-1 p-1.5 border border-gray-200 rounded-md text-[11px] bg-white w-40" />
               )}
             </div>
+            </>)}
           </div>
         </div>
 
-        {/* 4 — Matching & impact */}
+        {results && (
         <div className="flex flex-wrap items-center gap-3 mb-3">
-          <button onClick={runMatch} disabled={busy || !mappings || lines.length === 0 || (!loadId && collLoadIds.length === 0)}
-            className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors disabled:opacity-50">
-            {busy ? 'Matching…' : `🔍 Run matching${collection ? ` on collection ${collection.loadCollectionId}` : ''}`}
+          <button onClick={runMatch} disabled={busy}
+            className="text-[12px] font-semibold border border-gray-300 text-brand-text-secondary hover:border-brand-secondary hover:text-brand-secondary py-1.5 px-3 rounded-md transition-colors disabled:opacity-50">
+            {busy ? 'Matching…' : '↻ Re-run matching'}
           </button>
-          <button onClick={toggleImpact} disabled={!mappings || lines.length === 0}
-            className={`text-sm font-semibold border py-2 px-4 rounded-md transition-colors disabled:opacity-50 ${showImpact ? 'bg-brand-secondary text-white border-brand-secondary' : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
-            📊 Balance sheet impact{scopeSel ? ` — ${scopeSel}` : ''}
+          <button onClick={toggleImpact}
+            className={`text-[12px] font-semibold border py-1.5 px-3 rounded-md transition-colors ${showImpact ? 'bg-brand-secondary text-white border-brand-secondary' : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
+            📊 Balance sheet{scopeSel ? ` — ${scopeSel}` : ''}
           </button>
         </div>
+        )}
 
         <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-4 xl:items-start">
         {showImpact && mappings && (impact || baseAgg) && (() => {
@@ -1227,7 +1264,19 @@ const AdjustmentsCard: React.FC<{
             return chosen[l.row] ? 'matched' : 'ambiguous';
           };
           const nOf = (s: 'matched' | 'ambiguous' | 'new') => lines.filter(l => statusOf(l) === s).length;
+          const nM = nOf('matched'), nA = nOf('ambiguous'), nN = nOf('new');
+          const total = lines.length || 1;
           return (
+            <>
+            <div className="flex flex-wrap items-center gap-3 mb-1.5">
+              <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-brand-primary">2 · Review the lines</p>
+              <span className="text-[12px] tabular-nums font-semibold">{nM + nN} / {lines.length} ready{nA > 0 ? ` — ${nA} need your pick` : ' ✓'}</span>
+              <div className="flex-1 min-w-[140px] h-2 rounded-full overflow-hidden bg-brand-bg-body border border-efg-line flex">
+                <div className="bg-status-green h-full" style={{ width: `${(nM / total) * 100}%` }} />
+                <div className="bg-status-amber h-full" style={{ width: `${(nN / total) * 100}%` }} />
+                <div className="bg-status-red h-full" style={{ width: `${(nA / total) * 100}%` }} />
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2 mb-2 text-[11px] font-semibold">
               {([
                 ['matched', `✓ ${nOf('matched')} matched`, 'text-status-green border-status-green/40'],
@@ -1241,6 +1290,7 @@ const AdjustmentsCard: React.FC<{
               ))}
               <span className="px-2.5 py-1 text-brand-text-secondary font-normal">click a line to open its candidates</span>
             </div>
+            </>
           );
         })()}
         {lines.length > 0 && (
@@ -1465,8 +1515,8 @@ const AdjustmentsCard: React.FC<{
         )}
         {oneShotItems && oneShotItems.ready.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mt-3 border border-efg-line rounded-lg bg-brand-bg-body/40 px-3 py-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-text-secondary">
-              One-shot generation — {oneShotItems.ready.length} line(s) ready
+            <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-primary">
+              3 · Export — {oneShotItems.ready.length} line(s) ready
               ({oneShotItems.ready.filter(i => i.cand).length} adjustment(s), {oneShotItems.ready.filter(i => !i.cand).length} new)
             </span>
             <button onClick={downloadAllSql}
@@ -1487,9 +1537,11 @@ const AdjustmentsCard: React.FC<{
 
         {mappings && (
           <div className="mt-4 border-t border-efg-line pt-3">
-            <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-2">
-              Manual line — build a position for any GL LIGNE (e.g. accounting gap, no reference to match)
-            </p>
+            <button onClick={() => setShowManualLine(v => !v)}
+              className="text-[11px] underline text-brand-text-secondary hover:text-brand-primary mb-2">
+              {showManualLine ? 'hide the manual line tool' : '➕ manual line — a position for any GL LIGNE (accounting gap, nothing to match)'}
+            </button>
+            {showManualLine && (<>
             <div className="flex flex-wrap items-end gap-2 mb-2">
               <div>
                 <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">LIGNE (GL mapping) *</label>
@@ -1546,6 +1598,7 @@ const AdjustmentsCard: React.FC<{
                 </button>
               </div>
             )}
+            </>)}
           </div>
         )}
 
@@ -1907,6 +1960,11 @@ const ProductionPage: React.FC = () => {
           title="Reconciliation workspace: accounting adjustments matched against the load collection, with the live consolidated balance sheet at your side.">
           🧾 Reco & adjustments
         </button>
+        <a href="#/production/analytics"
+          className="flex items-center gap-1.5 text-sm font-semibold py-1.5 px-3 rounded-full border bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary transition-colors"
+          title="Balance sheet analytics — trends, currency / booking-center / residence breakdowns (preview with sample data).">
+          📈 Analytics <span className="text-[9px] uppercase tracking-wider bg-status-amber/15 text-status-amber px-1 rounded">preview</span>
+        </a>
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
           <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
