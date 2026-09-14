@@ -6,6 +6,36 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.11.0 — 14 September 2026
+
+**Theme: the generic referential, wired in.**
+
+- The **filled generic-referential template is now live** in the
+  new-position form:
+  - **Counterparty picker per line**: real client, or one of the six
+    generics — GEN-BANK, GEN-CORP, **GEN-CORP_FIN** (financial
+    corporates, NOGA 642001), GEN-IP, GEN-CGOV, GEN-EU — preselected
+    from the line's industry code (Corp + financial NOGA →
+    GEN-CORP_FIN), always overridable.
+  - **Domicile / HQ / nationality come from the line's RES / NAT
+    columns** of the accounting file (now parsed).
+  - **Rating class (0–10) and credit quality (A/B/C)** picked per line
+    at generation time.
+  - **Security lines**: profile picker (FI/Bond, FI/MMP — SNB 0, daily
+    reval, Listed) plus per-line HQLA (L1/L2a/—), investment-grade and
+    LEX-guarantee choices; the **issuer of the generated
+    list_securities row is the chosen generic**.
+  - The real client number is always kept on the position
+    (`InternalReference2`), and per-line choices flow into the one-shot
+    .sql / Excel exports.
+- The generics are seeded in code and **overridable in the database**:
+  rows of kind `generic` in ProdMappingEntries (editable in the Data
+  Explorer) replace or extend the list — and they survive a workbook
+  re-upload (user-managed kinds are preserved on 💾 save).
+- No schema changes.
+
+---
+
 ## v3.10.0 — 14 September 2026
 
 **Theme: adjustments made workable — sticky balance sheet & simple

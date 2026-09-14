@@ -5,7 +5,7 @@ import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
-import type { AdjustmentLine, AdjustmentMappings, MatchCandidate } from '../services/adjustments';
+import type { AdjustmentLine, AdjustmentMappings, MatchCandidate, NewPositionOverrides } from '../services/adjustments';
 import { hfmKeyOf } from '../services/hfm';
 
 /**
@@ -466,7 +466,7 @@ const AdjustmentsCard: React.FC<{
     const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
     // New-position form (no-match lines): the few fields that matter, editable
     // per line — everything else keeps neutral defaults / generic referential.
-    const [rowOverrides, setRowOverrides] = useState<Record<number, { legalAccountNumber?: string; typeOf?: string; subType?: string; maturityDate?: string }>>({});
+    const [rowOverrides, setRowOverrides] = useState<Record<number, NewPositionOverrides>>({});
     const setOverride = (row: number, field: string, value: string) => {
       setRowOverrides(prev => ({ ...prev, [row]: { ...prev[row], [field]: value } }));
       setScripts(prev => { const n = { ...prev }; delete n[row]; return n; });
@@ -532,7 +532,15 @@ const AdjustmentsCard: React.FC<{
       if (!mappings) return;
       const svc = await import('../services/adjustments');
       const entries = svc.mappingsToEntries(mappings);
-      setData(prev => ({ ...prev, prodMappingEntries: entries }));
+      // User-managed rows (generic referential, HFM rule overrides) live in
+      // the same table but do not come from the workbook — keep them.
+      setData(prev => ({
+        ...prev,
+        prodMappingEntries: [
+          ...entries,
+          ...(prev.prodMappingEntries || []).filter(e => e.kind === 'generic' || e.kind === 'hfmrule'),
+        ],
+      }));
       onNotice(`Mappings saved to the database (${entries.length} rows in ProdMappingEntries) — no re-upload needed next session; re-upload the workbook and save again to update (e.g. new CCY rates).`);
     };
 
@@ -1298,11 +1306,63 @@ const AdjustmentsCard: React.FC<{
                                         onChange={e => setOverride(l.row, 'maturityDate', e.target.value)} className={inp} />
                                     </div>
                                   </div>
+                                  <div className="flex flex-wrap items-end gap-2 mt-2">
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Counterparty</label>
+                                      <select value={ov.genericId ?? (genericCpty && svcMod ? svcMod.genericIdOf(l, mappings) : '')}
+                                        onChange={e => setOverride(l.row, 'genericId', e.target.value)} className={`${inp} w-56`}>
+                                        <option value="">Real client {l.client || '?'} (row created if missing)</option>
+                                        {svcMod && svcMod.genericsOf(mappings).map(g => (
+                                          <option key={g.id} value={g.id}>{g.id} — {g.name}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Rating class</label>
+                                      <select value={ov.ratingClass ?? ''} onChange={e => setOverride(l.row, 'ratingClass', e.target.value)} className={`${inp} w-20`}>
+                                        <option value="">—</option>
+                                        {Array.from({ length: 11 }, (_, i) => String(i)).map(r => <option key={r} value={r}>{r}</option>)}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Credit quality</label>
+                                      <select value={ov.creditQuality ?? ''} onChange={e => setOverride(l.row, 'creditQuality', e.target.value)} className={`${inp} w-16`}>
+                                        {['', 'A', 'B', 'C'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                      </select>
+                                    </div>
+                                    {isSec && (<>
+                                      <div>
+                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Security profile</label>
+                                        <select value={ov.secProfile ?? ''} onChange={e => setOverride(l.row, 'secProfile', e.target.value)} className={`${inp} w-24`}>
+                                          <option value="">—</option>
+                                          {(svcMod?.SEC_PROFILES || []).map(pr => <option key={pr.key} value={pr.key}>{pr.typeOf}/{pr.key}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">HQLA</label>
+                                        <select value={ov.hqla ?? ''} onChange={e => setOverride(l.row, 'hqla', e.target.value)} className={`${inp} w-16`}>
+                                          {['', 'L1', 'L2a'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Inv. grade</label>
+                                        <select value={ov.investmentGrade ?? ''} onChange={e => setOverride(l.row, 'investmentGrade', e.target.value)} className={`${inp} w-14`}>
+                                          {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">LEX guar.</label>
+                                        <select value={ov.lexGuaranteed ?? ''} onChange={e => setOverride(l.row, 'lexGuaranteed', e.target.value)} className={`${inp} w-14`}>
+                                          {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                        </select>
+                                      </div>
+                                    </>)}
+                                  </div>
                                   <p className="text-[10px] text-brand-text-secondary mt-1.5">
-                                    Counterparty: {genericCpty
-                                      ? <>generic <strong>{svcMod ? svcMod.genericIdOf(l, mappings) : 'GEN-…'}</strong> (client {l.client || '?'} kept in InternalReference2{genericRating.trim() ? `, rating ${genericRating.trim()}` : ''})</>
-                                      : <><strong>{l.client || '?'}</strong> — a list_counterparties row is created if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'})</>}.
-                                    {isSec && ' Security line: a list_securities row is also created and linked to the counterparty (issuer).'}
+                                    {(ov.genericId ?? (genericCpty ? 'preset' : '')) !== ''
+                                      ? <>Generic: client <strong>{l.client || '?'}</strong> kept in InternalReference2 · domicile <strong>{l.res || '?'}</strong> / nationality <strong>{l.nat || l.res || '?'}</strong> from the line's RES/NAT.</>
+                                      : <>A list_counterparties row is created for <strong>{l.client || '?'}</strong> if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'}).</>}
+                                    {isSec && ' Security line: a list_securities row is created — issuer = the chosen counterparty.'}
                                   </p>
                                 </div>
                               );

@@ -44,6 +44,8 @@ export interface AdjustmentMappings {
   /** Prefix → HFM fallback overrides (ProdMappingEntries kind "hfmrule"),
    * taking precedence over the built-in HFM_PREFIX_RULES. */
   hfmRules: Map<string, string>;
+  /** Generic-counterparty overrides (ProdMappingEntries kind "generic"). */
+  generics: Map<string, GenericDef>;
 }
 
 export { HFM_PREFIX_RULES } from './hfm';
@@ -69,6 +71,10 @@ export interface AdjustmentLine {
   sense?: string;        // DEBIT | CREDIT (informational; montant is signed)
   vdDate?: string;
   matDate?: string;      // ISO — used for the generated list_securities row
+  /** RES column (ISO2) — domicile of the generated (generic) counterparty. */
+  res?: string;
+  /** NAT column (ISO2) — nationality of the generated counterparty. */
+  nat?: string;
 }
 
 const norm = (v: unknown): string => String(v ?? '').replace(/\s+/g, ' ').trim();
@@ -218,7 +224,7 @@ export const parseMappingWorkbook = (buffer: ArrayBuffer): AdjustmentMappings =>
     }
   }
 
-  return { gl, fx, rt01, industry, accountLabels, hfm, hfmLabels, hfmRules: new Map() };
+  return { gl, fx, rt01, industry, accountLabels, hfm, hfmLabels, hfmRules: new Map(), generics: new Map() };
 };
 
 /** Parses the accounting adjustments file (Book6-like: header row with LIGNE…). */
@@ -241,6 +247,8 @@ export const parseAdjustmentsFile = (buffer: ArrayBuffer): AdjustmentLine[] => {
     const iLib = headerIndex(h, 'LIBELLE');
     const iVd = headerIndex(h, 'VD DATE');
     const iMat = headerIndex(h, 'MAT DATE');
+    const iRes = headerIndex(h, 'RES');
+    const iNat = headerIndex(h, 'NAT');
     const lines: AdjustmentLine[] = [];
     for (let r = hIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
@@ -266,6 +274,8 @@ export const parseAdjustmentsFile = (buffer: ArrayBuffer): AdjustmentLine[] => {
         sense,
         vdDate: iVd >= 0 ? norm(row[iVd]) || undefined : undefined,
         matDate: iMat >= 0 ? toIsoDate(row[iMat]) : undefined,
+        res: iRes >= 0 ? norm(row[iRes]).toUpperCase() || undefined : undefined,
+        nat: iNat >= 0 ? norm(row[iNat]).toUpperCase() || undefined : undefined,
       });
     }
     if (lines.length > 0) return lines;
@@ -278,7 +288,7 @@ const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
 /** Persisted-mapping row (mirror of the ProdMappingEntry API shape). */
 export interface MappingEntryRow {
   id: number;
-  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule';
+  kind: 'gl' | 'fx' | 'rt01' | 'industry' | 'label' | 'hfm' | 'hfmlabel' | 'hfmrule' | 'generic';
   mapKey: string;
   textValue?: string;
   numValue?: number;
@@ -312,6 +322,7 @@ export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings =
   const m: AdjustmentMappings = {
     gl: new Map(), fx: new Map(), rt01: new Map(), industry: new Map(),
     accountLabels: new Map(), hfm: new Map(), hfmLabels: new Map(), hfmRules: new Map(),
+    generics: new Map(),
   };
   for (const r of rows) {
     if (r.kind === 'gl') m.gl.set(r.mapKey, { line: r.mapKey, legalAccountNumber: r.textValue ?? '0', typeOf: r.typeOf || undefined, subType: r.subType || undefined, description: r.description || undefined });
@@ -322,6 +333,10 @@ export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings =
     else if (r.kind === 'hfm' && r.textValue) m.hfm.set(r.mapKey, r.textValue);
     else if (r.kind === 'hfmlabel' && r.textValue) m.hfmLabels.set(r.mapKey, r.textValue);
     else if (r.kind === 'hfmrule' && r.textValue) m.hfmRules.set(r.mapKey, r.textValue);
+    else if (r.kind === 'generic') m.generics.set(r.mapKey, {
+      id: r.mapKey, typeOf: r.typeOf || '', name: r.description || r.mapKey,
+      economicActivityType: r.economicActivityType || '', smeFlag: r.numValue ? 1 : 0,
+    });
   }
   m.fx.set('CHF', 1);
   return m;
@@ -456,15 +471,73 @@ export interface NewPositionOverrides {
   subType?: string;
   /** ISO date — also stamped on the generated list_securities row. */
   maturityDate?: string;
+  /** Counterparty choice: '' / undefined = the line's real CLIENT; otherwise
+   * a generic id (GEN-BANK, GEN-CORP_FIN…). */
+  genericId?: string;
+  /** RatingClass picked at generation time (generic counterparties). */
+  ratingClass?: string;
+  /** Credit quality picked at generation time (A / B / C). */
+  creditQuality?: string;
+  /** Security profile key (Bond / MMP) for security lines. */
+  secProfile?: string;
+  /** HQLA category picked per line (L1 / L2a / ''). */
+  hqla?: string;
+  investmentGrade?: string;  // '0' | '1'
+  lexGuaranteed?: string;    // '0' | '1'
 }
 
-/** Shared generic counterparty id for a line: GEN-<industry TypeOf, else
- * RT01→QDL, else OTHER> — one row per type, reused by every unknown client. */
+/** The GENERIC counterparty referential, seeded from the team's filled
+ * template — one shared row per counterparty type. Domicile/HQ/nationality
+ * come from the adjustment line's RES/NAT columns; rating and credit quality
+ * are picked per line at generation time. Rows of kind "generic" in
+ * ProdMappingEntries override / extend this list (mapKey = id,
+ * typeOf, economicActivityType, description = name, numValue = SMEFlag). */
+export interface GenericDef {
+  id: string;
+  typeOf: string;
+  name: string;
+  economicActivityType: string;
+  smeFlag: number;
+}
+export const GENERIC_DEFAULTS: GenericDef[] = [
+  { id: 'GEN-BANK',     typeOf: 'Bank', name: 'GENERIC BANK',                economicActivityType: '641001', smeFlag: 0 },
+  { id: 'GEN-CORP',     typeOf: 'Corp', name: 'GENERIC CORPORATE',           economicActivityType: '464362', smeFlag: 0 },
+  { id: 'GEN-CORP_FIN', typeOf: 'Corp', name: 'GENERIC CORPORATE FINANCIAL', economicActivityType: '642001', smeFlag: 0 },
+  { id: 'GEN-IP',       typeOf: 'IP',   name: 'GENERIC PRIVATE CLIENT',      economicActivityType: '970000', smeFlag: 0 },
+  { id: 'GEN-CGOV',     typeOf: 'CGov', name: 'GENERIC CENTRAL GOV',         economicActivityType: '841100', smeFlag: 0 },
+  { id: 'GEN-EU',       typeOf: 'EU',   name: 'GENERIC PUBLIC SECTOR',       economicActivityType: '841100', smeFlag: 0 },
+];
+
+/** Effective generics: entries of kind "generic" override/extend the seeds. */
+export const genericsOf = (mappings: AdjustmentMappings): GenericDef[] => {
+  const map = new Map(GENERIC_DEFAULTS.map(g => [g.id, { ...g }]));
+  for (const [id, g] of mappings.generics) map.set(id, g);
+  return Array.from(map.values());
+};
+
+const genericById = (id: string, mappings: AdjustmentMappings): GenericDef | undefined =>
+  genericsOf(mappings).find(g => g.id === id);
+
+/** Security profiles from the filled template: FI paper defaults; HQLA,
+ * investment-grade, LEX-guarantee and rating are picked per line. */
+export interface SecProfile {
+  key: string; typeOf: string; subType: string;
+  snbEligible: number; revalFrequency: string; listedType: string;
+}
+export const SEC_PROFILES: SecProfile[] = [
+  { key: 'Bond', typeOf: 'FI', subType: 'Bond', snbEligible: 0, revalFrequency: 'D', listedType: 'Listed' },
+  { key: 'MMP',  typeOf: 'FI', subType: 'MMP',  snbEligible: 0, revalFrequency: 'D', listedType: 'Listed' },
+];
+
+/** Preselected generic for a line: the industry TypeOf picks the row —
+ * Corp lines whose industry NOGA is financial (64xxxx) go to GEN-CORP_FIN. */
 export const genericIdOf = (line: AdjustmentLine, mappings: AdjustmentMappings): string => {
   const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
   const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
-  const t = (ind?.typeOf || rt || 'OTHER').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return `GEN-${t || 'OTHER'}`;
+  const t = (ind?.typeOf || rt || '').trim();
+  if (t.toLowerCase() === 'corp' && (ind?.economicActivityType || '').startsWith('64')) return 'GEN-CORP_FIN';
+  const hit = GENERIC_DEFAULTS.find(g => g.typeOf.toLowerCase() === t.toLowerCase());
+  return hit?.id ?? `GEN-${(t || 'OTHER').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'OTHER'}`;
 };
 
 /** Intercompany lookup: IND code → HYPERIOD_INTERCO of the INDUSTRY sheet —
@@ -509,7 +582,7 @@ const newPositionValues = (
     row.SecurityId = newSecurityId(line);
     row.SecurityPIT = numOrSelf(loadId);
   }
-  const generic = opts?.genericCounterparty === true;
+  const genId = effectiveGenericId(line, mappings, opts);
   const ov = opts?.overrides;
   Object.assign(row, {
     Id: `ADJ-${line.ligne}-${line.row}`,
@@ -519,12 +592,12 @@ const newPositionValues = (
     Currency: line.ccy,
     InternalReference1: String(line.reference),
     // Generic counterparty: the real client number stays on the position.
-    InternalReference2: generic ? line.client ?? '' : '',
+    InternalReference2: genId ? line.client ?? '' : '',
     DataSource: 'ADJUSTMENT',
     PositionCurrencyBookAmount: line.montant,
     BookAmount: chf,
     Notional: line.nominal ?? 0,
-    CounterpartyId: generic ? genericIdOf(line, mappings) : line.client ?? '',
+    CounterpartyId: genId ?? line.client ?? '',
     CounterpartyPIT: numOrSelf(loadId),
     CounterpartyBookingCenterId: intercoOf(line, mappings)?.interco ?? '',
     TypeOf: ov?.typeOf?.trim() || glEntry?.typeOf || '',
@@ -610,8 +683,8 @@ export const buildNewPositionInsert = (
   return [
     `-- New position for accounting line ${line.ligne} (row ${line.row}) — no match found in load ${loadId}`,
     `-- GL mapping: account ${lan}, TypeOf ${glEntry?.typeOf ?? '?'}${glEntry?.subType ? `/${glEntry.subType}` : ''}${glEntry?.description ? ` (${glEntry.description})` : ''}`,
-    opts?.genericCounterparty
-      ? `-- Counterparty: GENERIC ${genericIdOf(line, mappings)} (real client ${line.client ?? '?'} in InternalReference2) — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`
+    effectiveGenericId(line, mappings, opts)
+      ? `-- Counterparty: GENERIC ${effectiveGenericId(line, mappings, opts)} (real client ${line.client ?? '?'} in InternalReference2) — domicile ${line.res ?? '?'} / nat ${line.nat ?? line.res ?? '?'} (RES/NAT of the line)`
       : `-- Counterparty ${line.client ?? '?'} — IND ${line.ind ?? '—'} → ${ind?.typeOf ?? '?'}/${ind?.economicActivityType ?? '?'} · CATEG ${line.categ ?? '—'} → ${rt ?? '?'}`,
     ...(interco ? [`-- Intercompany: IND ${line.ind} → ${interco.description ?? '?'} → CounterpartyBookingCenterId ${q(interco.interco!)}`] : []),
     `-- ⚠ Review every default before executing (all NOT NULL columns get neutral values).`,
@@ -669,26 +742,45 @@ const listDefaults = (cols: Array<[string, PosColKind]>): Record<string, unknown
 
 /** list_counterparties row for the CLIENT of a new position — TypeOf and
  * EconomicActivityType prefilled from the IND→INDUSTRY / CATEG→RT01 maps. */
+/** Effective generic id for a line: explicit per-line pick first, else the
+ * preselected one when the global generic mode is on, else none. */
+export const effectiveGenericId = (
+  line: AdjustmentLine, mappings: AdjustmentMappings, opts?: AdjustmentBuildOptions
+): string | null => {
+  const pick = opts?.overrides?.genericId?.trim();
+  if (pick) return pick;
+  if (opts?.genericCounterparty === true) return genericIdOf(line, mappings);
+  return null;
+};
+
 export const counterpartyValues = (
   line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
   opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const ind = line.ind ? mappings.industry.get(line.ind) : undefined;
   const rt = line.categ ? mappings.rt01.get(line.categ) : undefined;
-  const generic = opts?.genericCounterparty === true;
+  const genId = effectiveGenericId(line, mappings, opts);
+  const def = genId ? genericById(genId, mappings) : undefined;
   const row = listDefaults(LIST_CPTY_COLS);
   Object.assign(row, {
-    Id: generic ? genericIdOf(line, mappings) : line.client ?? '',
+    Id: genId ?? line.client ?? '',
     PointInTime: numOrSelf(loadId),
     CreationDate: new Date().toISOString().slice(0, 10),
-    Name: generic ? `GENERIC ${ind?.typeOf || rt || 'counterparty'}` : line.libelle ?? line.client ?? '',
-    TypeOf: ind?.typeOf ?? rt ?? '',
-    EconomicActivityType: ind?.economicActivityType ?? '',
+    Name: genId ? (def?.name ?? `GENERIC ${ind?.typeOf || rt || 'counterparty'}`) : line.libelle ?? line.client ?? '',
+    TypeOf: def?.typeOf ?? ind?.typeOf ?? rt ?? '',
+    EconomicActivityType: def?.economicActivityType ?? ind?.economicActivityType ?? '',
+    // Domicile / nationality come from the accounting line (RES / NAT).
+    DomicileCountry: line.res ?? '',
+    HQDomicile: line.res ?? '',
+    Nationality: line.nat ?? line.res ?? '',
+    SMEFlag: def?.smeFlag ?? 0,
     IsEdited: 1,
     ReportingDate: reportingDate,
   });
-  if (generic && opts?.genericRating && /^\d+$/.test(opts.genericRating.trim()))
-    row.RatingClass = Number(opts.genericRating.trim());
+  const rating = opts?.overrides?.ratingClass?.trim() || (genId ? opts?.genericRating?.trim() : '');
+  if (rating && /^\d+$/.test(rating)) row.RatingClass = Number(rating);
+  const cq = opts?.overrides?.creditQuality?.trim();
+  if (cq) row.CreditQuality = cq;
   return row;
 };
 
@@ -713,6 +805,25 @@ export const securityValues = (
     IsEdited: 1,
     ReportingDate: reportingDate,
   });
+  // Security profile (FI paper defaults from the team's referential) and the
+  // per-line picks (HQLA, IG, LEX guarantee, rating).
+  const ov = opts?.overrides;
+  const prof = ov?.secProfile ? SEC_PROFILES.find(x => x.key === ov.secProfile) : undefined;
+  if (prof) {
+    row.TypeOf = prof.typeOf;
+    row.SubType = prof.subType;
+    row.SNBEligibleFlag = prof.snbEligible;
+    row.RevaluationFrequency = prof.revalFrequency;
+    row.ListedType = prof.listedType;
+  }
+  if (ov?.hqla !== undefined && ov.hqla !== '') row.HQLACategory = ov.hqla;
+  if (ov?.investmentGrade !== undefined && ov.investmentGrade !== '') row.InvestmentGradeFlag = Number(ov.investmentGrade) ? 1 : 0;
+  if (ov?.lexGuaranteed !== undefined && ov.lexGuaranteed !== '') row.LEXGuaranteedFlag = Number(ov.lexGuaranteed) ? 1 : 0;
+  if (ov?.ratingClass?.trim() && /^\d+$/.test(ov.ratingClass.trim())) row.RatingClass = Number(ov.ratingClass.trim());
+  // Issuer: the generic counterparty when one is used (per the referential —
+  // the generic carries the paper).
+  const genId = effectiveGenericId(line, mappings, opts);
+  if (genId) { row.IssuerId = genId; row.IssuerPIT = numOrSelf(loadId); }
   return row;
 };
 
@@ -738,10 +849,10 @@ export const buildNewPositionPackage = (
 ): string => {
   const parts: string[] = [];
   const sec = isSecurityLine(line, mappings);
-  const generic = opts?.genericCounterparty === true;
-  if (line.client || generic) {
-    const who = generic
-      ? `generic counterparty ${genericIdOf(line, mappings)} (real client ${line.client ?? '?'} kept in InternalReference2 of the position)`
+  const genId = effectiveGenericId(line, mappings, opts);
+  if (line.client || genId) {
+    const who = genId
+      ? `generic counterparty ${genId} (real client ${line.client ?? '?'} kept in InternalReference2 of the position)`
       : `${sec ? 'issuer' : 'counterparty'} ${line.client}`;
     parts.push(buildListInsert('list_counterparties', LIST_CPTY_COLS,
       counterpartyValues(line, loadId, reportingDate, mappings, opts),
