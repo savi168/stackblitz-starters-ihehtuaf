@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
-import { BackButton, Card, PageHeader, SectionHeader, TabButton } from '../components';
+import { BackButton, Card, EmptyState, PageHeader, SectionHeader } from '../components';
 import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
   runOrphans, runSecurityDrift, runSecurityVsRef,
@@ -20,9 +20,14 @@ const SEV_STYLE: Record<ControlFinding['severity'], string> = {
   info: 'bg-brand-bg-body text-brand-text-secondary border-efg-line',
 };
 
-/** Trigger the MERCURY-side feed (TVF) for a loadid + product type. */
-const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; onError: (msg: string) => void }> =
-  ({ entity, onLoaded, onError }) => {
+/** Trigger the MERCURY-side feed (TVF) for a loadid + product type. When the
+ * Scope step picked a load collection, its loads are preset and one click
+ * feeds both targets for every load of the collection. */
+const MercuryCard: React.FC<{
+  entity: string; presetLoadIds?: string[];
+  onLoaded: (msg: string) => void; onError: (msg: string) => void;
+}> =
+  ({ entity, presetLoadIds, onLoaded, onError }) => {
     const { mode, apiBaseUrl, reload } = useData();
     const [target, setTarget] = useState<'counterparties' | 'securities'>('counterparties');
     const [loadId, setLoadId] = useState('');
@@ -38,10 +43,15 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
         .catch(() => setLoads([]));
     }, [mode, apiBaseUrl]);
 
+    // Collection loads preset by the Scope step.
+    useEffect(() => {
+      if (presetLoadIds && presetLoadIds.length > 0) setLoadId(presetLoadIds[0]);
+    }, [presetLoadIds]);
+
     if (mode !== 'api') {
       return (
         <Card>
-          <SectionHeader title="0 — Feed from MERCURY" suffix="requires the API backend" />
+          <SectionHeader title="Feed from MERCURY" suffix="requires the API backend" />
           <p className="text-sm text-brand-text-secondary">
             Connect the app to the .NET backend to trigger the MERCURY TVF feed (loadid + product type) —
             see docs/MERCURY_INTEGRATION.md.
@@ -50,23 +60,46 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
       );
     }
 
+    const feedOne = async (tgt: 'counterparties' | 'securities', id: string) => {
+      const res = await fetch(`${apiBaseUrl}/production/mercury/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ target: tgt, entity, date: '', loadId: id, productType: productType || null }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`);
+      }
+      return await res.json() as { inserted: number; skipped: number; tvf: string; date: string };
+    };
+
     const run = async () => {
       if (!loadId) { onError('MERCURY feed: loadid is required.'); return; }
       setBusy(true);
       try {
-        const res = await fetch(`${apiBaseUrl}/production/mercury/load`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ target, entity, date: '', loadId, productType: productType || null }),
-        });
-        if (!res.ok) {
-          const body = await res.text();
-          throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 300)}` : ''}`);
-        }
-        const out = await res.json() as { inserted: number; skipped: number; tvf: string; date: string };
+        const out = await feedOne(target, loadId);
         await reload();
         onLoaded(`MERCURY feed OK: ${out.inserted} row(s) loaded into ${target} for ${entity} — ${out.date} (loadid ${loadId}${productType ? `, ${productType}` : ''}) via ${out.tvf}${out.skipped ? ` · ${out.skipped} row(s) without key skipped` : ''}.`);
+      } catch (err) {
+        onError(`MERCURY feed failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally { setBusy(false); }
+    };
+
+    // One click: both targets × every load of the collection.
+    const runAll = async () => {
+      if (!presetLoadIds || presetLoadIds.length === 0) return;
+      setBusy(true);
+      try {
+        const parts: string[] = [];
+        for (const id of presetLoadIds) {
+          for (const tgt of ['counterparties', 'securities'] as const) {
+            const out = await feedOne(tgt, id);
+            parts.push(`${tgt} ${out.inserted} row(s) for ${out.date} (load ${id})`);
+          }
+        }
+        await reload();
+        onLoaded(`MERCURY feed OK — ${parts.join(' · ')}.`);
       } catch (err) {
         onError(`MERCURY feed failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally { setBusy(false); }
@@ -75,7 +108,18 @@ const MercuryCard: React.FC<{ entity: string; onLoaded: (msg: string) => void; o
     const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
     return (
       <Card>
-        <SectionHeader title="0 — Feed from MERCURY" suffix="trigger the TVF by loadid + product type — replaces the scope, then run the controls" />
+        <SectionHeader title="Feed from MERCURY" suffix="the TVF replaces the period's data, then run the controls" />
+        {presetLoadIds && presetLoadIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 mb-3 border border-brand-secondary/40 bg-brand-secondary/5 rounded-lg px-3 py-2">
+            <span className="text-sm text-brand-text-primary">
+              Collection scope — load(s) <strong>{presetLoadIds.join(', ')}</strong>
+            </span>
+            <button onClick={runAll} disabled={busy}
+              className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-1.5 px-4 rounded-md transition-colors disabled:opacity-50">
+              {busy ? 'Loading…' : '⚡ Feed counterparties + securities'}
+            </button>
+          </div>
+        )}
         {loads.length > 0 && (
           <div className="overflow-x-auto border border-efg-line rounded-lg mb-3 max-h-48 overflow-y-auto">
             <table className="w-full text-xs whitespace-nowrap">
@@ -382,8 +426,11 @@ const OrphanInsertHelper: React.FC<{ keyValue: string; periodDate?: string }> = 
  * (InternalReference1 OR ContractId ~ REFERENCE, CounterpartyId ~ CLIENT),
  * disambiguated by the Mapping_GL_BALANCESHEET account. Output = prepared
  * INSERT scripts (copied attributes, or full build from the mappings). */
-const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void; onError: (m: string) => void }> =
-  ({ entity, onNotice, onError }) => {
+const AdjustmentsCard: React.FC<{
+  entity: string; presetCollectionId?: string;
+  onNotice: (m: string) => void; onError: (m: string) => void;
+}> =
+  ({ entity, presetCollectionId, onNotice, onError }) => {
     const { mode, apiBaseUrl, data, setData, currentUser } = useData();
     const [mappings, setMappings] = useState<AdjustmentMappings | null>(null);
     const [mappingInfo, setMappingInfo] = useState('');
@@ -490,6 +537,13 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
       // The collection's reporting entity IS the consolidation level.
       setScopeSel(c.reportingEntityId ? String(c.reportingEntityId) : '');
     };
+
+    // Collection preset by the Scope step: apply it once the list arrives.
+    useEffect(() => {
+      if (!presetCollectionId || collectionSel || collections.length === 0) return;
+      const c = collections.find(x => String(x.loadCollectionId) === presetCollectionId);
+      if (c) pickCollection(c);
+    }, [presetCollectionId, collections]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const reportingDate = useMemo(() => {
       if (collection?.reportingDate) return String(collection.reportingDate).slice(0, 10);
@@ -1223,34 +1277,269 @@ const AdjustmentsCard: React.FC<{ entity: string; onNotice: (m: string) => void;
     );
   };
 
+// ---------------------------------------------------------------------------
+// v3.7 guided flow: Scope → Data → Controls → Balance sheet → Certify
+// ---------------------------------------------------------------------------
+
+type CollectionInfo = {
+  loadCollectionId: number | string; name?: string | null; reportingDate?: string | null;
+  reportingEntityId?: string | null; isMaster?: boolean; loadIds: Array<number | string>;
+};
+type ConsoInfo = {
+  entities: Array<{ id: string; name?: string; bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }>;
+  sets: Record<string, string[]>;
+  bcNames: Record<string, string>;
+};
+
+const STEPS = [
+  { key: 'scope', n: 1, label: 'Scope' },
+  { key: 'data', n: 2, label: 'Data' },
+  { key: 'controls', n: 3, label: 'Controls' },
+  { key: 'balance', n: 4, label: 'Balance sheet' },
+  { key: 'certify', n: 5, label: 'Certify' },
+] as const;
+type Step = typeof STEPS[number]['key'];
+
+/** What each control checks — shown on the dashboard so the reviewer always
+ * knows what a finding means and what to do with it. */
+const CONTROL_DOCS: Array<{ id: string; title: string; what: string; base: string; action: string }> = [
+  {
+    id: 'C1', title: 'Counterparty drift',
+    what: 'Every attribute of the MERCURY counterparty referential is compared per client between the two periods: client type, grouplexid, counterparty type (NOGA), internal rating class, external rating, domicile / HQ domicile / nationality, related-party type, credit quality, SME / adequate-supervision / LEX-limit flags, SIS code, LEI. PD is carried but deliberately excluded (a metric, not a treatment).',
+    base: 'Current period vs the comparison period — the latest certified baseline when one exists.',
+    action: 'A changed attribute changes the regulatory treatment: validate it (the change is genuine and enters the referential) or correct MERCURY with the prepared UPDATE.',
+  },
+  {
+    id: 'C2', title: 'Cross-dataset consistency',
+    what: 'Within the period, the same client number must carry one single treatment across all counterparty datasets. Domicile or related-party divergence is an error; rating class / credit quality / SME flag / LEI divergence a warning. Grouplexid is legitimately shared within a group (ultimate parent).',
+    base: 'One period — all counterparty datasets side by side.',
+    action: 'Fix the dataset carrying the wrong value; the correction aid prepares the targeted UPDATE.',
+  },
+  {
+    id: 'C3', title: 'Security drift',
+    what: 'Every attribute of the security referential is compared per ISIN: type / sub-type, ratings, revaluation frequency, currency, CMA approach / risk indicator / SA-RW flag, maturity, investment grade, listed type, LEX-guaranteed, SNB eligibility, HQLA level. An HQLA level or SNB-eligibility change is an error — the liquidity treatment changes.',
+    base: 'Current period vs the comparison period — the latest certified baseline when one exists.',
+    action: 'Validate a genuine market event (rating action, delisting…) or correct the load.',
+  },
+  {
+    id: 'C4', title: 'Security vs reference',
+    what: 'Guarantor and HQLA level of each security are checked against the Grouplexid guarantee/HQLA reference: the physical data must match the treatment declared in the HQLA report.',
+    base: 'One period vs the maintained reference table.',
+    action: 'Align the reference, or fix the security master.',
+  },
+  {
+    id: 'C5', title: 'Orphan positions',
+    what: 'Positions whose counterparty (issuer for securities) was not found in list_counterparties at the load PIT: the exposure exists but has no referential, so every counterparty-driven report misses it.',
+    base: 'One period — positions vs referential.',
+    action: 'Create the missing referential row (prepared INSERT covering all NOT NULL columns) and re-run the feed.',
+  },
+];
+
+/** Balance sheet of the selected loads, consolidated: positions restricted to
+ * the reporting set's booking centers, intra-scope intercompany eliminated —
+ * per LEFT(LegalAccountNumber, 3), split assets / liabilities / off-balance. */
+const BalanceCard: React.FC<{ collection: CollectionInfo | null; collLoadIds: string[]; conso: ConsoInfo | null }> =
+  ({ collection, collLoadIds, conso }) => {
+    const { data, mode, apiBaseUrl } = useData();
+    const [rows, setRows] = useState<Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }> | null>(null);
+    const [err, setErr] = useState('');
+    const [manualLoadId, setManualLoadId] = useState('');
+    const [scopeSel, setScopeSel] = useState('');
+    useEffect(() => {
+      const re = collection?.reportingEntityId ? String(collection.reportingEntityId) : '';
+      if (re && conso?.sets[re]) setScopeSel(re);
+    }, [collection, conso]);
+
+    const ids = collLoadIds.length > 0 ? collLoadIds : (manualLoadId.trim() ? [manualLoadId.trim()] : []);
+    const idsKey = ids.join(',');
+    useEffect(() => {
+      setRows(null); setErr('');
+      if (mode !== 'api' || ids.length === 0) return;
+      const qs = ids.length > 1 ? `loadIds=${encodeURIComponent(idsKey)}` : `loadId=${encodeURIComponent(ids[0])}`;
+      fetch(`${apiBaseUrl}/production/mercury/balance?${qs}`, { credentials: 'include' })
+        .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+        .then((arr: Array<{ prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; amount: number }>) =>
+          setRows(arr.filter(b => b.prefix)))
+        .catch(e => setErr(e instanceof Error ? e.message : String(e)));
+    }, [mode, apiBaseUrl, idsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Account labels persisted with the mapping workbook (kind = label).
+    const labels = useMemo(() => {
+      const m = new Map<string, string>();
+      for (const e of data.prodMappingEntries || []) if (e.kind === 'label' && e.textValue) m.set(e.mapKey, e.textValue);
+      return m;
+    }, [data.prodMappingEntries]);
+
+    const scopeSet = useMemo(() => {
+      if (!scopeSel || !conso) return null;
+      return new Set((conso.sets[scopeSel] || []).map(x => x.trim()));
+    }, [scopeSel, conso]);
+
+    const agg = useMemo(() => {
+      if (!rows) return null;
+      const per: Record<string, { amount: number; eliminated: number }> = {};
+      for (const b of rows) {
+        if (scopeSet && b.bookingCenterId && !scopeSet.has(b.bookingCenterId)) continue;
+        const e = (per[b.prefix] ??= { amount: 0, eliminated: 0 });
+        e.amount += b.amount;
+        if (scopeSet && b.counterpartyBookingCenterId && scopeSet.has(b.counterpartyBookingCenterId)) e.eliminated += b.amount;
+      }
+      return per;
+    }, [rows, scopeSet]);
+
+    const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
+      [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
+    const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 2 });
+    const input = 'p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary';
+
+    if (mode !== 'api') {
+      return (
+        <Card>
+          <SectionHeader title="4 — Balance sheet" suffix="requires the API backend" />
+          <p className="text-sm text-brand-text-secondary">Connect the app to the .NET backend to aggregate the load's core_positions into a consolidated balance sheet.</p>
+        </Card>
+      );
+    }
+
+    return (
+      <Card>
+        <SectionHeader title="4 — Balance sheet"
+          suffix="SUM(BookAmount) of the collection's positions per LEFT(LegalAccountNumber, 3) — scope restricted to the reporting set, intra-scope interco eliminated" />
+        <div className="flex flex-wrap items-end gap-3 mb-3">
+          {collLoadIds.length === 0 && (
+            <div>
+              <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Loadid (no collection picked)</label>
+              <input value={manualLoadId} onChange={e => setManualLoadId(e.target.value)} placeholder="e.g. 1002" className={input} />
+            </div>
+          )}
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Consolidation scope</label>
+            <select value={scopeSel} onChange={e => setScopeSel(e.target.value)} className={input}>
+              <option value="">— entire load(s), no scope —</option>
+              {(conso?.entities || []).map(e => (
+                <option key={e.id} value={e.id}>{e.id}{e.name ? ` — ${e.name}` : ''}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          {scopeSet && (
+            <p className="text-[11px] text-brand-text-secondary pb-2">
+              {scopeSet.size} booking center(s) in the reporting set — {Array.from(scopeSet).map(bc => conso?.bcNames[bc] || bc).join(', ')}
+            </p>
+          )}
+        </div>
+        {err && <p className="text-sm text-status-red">Balance unavailable: {err}</p>}
+        {ids.length === 0 ? (
+          <EmptyState title="No loads selected" hint="Pick a load collection in the Scope step (or type a loadid above) to aggregate its balance sheet." compact />
+        ) : !agg ? (
+          !err && <p className="text-sm text-brand-text-secondary">Loading balance from MERCURY…</p>
+        ) : (
+          (() => {
+            const prefixes = Object.keys(agg).sort();
+            const scoped = !!scopeSet;
+            const sections: Array<{ title: string; match: (p: string) => boolean }> = [
+              { title: 'Assets (1xx)', match: p => p.startsWith('1') },
+              { title: 'Liabilities & equity (2xx)', match: p => p.startsWith('2') },
+              { title: 'Off-balance sheet / other', match: p => !p.startsWith('1') && !p.startsWith('2') },
+            ];
+            return (
+              <div className="overflow-x-auto border border-efg-line rounded-lg">
+                <table className="w-full text-xs whitespace-nowrap">
+                  <thead className="bg-brand-bg-body"><tr>
+                    {(scoped ? ['Account (LEFT 3)', 'Label', 'Gross (scope)', 'IC eliminated', 'Net'] : ['Account (LEFT 3)', 'Label', 'Amount'])
+                      .map((h, hi) =>
+                        <th key={h} className={`px-3 py-2 text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 2 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {sections.map(sec => {
+                      const ps = prefixes.filter(sec.match);
+                      if (ps.length === 0) return null;
+                      let tAmt = 0, tElim = 0;
+                      return (
+                        <React.Fragment key={sec.title}>
+                          <tr className="border-t border-efg-line bg-brand-bg-body/60">
+                            <td colSpan={scoped ? 5 : 3} className="px-3 py-1.5 font-semibold text-[11px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
+                          </tr>
+                          {ps.map(pfx => {
+                            const e = agg[pfx];
+                            tAmt += e.amount; tElim += e.eliminated;
+                            return (
+                              <tr key={pfx} className="border-t border-efg-line/60">
+                                <td className="px-3 py-1 font-semibold">{pfx}</td>
+                                <td className="px-3 py-1 text-brand-text-secondary max-w-xs truncate">{labels.get(pfx) || '—'}</td>
+                                <td className="px-3 py-1 text-right tabular-nums">{fmt(e.amount)}</td>
+                                {scoped && <td className="px-3 py-1 text-right tabular-nums text-brand-text-secondary">{e.eliminated === 0 ? '—' : fmt(-e.eliminated)}</td>}
+                                {scoped && <td className="px-3 py-1 text-right tabular-nums font-semibold">{fmt(e.amount - e.eliminated)}</td>}
+                              </tr>
+                            );
+                          })}
+                          <tr className="border-t border-efg-line font-semibold">
+                            <td className="px-3 py-1.5" colSpan={2}>Total {sec.title}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tAmt)}</td>
+                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums text-brand-text-secondary">{tElim === 0 ? '—' : fmt(-tElim)}</td>}
+                            {scoped && <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tAmt - tElim)}</td>}
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-brand-text-secondary px-3 py-2 border-t border-efg-line">
+                  Load(s) {ids.join(', ')} — amounts as booked in MERCURY (BookAmount).
+                  {scoped && ' Positions booked outside the reporting set are excluded; amounts facing an intra-scope CounterpartyBookingCenterId are shown as IC eliminated (net = consolidated view).'}
+                  {labels.size === 0 && ' Account labels appear once the mapping workbook has been saved to the database (Adjustments → Mappings).'}
+                </p>
+              </div>
+            );
+          })()
+        )}
+      </Card>
+    );
+  };
+
 const ProductionPage: React.FC = () => {
   const { data, setData, allEntities, currentUser, mode, apiBaseUrl } = useData();
-  const [tab, setTab] = useState<'prereq' | 'controls' | 'adjust'>('prereq');
+  const [step, setStep] = useState<Step>('scope');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAdj, setShowAdj] = useState(false);
 
   const cps = data.prodCounterparties || [];
   const secs = data.prodSecurities || [];
   const refs = data.prodGuaranteeRefs || [];
+  const baselinesAll = data.prodBaselines || [];
 
-  // The Production scope is a MERCURY reporting entity: the selector is fed
-  // from list_reporting_entities (+ whatever entities already carry data);
-  // combined with the period it drives the feed, the controls and the
-  // adjustments (collections filtered on it, conso scope resolved from it).
-  const [reportingEntities, setReportingEntities] = useState<Array<{ id: string; name?: string }>>([]);
+  // --- MERCURY referential, fetched once: conso (reporting entities, sets,
+  // booking centers) and the load collections that drive the Scope step.
+  const [conso, setConso] = useState<ConsoInfo | null>(null);
+  const [collections, setCollections] = useState<CollectionInfo[]>([]);
   useEffect(() => {
     if (mode !== 'api') return;
     fetch(`${apiBaseUrl}/production/mercury/conso`, { credentials: 'include' })
       .then(r => (r.ok ? r.json() : null))
       .then(out => {
-        if (!out || !Array.isArray(out.entities)) return;
-        setReportingEntities(out.entities.map((e: { id: unknown; name?: unknown }) => ({
-          id: String(e.id), name: e.name ? String(e.name) : undefined,
-        })));
+        if (!out) return;
+        const sets: Record<string, string[]> = {};
+        for (const st of out.sets || []) (sets[String(st.reportingEntityId)] ??= []).push(String(st.bookingCenterId));
+        const bcNames: Record<string, string> = {};
+        for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
+        setConso({
+          entities: (out.entities || []).map((e: { id: unknown; name?: unknown; bankOffice?: unknown; parentCompany?: unknown; consoGroup?: unknown }) => ({
+            id: String(e.id), name: e.name ? String(e.name) : undefined,
+            bankOffice: e.bankOffice === true, parentCompany: e.parentCompany === true, consoGroup: e.consoGroup === true,
+          })),
+          sets, bcNames,
+        });
       })
       .catch(() => { /* MERCURY unreachable — fall back to app entities */ });
+    fetch(`${apiBaseUrl}/production/mercury/load-collections`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : []))
+      .then(l => setCollections(Array.isArray(l)
+        ? l.map((c: CollectionInfo) => ({ ...c, loadIds: Array.isArray(c.loadIds) ? c.loadIds : [] }))
+        : []))
+      .catch(() => setCollections([]));
   }, [mode, apiBaseUrl]);
 
+  const reportingEntities = conso?.entities || [];
   const entities = useMemo(() => {
     const set = new Set<string>();
     reportingEntities.forEach(e => set.add(e.id));
@@ -1266,6 +1555,17 @@ const ProductionPage: React.FC = () => {
   const [entitySel, setEntitySel] = useState('');
   const entity = entities.includes(entitySel) ? entitySel : entities[0] || '';
 
+  // --- Scope: the selected load collection drives entity, period and loads.
+  const [collectionSel, setCollectionSel] = useState('');
+  const collection = useMemo(() =>
+    collections.find(c => String(c.loadCollectionId) === collectionSel) || null, [collections, collectionSel]);
+  const collLoadIds = useMemo(() => (collection?.loadIds || []).map(String), [collection]);
+  const collDate = collection?.reportingDate ? String(collection.reportingDate).slice(0, 10) : '';
+  const pickCollection = (c: CollectionInfo) => {
+    setCollectionSel(String(c.loadCollectionId));
+    if (c.reportingEntityId) setEntitySel(String(c.reportingEntityId));
+  };
+
   const dates = useMemo(() => {
     const set = new Set<string>();
     cps.filter(r => r.entity === entity).forEach(r => set.add(r.date));
@@ -1273,8 +1573,10 @@ const ProductionPage: React.FC = () => {
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [cps, secs, entity]);
 
-
-
+  // --- Certified baselines of the entity (newest first).
+  const baselines = useMemo(() =>
+    baselinesAll.filter(b => b.entity === entity).sort((a, b) => b.date.localeCompare(a.date)),
+    [baselinesAll, entity]);
 
   const deletePeriod = (d: string) => {
     if (!window.confirm(`Delete ALL production data (counterparties + securities) for ${entity} — ${d}?`)) return;
@@ -1285,14 +1587,20 @@ const ProductionPage: React.FC = () => {
     }));
   };
 
-  // --- Controls tab state ---
+  // --- Controls state ---
   const [openFinding, setOpenFinding] = useState<number | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [controlFilter, setControlFilter] = useState('');
+  const [docOpen, setDocOpen] = useState<string | null>(null);
   const [dateSel, setDateSel] = useState('');
-  const date = dates.includes(dateSel) ? dateSel : dates[0] || '';
+  const date = dates.includes(dateSel) ? dateSel : (collDate && dates.includes(collDate) ? collDate : dates[0] || '');
   const prevDates = dates.filter(d => d < date);
+  // Default comparison base: the latest certified baseline before the period,
+  // falling back to the previous period when nothing is certified yet.
+  const certifiedPrev = prevDates.find(d => baselines.some(b => b.date === d));
   const [compareSel, setCompareSel] = useState('');
-  const compare = prevDates.includes(compareSel) ? compareSel : prevDates[0] || '';
+  const compare = prevDates.includes(compareSel) ? compareSel : (certifiedPrev ?? prevDates[0] ?? '');
+  const compareBaseline = baselines.find(b => b.date === compare);
 
   const findings = useMemo(() => {
     if (!entity || !date) return [];
@@ -1314,7 +1622,8 @@ const ProductionPage: React.FC = () => {
   const sig = (f: ControlFinding) => `${entity}|${date}|${compare}|${f.control}|${f.key}|${f.message}`;
   const logOf = (f: ControlFinding) => logs.find(l => l.signature === sig(f));
   const activeFindings = useMemo(() => findings.filter(f => !logOf(f)), [findings, logs]); // eslint-disable-line react-hooks/exhaustive-deps
-  const shownFindings = showResolved ? findings : activeFindings;
+  const shownFindings = (showResolved ? findings : activeFindings)
+    .filter(f => !controlFilter || f.control.startsWith(controlFilter));
 
   const decide = (f: ControlFinding, decision: 'validated' | 'corrected') => {
     const note = window.prompt(
@@ -1346,23 +1655,88 @@ const ProductionPage: React.FC = () => {
     info: activeFindings.filter(f => f.severity === 'info').length,
   }), [activeFindings]);
 
+  // Per-control dashboard stats.
+  const controlStats = useMemo(() => CONTROL_DOCS.map(cd => {
+    const act = activeFindings.filter(f => f.control.startsWith(cd.id));
+    return {
+      id: cd.id, title: cd.title,
+      errors: act.filter(f => f.severity === 'error').length,
+      warnings: act.filter(f => f.severity === 'warning').length,
+      infos: act.filter(f => f.severity === 'info').length,
+      decided: findings.filter(f => f.control.startsWith(cd.id)).length - act.length,
+    };
+  }), [activeFindings, findings]);
+
   const periodRows = useMemo(() => dates.map(d => ({
     date: d,
     byDataset: PROD_DATASETS.map(ds => cps.filter(r => r.entity === entity && r.date === d && r.dataset === ds.key).length),
     securities: secs.filter(r => r.entity === entity && r.date === d).length,
   })), [dates, cps, secs, entity]);
 
+  // --- Certification ---
+  const currentBaseline = baselines.find(b => b.date === date);
+  const periodDecisions = entityLogs.filter(l => l.date === date);
+  const certify = () => {
+    if (!date) return;
+    if (counts.error > 0 && !window.confirm(`${counts.error} error finding(s) are still open for ${date}. Certify anyway?`)) return;
+    const note = window.prompt(`Certify ${entityLabel(entity)} — ${date} as the correct baseline (optional note):`, '');
+    if (note === null) return;
+    setData(prev => ({
+      ...prev,
+      prodBaselines: [...(prev.prodBaselines || []), {
+        id: Date.now(), entity, date,
+        loadIds: collLoadIds.length > 0 ? collLoadIds.join(',') : undefined,
+        collectionId: collection ? String(collection.loadCollectionId) : undefined,
+        certifiedBy: currentUser.name, certifiedAt: new Date().toISOString(),
+        note: note || undefined,
+      }],
+    }));
+    setNotice(`${entity} — ${date} certified as the correct baseline. The next period's controls will compare against it.`);
+  };
+  const uncertify = (id: number) => {
+    if (!window.confirm('Remove this certification? Controls will fall back to comparing with the previous period.')) return;
+    setData(prev => ({ ...prev, prodBaselines: (prev.prodBaselines || []).filter(b => b.id !== id) }));
+  };
+
+  // Load collections grouped by reporting date, newest first (Scope step).
+  const collectionGroups = useMemo(() => {
+    const by = new Map<string, CollectionInfo[]>();
+    for (const c of collections) {
+      const d = c.reportingDate ? String(c.reportingDate).slice(0, 10) : '—';
+      const arr = by.get(d) || [];
+      arr.push(c);
+      by.set(d, arr);
+    }
+    return Array.from(by.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [collections]);
+
+  const stepBtn = (s: typeof STEPS[number], i: number) => {
+    const active = step === s.key;
+    const badge = s.key === 'controls' && counts.error > 0 ? ` · ${counts.error} ⚠` : '';
+    return (
+      <React.Fragment key={s.key}>
+        {i > 0 && <span className="text-brand-text-secondary/40 select-none">›</span>}
+        <button onClick={() => setStep(s.key)}
+          className={`flex items-center gap-2 text-sm font-semibold py-1.5 px-3 rounded-full border transition-colors ${
+            active ? 'bg-brand-primary text-white border-brand-primary'
+              : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-primary hover:text-brand-primary'}`}>
+          <span className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center font-bold ${
+            active ? 'bg-white/20' : 'bg-brand-bg-body'}`}>{s.n}</span>
+          {s.label}{badge}
+        </button>
+      </React.Fragment>
+    );
+  };
+
   return (
     <div className="p-5 md:p-8 space-y-6">
       <BackButton />
       <PageHeader
         title="Production"
-        subtitle="Team production aid — period-over-period consistency controls on the counterparty datasets, the security master and the Grouplexid guarantee/HQLA reference."
+        subtitle="Monthly production line: pick your scope, feed and control the data against the certified baseline, review the consolidated balance sheet, certify the period."
       />
-      <div className="flex flex-wrap items-center gap-3">
-        <TabButton label="Prerequisites" isActive={tab === 'prereq'} onClick={() => setTab('prereq')} />
-        <TabButton label={`Controls${counts.error > 0 ? ` (${counts.error} ⚠)` : ''}`} isActive={tab === 'controls'} onClick={() => setTab('controls')} />
-        <TabButton label="Adjustments" isActive={tab === 'adjust'} onClick={() => setTab('adjust')} />
+      <div className="flex flex-wrap items-center gap-2">
+        {STEPS.map(stepBtn)}
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
           <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
@@ -1370,6 +1744,25 @@ const ProductionPage: React.FC = () => {
           </select>
         </div>
       </div>
+
+      {/* Working-scope banner: always visible once something is picked. */}
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <span className="px-2.5 py-1 rounded-full border border-efg-line bg-brand-bg-body/60 font-semibold">{entityLabel(entity) || '—'}</span>
+        {collection ? (
+          <span className="px-2.5 py-1 rounded-full border border-brand-secondary/40 bg-brand-secondary/5">
+            📦 collection {String(collection.loadCollectionId)}{collection.name ? ` · ${collection.name}` : ''} · {collDate || '—'} · load(s) {collLoadIds.join(', ') || '—'}
+          </span>
+        ) : (
+          <span className="px-2.5 py-1 rounded-full border border-efg-line text-brand-text-secondary">no load collection picked — Scope step</span>
+        )}
+        {baselines[0] && (
+          <span className="px-2.5 py-1 rounded-full border border-status-green/40 bg-status-green/5 text-status-green font-semibold"
+            title={`Certified by ${baselines[0].certifiedBy} on ${baselines[0].certifiedAt.slice(0, 16).replace('T', ' ')}`}>
+            ✔ last certified: {baselines[0].date}
+          </span>
+        )}
+      </div>
+
       {error && <p className="text-sm text-status-red bg-status-red/10 border border-status-red/30 rounded-md px-4 py-2">{error}</p>}
       {notice && (
         <p className="text-sm text-brand-text-primary bg-brand-bg-body border border-efg-line rounded-md px-4 py-2 flex justify-between items-center">
@@ -1378,13 +1771,71 @@ const ProductionPage: React.FC = () => {
         </p>
       )}
 
-      {tab === 'prereq' && (
+      {/* ------------------------------------------------ 1 — SCOPE */}
+      {step === 'scope' && (
+        <Card>
+          <SectionHeader title="1 — Scope"
+            suffix="pick the load collection you work on — period, loads and consolidation level follow in one click" />
+          {mode !== 'api' ? (
+            <p className="text-sm text-brand-text-secondary">
+              The load collections come from MERCURY (API backend required). You can still work on CSV-fed data:
+              pick the reporting entity top right and continue to the Data step.
+            </p>
+          ) : collections.length === 0 ? (
+            <EmptyState title="No load collection visible"
+              hint="MERCURY is unreachable, or core_load_collections has no visible row — check ☰ → Logs → Technical. You can still feed by loadid in the Data step." />
+          ) : (
+            collectionGroups.map(([d, cols]) => (
+              <div key={d} className="mb-4">
+                <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-brand-text-secondary mb-2">{d}</p>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {cols.map(c => {
+                    const id = String(c.loadCollectionId);
+                    const selected = id === collectionSel;
+                    const re = c.reportingEntityId ? String(c.reportingEntityId) : '';
+                    const reName = reportingEntities.find(e => e.id === re)?.name;
+                    const certified = baselinesAll.some(b => b.entity === re && b.date === (c.reportingDate ? String(c.reportingDate).slice(0, 10) : ''));
+                    return (
+                      <button key={id} onClick={() => pickCollection(c)}
+                        className={`text-left border rounded-xl p-4 transition-all ${selected
+                          ? 'border-brand-primary ring-2 ring-brand-primary/25 bg-brand-primary/5'
+                          : 'border-efg-line hover:border-brand-secondary hover:shadow-card'}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-bold text-sm">{c.name || `Collection ${id}`}</span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            {certified && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-status-green/40 text-status-green">✔ certified</span>}
+                            {c.isMaster && <span title="Master collection">★</span>}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-brand-text-secondary mt-1.5">
+                          #{id} · scope <strong className="text-brand-text-primary">{re || '—'}</strong>{reName ? ` — ${reName}` : ''}
+                        </p>
+                        <p className="text-[11px] text-brand-text-secondary mt-0.5">load(s) {(c.loadIds || []).join(', ') || '—'}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))
+          )}
+          <div className="flex justify-end mt-2">
+            <button onClick={() => setStep('data')}
+              className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
+              Continue to Data →
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* ------------------------------------------------ 2 — DATA */}
+      {step === 'data' && (
         <>
-          <MercuryCard entity={entity} onLoaded={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
+          <MercuryCard entity={entity} presetLoadIds={collLoadIds.length > 0 ? collLoadIds : undefined}
+            onLoaded={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
           <Card>
-            <SectionHeader title="Loaded periods" suffix={entity} />
+            <SectionHeader title="Loaded periods" suffix={entityLabel(entity)} />
             {periodRows.length === 0 ? (
-              <p className="text-sm text-brand-text-secondary">No production data yet for {entity} — import the CSVs above.</p>
+              <EmptyState title="No production data yet" hint={`Feed ${entity} from MERCURY above — the controls and the balance sheet need it.`} compact />
             ) : (
               <div className="overflow-x-auto border border-efg-line rounded-lg">
                 <table className="w-full text-xs whitespace-nowrap">
@@ -1392,33 +1843,41 @@ const ProductionPage: React.FC = () => {
                     <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Date</th>
                     {PROD_DATASETS.map(d => <th key={d.key} className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{d.label}</th>)}
                     <th className="px-3 py-2 text-right text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Securities</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">Baseline</th>
                     <th />
                   </tr></thead>
                   <tbody>
-                    {periodRows.map(p => (
-                      <tr key={p.date} className="border-t border-efg-line">
-                        <td className="px-3 py-1.5 font-semibold">{p.date}</td>
-                        {p.byDataset.map((n, i) => <td key={i} className="px-3 py-1.5 text-right tabular-nums">{n || '—'}</td>)}
-                        <td className="px-3 py-1.5 text-right tabular-nums">{p.securities || '—'}</td>
-                        <td className="px-3 py-1.5 text-right"><button onClick={() => deletePeriod(p.date)} className="text-status-red/70 hover:text-status-red underline">delete</button></td>
-                      </tr>
-                    ))}
+                    {periodRows.map(p => {
+                      const b = baselines.find(x => x.date === p.date);
+                      return (
+                        <tr key={p.date} className="border-t border-efg-line">
+                          <td className="px-3 py-1.5 font-semibold">{p.date}</td>
+                          {p.byDataset.map((n, i) => <td key={i} className="px-3 py-1.5 text-right tabular-nums">{n || '—'}</td>)}
+                          <td className="px-3 py-1.5 text-right tabular-nums">{p.securities || '—'}</td>
+                          <td className="px-3 py-1.5">{b ? <span className="text-status-green font-semibold">✔ certified</span> : <span className="text-brand-text-secondary">—</span>}</td>
+                          <td className="px-3 py-1.5 text-right"><button onClick={() => deletePeriod(p.date)} className="text-status-red/70 hover:text-status-red underline">delete</button></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
+            <div className="flex justify-end mt-3">
+              <button onClick={() => setStep('controls')}
+                className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
+                Continue to Controls →
+              </button>
+            </div>
           </Card>
         </>
       )}
 
-      {tab === 'adjust' && (
-        <AdjustmentsCard entity={entity} onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
-      )}
-
-      {tab === 'controls' && (
+      {/* ------------------------------------------------ 3 — CONTROLS */}
+      {step === 'controls' && (
         <Card>
           <div className="flex flex-wrap items-end gap-4 mb-4">
-            <SectionHeader title="Consistency controls" suffix={`${entity} — treatment must stay identical over time and vs the reference`} />
+            <SectionHeader title="3 — Controls" suffix={`${entityLabel(entity)} — treatment must stay identical over time and vs the reference`} />
             <div className="ml-auto flex gap-3">
               <div>
                 <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Period</label>
@@ -1430,12 +1889,76 @@ const ProductionPage: React.FC = () => {
                 <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Compare with</label>
                 <select value={compare} onChange={e => setCompareSel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white">
                   {prevDates.length === 0 && <option value="">— none —</option>}
-                  {prevDates.map(d => <option key={d} value={d}>{d}</option>)}
+                  {prevDates.map(d => (
+                    <option key={d} value={d}>{d}{baselines.some(b => b.date === d) ? ' ✔ certified' : ''}</option>
+                  ))}
                 </select>
               </div>
             </div>
           </div>
-          <div className="flex gap-3 mb-4 text-[12px] font-semibold">
+
+          {/* Comparison base, spelled out. */}
+          {date && (
+            <p className={`text-[12px] rounded-md border px-3 py-2 mb-4 ${compareBaseline
+              ? 'border-status-green/40 bg-status-green/5 text-brand-text-primary'
+              : 'border-efg-line bg-brand-bg-body/50 text-brand-text-secondary'}`}>
+              {compare ? (
+                compareBaseline
+                  ? <>Compared to <strong>{compare}</strong> — ✔ certified baseline (by {compareBaseline.certifiedBy} on {compareBaseline.certifiedAt.slice(0, 10)}{compareBaseline.note ? ` · "${compareBaseline.note}"` : ''}).</>
+                  : <>Compared to <strong>{compare}</strong> — ⚠ not a certified baseline (certify periods in step 5 so drifts are measured against validated data).</>
+              ) : (
+                <>No earlier period to compare with — C1/C3 drift controls are skipped; C2/C4/C5 run on the period alone.</>
+              )}
+            </p>
+          )}
+
+          {/* Per-control dashboard. */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+            {controlStats.map(cs => {
+              const status = cs.errors > 0 ? 'red' : cs.warnings > 0 ? 'amber' : 'green';
+              const dot = status === 'red' ? 'bg-status-red' : status === 'amber' ? 'bg-status-amber' : 'bg-status-green';
+              const active = controlFilter === cs.id;
+              return (
+                <div key={cs.id}
+                  className={`border rounded-xl p-3 cursor-pointer transition-all ${active
+                    ? 'border-brand-primary ring-2 ring-brand-primary/25 bg-brand-primary/5'
+                    : 'border-efg-line hover:border-brand-secondary hover:shadow-card'}`}
+                  onClick={() => setControlFilter(active ? '' : cs.id)}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm">{cs.id}</span>
+                    <span className={`w-2.5 h-2.5 rounded-full ${dot}`} />
+                  </div>
+                  <p className="text-[11px] text-brand-text-secondary mt-0.5 leading-tight">{cs.title}</p>
+                  <p className="text-[11px] mt-1.5 tabular-nums">
+                    {cs.errors > 0 && <span className="text-status-red font-semibold">{cs.errors} err</span>}
+                    {cs.errors > 0 && (cs.warnings > 0 || cs.infos > 0) && ' · '}
+                    {cs.warnings > 0 && <span className="text-status-amber font-semibold">{cs.warnings} warn</span>}
+                    {cs.warnings > 0 && cs.infos > 0 && ' · '}
+                    {cs.infos > 0 && <span className="text-brand-text-secondary">{cs.infos} info</span>}
+                    {cs.errors === 0 && cs.warnings === 0 && cs.infos === 0 && <span className="text-status-green font-semibold">clean</span>}
+                    {cs.decided > 0 && <span className="text-brand-text-secondary"> · {cs.decided} decided</span>}
+                  </p>
+                  <button onClick={e => { e.stopPropagation(); setDocOpen(docOpen === cs.id ? null : cs.id); }}
+                    className="text-[10px] underline text-brand-text-secondary hover:text-brand-primary mt-1">
+                    {docOpen === cs.id ? 'hide' : 'what does it check?'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {docOpen && (() => {
+            const cd = CONTROL_DOCS.find(x => x.id === docOpen);
+            return cd ? (
+              <div className="border border-efg-line rounded-lg bg-brand-bg-body/40 px-4 py-3 mb-4 text-[12px] space-y-1.5">
+                <p className="font-bold">{cd.id} — {cd.title}</p>
+                <p><span className="font-semibold text-brand-text-secondary">What it checks:</span> {cd.what}</p>
+                <p><span className="font-semibold text-brand-text-secondary">Comparison base:</span> {cd.base}</p>
+                <p><span className="font-semibold text-brand-text-secondary">Expected action:</span> {cd.action}</p>
+              </div>
+            ) : null;
+          })()}
+
+          <div className="flex flex-wrap gap-3 mb-4 text-[12px] font-semibold">
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.error}`}>{counts.error} errors</span>
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.warning}`}>{counts.warning} warnings</span>
             <span className={`px-3 py-1 rounded-full border ${SEV_STYLE.info}`}>{counts.info} info (new / disappeared)</span>
@@ -1443,12 +1966,18 @@ const ProductionPage: React.FC = () => {
               className={`px-3 py-1 rounded-full border transition-colors ${showResolved ? 'bg-brand-secondary text-white border-brand-secondary' : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary'}`}>
               {findings.length - activeFindings.length} resolved {showResolved ? '(shown)' : '(hidden)'}
             </button>
+            {controlFilter && (
+              <button onClick={() => setControlFilter('')}
+                className="px-3 py-1 rounded-full border bg-brand-primary/10 text-brand-primary border-brand-primary/40">
+                filter: {controlFilter} ✕
+              </button>
+            )}
           </div>
           {dates.length === 0 ? (
-            <p className="text-sm text-brand-text-secondary">No production data for {entity} — load the Prerequisites first.</p>
+            <EmptyState title={`No production data for ${entity}`} hint="Feed the period in the Data step first." compact />
           ) : shownFindings.length === 0 ? (
             <p className="text-sm text-brand-text-primary bg-status-green/10 border border-status-green/30 rounded-md px-4 py-3">
-              ✓ No open finding for {date}{compare ? ` vs ${compare}` : ''}{findings.length > 0 ? ` — ${findings.length} decided (see resolved / history below)` : ' — same treatment across periods, datasets and the reference'}.
+              ✓ No open finding for {date}{compare ? ` vs ${compare}` : ''}{controlFilter ? ` on ${controlFilter}` : ''}{findings.length > 0 ? ` — ${findings.length - activeFindings.length} decided (see resolved / history below)` : ' — same treatment across periods, datasets and the reference'}.
             </p>
           ) : (
             <div className="overflow-x-auto border border-efg-line rounded-lg">
@@ -1544,13 +2073,6 @@ const ProductionPage: React.FC = () => {
               </table>
             </div>
           )}
-          <p className="text-[11px] text-brand-text-secondary mt-3">
-            C1 — attribute drift per client between the two periods, across the FULL MERCURY referential set (client type, grouplexid, counterparty type, ratings, domicile/HQ/nationality, related party, credit quality, SME/supervision/LEX flags, SIS code, LEI).
-            C2 — the same client number must carry one single treatment across all datasets of the period (grouplexid = ultimate parent, legitimately shared within a group). Click a finding to see the underlying records of both periods.
-            C3 — security attribute drift per ISIN across the full set (type/sub-type, ratings, revaluation frequency, CMA fields, maturity, investment grade, listed type, guarantor); HQLA level or SNB-eligibility change = error.
-            C4 — guarantor & HQLA level vs the Grouplexid reference (physical data must match the HQLA report treatment).
-            C5 — orphan positions: the counterparty resolved by the MERCURY feed (issuer for securities) was not found in list_counterparties at the load PIT.
-          </p>
           {entityLogs.length > 0 && (
             <div className="mt-5">
               <SectionHeader title="Decision history" suffix={`${entityLogs.length} logged decision(s) — ${entity}`} />
@@ -1576,6 +2098,131 @@ const ProductionPage: React.FC = () => {
                 </table>
               </div>
             </div>
+          )}
+          <div className="flex justify-end mt-3">
+            <button onClick={() => setStep('balance')}
+              className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
+              Continue to Balance sheet →
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* ------------------------------------------------ 4 — BALANCE SHEET */}
+      {step === 'balance' && (
+        <>
+          <BalanceCard collection={collection} collLoadIds={collLoadIds} conso={conso} />
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={() => setShowAdj(v => !v)}
+              className={`text-sm font-semibold border py-2 px-4 rounded-md transition-colors ${showAdj
+                ? 'bg-brand-secondary text-white border-brand-secondary'
+                : 'border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white'}`}>
+              {showAdj ? 'Hide the adjustments tool' : '🔧 Open the adjustments tool'}
+            </button>
+            <span className="text-[12px] text-brand-text-secondary">
+              A rubrique doesn't tie out with accounting? Match the adjustment lines against core_positions and prepare the INSERTs for MERCURY.
+            </span>
+            <button onClick={() => setStep('certify')}
+              className="ml-auto text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
+              Continue to Certify →
+            </button>
+          </div>
+          {showAdj && (
+            <AdjustmentsCard entity={entity} presetCollectionId={collectionSel || undefined}
+              onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
+          )}
+        </>
+      )}
+
+      {/* ------------------------------------------------ 5 — CERTIFY */}
+      {step === 'certify' && (
+        <Card>
+          <SectionHeader title="5 — Certify & referential"
+            suffix={`${entityLabel(entity)} — declare the period's data correct; the next period's controls compare against it`} />
+          {!date ? (
+            <EmptyState title="Nothing to certify yet" hint="Feed a period in the Data step first." compact />
+          ) : (
+            <>
+              <div className="grid sm:grid-cols-3 gap-3 mb-4">
+                <div className="border border-efg-line rounded-xl p-4">
+                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Period under review</p>
+                  <p className="text-lg font-bold mt-1">{date}</p>
+                  <p className="text-[11px] text-brand-text-secondary mt-0.5">
+                    {collection ? `collection ${String(collection.loadCollectionId)} · load(s) ${collLoadIds.join(', ')}` : 'no load collection linked'}
+                  </p>
+                </div>
+                <div className="border border-efg-line rounded-xl p-4">
+                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Data</p>
+                  <p className="text-lg font-bold mt-1 tabular-nums">
+                    {cps.filter(r => r.entity === entity && r.date === date).length + secs.filter(r => r.entity === entity && r.date === date).length} rows
+                  </p>
+                  <p className="text-[11px] text-brand-text-secondary mt-0.5">
+                    {cps.filter(r => r.entity === entity && r.date === date).length} counterparty · {secs.filter(r => r.entity === entity && r.date === date).length} securities
+                  </p>
+                </div>
+                <div className={`border rounded-xl p-4 ${counts.error > 0 ? 'border-status-red/40 bg-status-red/5' : 'border-status-green/40 bg-status-green/5'}`}>
+                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">Controls</p>
+                  <p className="text-lg font-bold mt-1 tabular-nums">
+                    {counts.error > 0 ? `${counts.error} error(s) open` : '✓ clean'}
+                  </p>
+                  <p className="text-[11px] text-brand-text-secondary mt-0.5">
+                    {counts.warning} warning(s) open · {periodDecisions.length} decision(s) logged for {date}
+                  </p>
+                </div>
+              </div>
+
+              {currentBaseline ? (
+                <p className="text-sm text-brand-text-primary bg-status-green/10 border border-status-green/30 rounded-md px-4 py-3 mb-4">
+                  ✔ <strong>{date} is certified</strong> by {currentBaseline.certifiedBy} on {currentBaseline.certifiedAt.slice(0, 16).replace('T', ' ')}
+                  {currentBaseline.note ? ` — "${currentBaseline.note}"` : ''}.
+                  <button onClick={() => uncertify(currentBaseline.id)} className="ml-3 underline text-status-red/70 hover:text-status-red">remove certification</button>
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <button onClick={certify}
+                    className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-5 rounded-md transition-colors">
+                    ✔ Certify {entity} — {date} as the correct baseline
+                  </button>
+                  {counts.error > 0 && (
+                    <span className="text-[12px] text-status-amber font-semibold">⚠ {counts.error} error finding(s) still open — treat them in Controls first (a confirmation is asked).</span>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] text-brand-text-secondary mb-5">
+                Certifying stores a baseline record ({'entity, date, loads, by whom, when'}) in the RegReport database — the period's dataset becomes the reference the
+                next period's C1/C3 drift controls compare against, and validated-drift decisions are the audit trail of what entered it.
+                The data itself stays as loaded (snapshots per period); removing a certification only removes the pointer.
+              </p>
+
+              <SectionHeader title="Certified baselines" suffix={`${baselines.length} record(s) — ${entity}`} />
+              {baselines.length === 0 ? (
+                <EmptyState title="No certified baseline yet" hint="Certify your first period above — from then on, drifts are measured against validated data instead of simply the previous month." compact />
+              ) : (
+                <div className="overflow-x-auto border border-efg-line rounded-lg">
+                  <table className="w-full text-xs whitespace-nowrap">
+                    <thead className="bg-brand-bg-body"><tr>
+                      {['Period', 'Loads', 'Collection', 'Certified by', 'At', 'Note', 'Decisions', ''].map((h, hi) =>
+                        <th key={hi} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {baselines.map(b => (
+                        <tr key={b.id} className="border-t border-efg-line">
+                          <td className="px-3 py-1.5 font-semibold">{b.date}</td>
+                          <td className="px-3 py-1.5">{b.loadIds || '—'}</td>
+                          <td className="px-3 py-1.5">{b.collectionId || '—'}</td>
+                          <td className="px-3 py-1.5">{b.certifiedBy}</td>
+                          <td className="px-3 py-1.5 tabular-nums">{b.certifiedAt.slice(0, 16).replace('T', ' ')}</td>
+                          <td className="px-3 py-1.5 whitespace-normal max-w-sm text-brand-text-secondary">{b.note || '—'}</td>
+                          <td className="px-3 py-1.5 tabular-nums">{entityLogs.filter(l => l.date === b.date).length}</td>
+                          <td className="px-3 py-1.5"><button onClick={() => uncertify(b.id)} className="underline text-status-red/70 hover:text-status-red">remove</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </Card>
       )}

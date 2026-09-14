@@ -445,6 +445,20 @@ export interface ProdFindingLog {
   decidedAt: string; // ISO timestamp
 }
 
+/** A certified production baseline: the pointer to the period dataset the
+ * team declared correct after working through the controls. Controls of the
+ * next period compare against the latest certified baseline of the entity. */
+export interface ProdBaseline {
+  id: number;
+  entity: string;
+  date: string;          // certified reporting date (yyyy-MM-dd)
+  loadIds?: string;      // MERCURY loads behind the dataset (comma-separated)
+  collectionId?: string; // load collection used, when any
+  certifiedBy: string;
+  certifiedAt: string;   // ISO timestamp
+  note?: string;
+}
+
 /** Reference: expected guarantee/HQLA treatment per Grouplexid (e.g. KFW → German government → L1). */
 export interface ProdGuaranteeRef {
   id: number;
@@ -609,6 +623,7 @@ export interface CentralData {
   prodSecurities?: ProdSecurityRecord[];
   prodGuaranteeRefs?: ProdGuaranteeRef[];
   prodFindingLogs?: ProdFindingLog[];
+  prodBaselines?: ProdBaseline[];
   prodMappingEntries?: ProdMappingEntry[];
   bridgeAdjustments?: BridgeAdjustment[];
   /** Overrides for the Excel import anchors (FINMA/SNB template versions). */

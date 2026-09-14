@@ -641,6 +641,28 @@ public class ProdFindingLog
 }
 
 /// <summary>
+/// A certified production baseline: the pointer to the period dataset the
+/// team declared correct after working through the controls. Controls of the
+/// next period compare against the latest certified baseline of the entity
+/// (not blindly against "the previous period"), and accepted-drift decisions
+/// (ProdFindingLogs) are the audit trail of what entered it.
+/// </summary>
+public class ProdBaseline
+{
+    public long Id { get; set; }
+    public string Entity { get; set; } = "";
+    /// <summary>Certified reporting date (yyyy-MM-dd).</summary>
+    public string Date { get; set; } = "";
+    /// <summary>MERCURY loads behind the certified dataset (comma-separated).</summary>
+    public string? LoadIds { get; set; }
+    /// <summary>Load collection that carried the period, when one was used.</summary>
+    public string? CollectionId { get; set; }
+    public string CertifiedBy { get; set; } = "";
+    public string CertifiedAt { get; set; } = "";
+    public string? Note { get; set; }
+}
+
+/// <summary>
 /// One row of the persisted adjustments mapping workbook (Mapping.xlsb), so
 /// the team does not re-upload it for every adjustment session. Sparse
 /// columns per kind: gl (MapKey=LIGNE, TextValue=LegalAccountNumber, TypeOf,
@@ -755,6 +777,7 @@ public class CentralData
     public List<ProdSecurityRecord> ProdSecurities { get; set; } = new();
     public List<ProdGuaranteeRef> ProdGuaranteeRefs { get; set; } = new();
     public List<ProdFindingLog> ProdFindingLogs { get; set; } = new();
+    public List<ProdBaseline> ProdBaselines { get; set; } = new();
     public List<ProdMappingEntry> ProdMappingEntries { get; set; } = new();
     public List<BridgeAdjustment> BridgeAdjustments { get; set; } = new();
     // Excel import anchors (FINMA/SNB template versions). Free-form JSON owned

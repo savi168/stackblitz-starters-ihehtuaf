@@ -6,6 +6,47 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.7.0 — 14 September 2026
+
+**Theme: the guided production line — scope, certified baselines, balance
+sheet.**
+
+- **Production rebuilt as a 5-step flow**: *Scope → Data → Controls →
+  Balance sheet → Certify* (the Prerequisites / Controls / Adjustments tabs
+  are gone). A persistent banner shows what you work on at every step.
+- **Scope step**: the load collections, grouped by reporting date, as
+  cards — one click sets the period, the loads *and* the consolidation
+  level (the collection's reporting entity). Certified periods carry a
+  ✔ badge.
+- **Data step**: with a collection picked, one button feeds
+  counterparties **and** securities for every load of the collection; the
+  loaded-periods inventory shows which periods are certified.
+- **Controls dashboard**: one tile per control C1–C5 (status dot,
+  error/warning counts, click to filter the findings), and a *"what does
+  it check?"* panel per control — population, comparison base, expected
+  action.
+- **Certified baselines**: a *Certify* step declares the period's data
+  correct (who, when, which loads, note). From then on the drift controls
+  (C1/C3) **compare against the latest certified baseline** — announced
+  explicitly above the findings — instead of blindly against the previous
+  period; validated-drift decisions are the audit trail of what entered
+  the referential. Certifying with open errors asks for confirmation;
+  a certification can be removed.
+- **Balance sheet step**: the collection's positions aggregated per
+  account rubrique (LEFT 3), split assets / liabilities / off-balance,
+  with the consolidation scope applied from `list_reporting_sets` —
+  gross, intercompany eliminated and net columns. The adjustments tool
+  opens from here (preset on the collection) when a rubrique doesn't tie
+  out.
+
+### Database schema (automatic at first startup)
+
+| Migration | What it does |
+|---|---|
+| `011_prod_baselines` | Creates the `ProdBaselines` table (certified baseline pointers) |
+
+---
+
 ## v3.6.0 — 14 September 2026
 
 **Theme: production controls on the full MERCURY field set.**

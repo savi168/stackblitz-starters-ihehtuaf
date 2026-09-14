@@ -322,6 +322,25 @@ IF COL_LENGTH('ProdSecurities', 'InvestmentGradeFlag') IS NULL ALTER TABLE [Prod
 IF COL_LENGTH('ProdSecurities', 'ListedType') IS NULL ALTER TABLE [ProdSecurities] ADD [ListedType] nvarchar(20) NULL;
 IF COL_LENGTH('ProdSecurities', 'LexGuaranteedFlag') IS NULL ALTER TABLE [ProdSecurities] ADD [LexGuaranteedFlag] bit NULL;
 "),
+
+        // v3.7.0 — certified production baselines: the pointer to the period
+        // dataset the team declared correct (controls compare against it).
+        ("011_prod_baselines", @"
+IF OBJECT_ID('ProdBaselines') IS NULL
+BEGIN
+    CREATE TABLE [ProdBaselines] (
+        [Id] bigint NOT NULL IDENTITY,
+        [Entity] nvarchar(450) NOT NULL,
+        [Date] nvarchar(450) NOT NULL,
+        [LoadIds] nvarchar(max) NULL,
+        [CollectionId] nvarchar(max) NULL,
+        [CertifiedBy] nvarchar(max) NOT NULL,
+        [CertifiedAt] nvarchar(max) NOT NULL,
+        [Note] nvarchar(max) NULL,
+        CONSTRAINT [PK_ProdBaselines] PRIMARY KEY ([Id]));
+    CREATE INDEX [IX_ProdBaselines_Entity_Date] ON [ProdBaselines] ([Entity], [Date]);
+END
+"),
     };
 
     public static void Apply(AppDbContext db, ILogger logger)

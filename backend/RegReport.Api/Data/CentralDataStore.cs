@@ -42,6 +42,7 @@ public static class CentralDataStore
             ProdGuaranteeRefs = await db.ProdGuaranteeRefs.AsNoTracking().ToListAsync(),
             ProdFindingLogs = await db.ProdFindingLogs.AsNoTracking().ToListAsync(),
             ProdMappingEntries = await db.ProdMappingEntries.AsNoTracking().ToListAsync(),
+            ProdBaselines = await db.ProdBaselines.AsNoTracking().ToListAsync(),
             BridgeAdjustments = await db.BridgeAdjustments.AsNoTracking().ToListAsync(),
             Bilan = await db.Bilans.AsNoTracking().FirstOrDefaultAsync() ?? new Bilan(),
             RiskAppetite = riskRows.ToDictionary(r => r.Entity, r => r.Thresholds ?? new EntityThresholds()),
@@ -89,6 +90,7 @@ public static class CentralDataStore
         db.ProdGuaranteeRefs.RemoveRange(db.ProdGuaranteeRefs);
         db.ProdFindingLogs.RemoveRange(db.ProdFindingLogs);
         db.ProdMappingEntries.RemoveRange(db.ProdMappingEntries);
+        db.ProdBaselines.RemoveRange(db.ProdBaselines);
         db.BridgeAdjustments.RemoveRange(db.BridgeAdjustments);
         db.Bilans.RemoveRange(db.Bilans);
         db.RiskAppetite.RemoveRange(db.RiskAppetite);
@@ -129,6 +131,7 @@ public static class CentralDataStore
         foreach (var p in data.ProdGuaranteeRefs) p.Id = 0;
         foreach (var p in data.ProdFindingLogs) p.Id = 0;
         foreach (var p in data.ProdMappingEntries) p.Id = 0;
+        foreach (var p in data.ProdBaselines) p.Id = 0;
         foreach (var p in data.BridgeAdjustments) p.Id = 0;
 
         db.Deadlines.AddRange(data.Deadlines);
@@ -152,6 +155,7 @@ public static class CentralDataStore
         db.ProdGuaranteeRefs.AddRange(data.ProdGuaranteeRefs);
         db.ProdFindingLogs.AddRange(data.ProdFindingLogs);
         db.ProdMappingEntries.AddRange(data.ProdMappingEntries);
+        db.ProdBaselines.AddRange(data.ProdBaselines);
         db.BridgeAdjustments.AddRange(data.BridgeAdjustments);
         db.Bilans.Add(data.Bilan);
         db.RiskAppetite.AddRange(data.RiskAppetite.Select(kv =>

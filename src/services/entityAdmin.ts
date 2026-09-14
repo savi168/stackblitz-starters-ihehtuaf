@@ -23,6 +23,7 @@ const DATASETS: Array<[label: string, get: (d: AppData) => EntityRow[] | undefin
   ['Production counterparties', d => d.prodCounterparties],
   ['Production securities', d => d.prodSecurities],
   ['Production decisions', d => d.prodFindingLogs],
+  ['Production baselines', d => d.prodBaselines],
   ['Bridge adjustments', d => d.bridgeAdjustments],
 ];
 
@@ -98,6 +99,7 @@ export const renameEntity = (data: AppData, from: string, to: string): AppData =
     prodCounterparties: mvOpt(data.prodCounterparties),
     prodSecurities: mvOpt(data.prodSecurities),
     prodFindingLogs: mvOpt(data.prodFindingLogs),
+    prodBaselines: mvOpt(data.prodBaselines),
     bridgeAdjustments: mvOpt(data.bridgeAdjustments),
   };
 

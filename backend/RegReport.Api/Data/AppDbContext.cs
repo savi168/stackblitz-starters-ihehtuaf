@@ -36,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<ProdGuaranteeRef> ProdGuaranteeRefs => Set<ProdGuaranteeRef>();
     public DbSet<ProdFindingLog> ProdFindingLogs => Set<ProdFindingLog>();
     public DbSet<ProdMappingEntry> ProdMappingEntries => Set<ProdMappingEntry>();
+    public DbSet<ProdBaseline> ProdBaselines => Set<ProdBaseline>();
     public DbSet<StoredDocument> Documents => Set<StoredDocument>();
     public DbSet<BridgeAdjustment> BridgeAdjustments => Set<BridgeAdjustment>();
     public DbSet<Bilan> Bilans => Set<Bilan>();
@@ -270,6 +271,12 @@ public class AppDbContext : DbContext
             e.ToTable("ProdMappingEntries");
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.Kind, x.MapKey });
+        });
+        b.Entity<ProdBaseline>(e =>
+        {
+            e.ToTable("ProdBaselines");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.Entity, x.Date });
         });
         b.Entity<StoredDocument>(e =>
         {

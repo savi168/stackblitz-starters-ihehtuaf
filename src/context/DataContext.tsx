@@ -81,6 +81,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         prodSecurities: d.prodSecurities ?? [],
         prodGuaranteeRefs: d.prodGuaranteeRefs ?? [],
         prodFindingLogs: d.prodFindingLogs ?? [],
+        prodBaselines: d.prodBaselines ?? [],
         prodMappingEntries: d.prodMappingEntries ?? [],
         bridgeAdjustments: d.bridgeAdjustments ?? [],
     });
