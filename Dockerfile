@@ -29,6 +29,11 @@ RUN npm run build
 # --- Étape 2 : publish de l'API --------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS api
 WORKDIR /src
+# La copie depuis l'étape front SÉQUENCE volontairement les deux builds :
+# BuildKit exécuterait sinon `vite build` et `dotnet publish` en parallèle,
+# ce qui double le pic mémoire et fait tomber la VM Docker/WSL sur les postes
+# à RAM limitée (build interrompu par un EOF du moteur).
+COPY --from=front /src/dist/index.html /tmp/front-build-done
 COPY backend/RegReport.Api ./backend/RegReport.Api
 COPY src/version.ts ./src/version.ts
 # /p:Version : même numéro que le badge du front (source unique src/version.ts).
