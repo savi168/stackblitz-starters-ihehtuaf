@@ -1263,9 +1263,36 @@ const AdjustmentsCard: React.FC<{
             if (cands.length === 0) return 'new';
             return chosen[l.row] ? 'matched' : 'ambiguous';
           };
-          const nOf = (s: 'matched' | 'ambiguous' | 'new') => lines.filter(l => statusOf(l) === s).length;
+          const nOf = (st: 'matched' | 'ambiguous' | 'new') => lines.filter(l => statusOf(l) === st).length;
           const nM = nOf('matched'), nA = nOf('ambiguous'), nN = nOf('new');
           const total = lines.length || 1;
+          const filtered = lines.filter(l => !adjFilter || statusOf(l) === adjFilter);
+          const sel = filtered.find(l => l.row === expandedRow) ?? filtered[0] ?? null;
+          const move = (dir: 1 | -1) => {
+            if (filtered.length === 0) return;
+            const i = sel ? filtered.findIndex(l => l.row === sel.row) : 0;
+            const next = filtered[Math.min(filtered.length - 1, Math.max(0, i + dir))];
+            if (next) setExpandedRow(next.row);
+          };
+          const onKey = (e: React.KeyboardEvent) => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+            else if (e.key === 'Enter' && sel) {
+              const cands = results[sel.row] || [];
+              if (cands.length === 0 || chosen[sel.row]) { e.preventDefault(); void makeScript(sel); }
+            }
+          };
+          const STATUS_META = {
+            matched: { dot: 'bg-status-green', label: '✓ matched' },
+            ambiguous: { dot: 'bg-status-red', label: '? pick a candidate' },
+            new: { dot: 'bg-status-amber', label: '✚ new position' },
+          } as const;
+          const rawField = (raw: Record<string, unknown> | undefined, name: string): string => {
+            if (!raw) return '';
+            const k = Object.keys(raw).find(x => x.toLowerCase() === name.toLowerCase());
+            const v = k === undefined ? undefined : raw[k];
+            return v === null || v === undefined ? '' : String(v).trim();
+          };
           return (
             <>
             <div className="flex flex-wrap items-center gap-3 mb-1.5">
@@ -1276,243 +1303,255 @@ const AdjustmentsCard: React.FC<{
                 <div className="bg-status-amber h-full" style={{ width: `${(nN / total) * 100}%` }} />
                 <div className="bg-status-red h-full" style={{ width: `${(nA / total) * 100}%` }} />
               </div>
+              <span className="text-[10px] text-brand-text-secondary">↑↓ navigate · Enter generates</span>
             </div>
             <div className="flex flex-wrap gap-2 mb-2 text-[11px] font-semibold">
               {([
-                ['matched', `✓ ${nOf('matched')} matched`, 'text-status-green border-status-green/40'],
-                ['ambiguous', `? ${nOf('ambiguous')} to disambiguate`, 'text-status-red border-status-red/40'],
-                ['new', `✚ ${nOf('new')} new position(s)`, 'text-status-amber border-status-amber/40'],
+                ['matched', `✓ ${nM} matched`, 'text-status-green border-status-green/40'],
+                ['ambiguous', `? ${nA} to disambiguate`, 'text-status-red border-status-red/40'],
+                ['new', `✚ ${nN} new position(s)`, 'text-status-amber border-status-amber/40'],
               ] as Array<['matched' | 'ambiguous' | 'new', string, string]>).map(([key, label, cls]) => (
                 <button key={key} onClick={() => setAdjFilter(adjFilter === key ? '' : key)}
                   className={`px-2.5 py-1 rounded-full border transition-colors ${cls} ${adjFilter === key ? 'ring-2 ring-brand-primary/30 bg-brand-bg-body' : 'bg-white hover:bg-brand-bg-body/60'}`}>
                   {label}
                 </button>
               ))}
-              <span className="px-2.5 py-1 text-brand-text-secondary font-normal">click a line to open its candidates</span>
+            </div>
+
+            {/* Inbox: the lines as cards on the left, the selected line as a
+                large working panel in the middle — the live balance sheet
+                keeps the right column. */}
+            <div className="lg:grid lg:grid-cols-[290px_minmax(0,1fr)] lg:gap-3 outline-none" tabIndex={0} onKeyDown={onKey}>
+              <div className="border border-efg-line rounded-lg overflow-y-auto max-h-[74vh] divide-y divide-efg-line/70 mb-3 lg:mb-0 bg-white dark:bg-transparent">
+                {filtered.length === 0 ? (
+                  <EmptyState title="Nothing under this filter" hint="Clear the status filter above." compact />
+                ) : filtered.map(l => {
+                  const st = statusOf(l);
+                  const active = sel?.row === l.row;
+                  const meta = STATUS_META[st];
+                  return (
+                    <button key={l.row} onClick={() => setExpandedRow(l.row)}
+                      className={`block w-full text-left px-3 py-2.5 transition-colors border-l-[3px] ${active
+                        ? 'border-l-brand-primary bg-brand-primary/5'
+                        : 'border-l-transparent hover:bg-brand-bg-body/60'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-[12px] truncate">LIGNE {l.ligne} · {l.libelle || l.description || l.reference}</span>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-brand-text-secondary mt-0.5">
+                        <span className="truncate">{meta.label}{scripts[l.row] ? ' · SQL ready' : ''}</span>
+                        <span className="tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="border border-efg-line rounded-lg p-4 bg-white dark:bg-transparent min-h-[320px]">
+                {!sel ? (
+                  <EmptyState title="Pick a line" hint="Select a line on the left to review it." />
+                ) : (() => {
+                  const l = sel;
+                  const gl = mappings?.gl.get(l.ligne);
+                  const interco = l.ind ? mappings?.industry.get(l.ind)?.interco : undefined;
+                  const cands = results[l.row] || [];
+                  const cand = cands.find(c => c.id === chosen[l.row]);
+                  const lineCbc = interco ?? (cand ? rawField(cand.raw, 'CounterpartyBookingCenterId') : '');
+                  const lineBc = cand ? rawField(cand.raw, 'BookingCenterId') : bookingCenter.trim();
+                  const scopeTag = !scopeSet ? null
+                    : lineBc && !scopeSet.has(lineBc) ? { txt: `⊘ out of scope (${lineBc})`, cls: 'text-status-amber', tip: `Booked in ${lineBc}, outside the ${scopeSel} reporting set — excluded from the CONSOLIDATED impact preview only. The generated INSERT is not affected.` }
+                    : lineCbc && scopeSet.has(lineCbc) ? { txt: `✂ eliminated in ${scopeSel} (IC ${lineCbc})`, cls: 'text-status-red', tip: `Faces the intra-scope group company ${lineCbc} — netted out of the CONSOLIDATED impact preview only. The generated INSERT is not affected.` }
+                    : null;
+                  const st = statusOf(l);
+                  return (
+                    <div className="space-y-3">
+                      {/* Line header */}
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-lg font-bold leading-tight">LIGNE {l.ligne} <span className="font-normal text-brand-text-secondary">· {l.libelle || l.description || '—'}</span></p>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5 text-[11px]">
+                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">ref {l.reference}</span>
+                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
+                              client {l.client || '—'}
+                              {interco && <span title={`Intercompany — IND ${l.ind} → CounterpartyBookingCenterId ${interco}`} className="ml-1 font-semibold text-brand-secondary">IC {interco}</span>}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
+                              GL {gl?.legalAccountNumber || <span className="text-status-red font-semibold">no map</span>}{gl?.description ? ` — ${gl.description}` : ''}
+                            </span>
+                            {l.matDate && <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">mat {l.matDate}</span>}
+                            {scopeTag && <span title={scopeTag.tip} className={`px-2 py-0.5 rounded-full border border-current cursor-help font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
+                          </div>
+                        </div>
+                        <p className={`text-xl font-bold tabular-nums whitespace-nowrap ${l.montant < 0 ? 'text-status-red' : ''}`}>
+                          {l.montant.toLocaleString('en-CH')} <span className="text-sm font-semibold">{l.ccy}</span>
+                        </p>
+                      </div>
+
+                      {/* Candidates OR new-position form */}
+                      {cands.length > 0 ? (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1.5">
+                            {cands.length} MERCURY candidate(s) — the pick supplies the qualitative data; the booking stays on GL {gl?.legalAccountNumber || '?'}
+                          </p>
+                          <div className="space-y-1.5">
+                            {cands.map(c => {
+                              const picked = chosen[l.row] === c.id;
+                              return (
+                                <button key={c.id}
+                                  onClick={() => { setChosen(prev => ({ ...prev, [l.row]: c.id })); setScripts(prev => { const n = { ...prev }; delete n[l.row]; return n; }); }}
+                                  className={`block w-full text-left border rounded-lg px-3 py-2 transition-all ${picked
+                                    ? 'border-brand-primary ring-2 ring-brand-primary/25 bg-brand-primary/5'
+                                    : 'border-efg-line hover:border-brand-secondary'}`}>
+                                  <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                                    <span className="font-bold">{picked ? '● ' : '○ '}{c.id}</span>
+                                    <span className="tabular-nums font-semibold">{c.bookAmount?.toLocaleString('en-CH') ?? '—'} {c.currency || ''}</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-brand-text-secondary mt-0.5">
+                                    <span className={c.accountMatch ? 'text-status-green font-semibold' : ''}>acct {c.legalAccountNumber || '—'}{c.accountMatch ? ' ✓GL' : ''}</span>
+                                    <span>{c.typeOf || '—'}{c.subType ? `/${c.subType}` : ''}</span>
+                                    <span>cpty {c.counterpartyId || '—'}</span>
+                                    <span>load {c.loadId || '—'}</span>
+                                    {c.internalReference1 && <span>ref1 {c.internalReference1}</span>}
+                                    {c.contractId && <span>contract {c.contractId}</span>}
+                                    {c.dataSource && <span>{c.dataSource}</span>}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : mappings && (() => {
+                        const glE = mappings.gl.get(l.ligne);
+                        const ov = rowOverrides[l.row] || {};
+                        const glAccounts = Array.from(new Map(Array.from(mappings.gl.values()).map(g => [g.legalAccountNumber, g])).values());
+                        const typeOfs = Array.from(new Set([...Array.from(mappings.gl.values()).map(g => g.typeOf || ''), 'Account', 'Contract', 'Security', 'Cash'].filter(Boolean))).sort();
+                        const subTypes = Array.from(new Set(Array.from(mappings.gl.values()).map(g => g.subType || '').filter(Boolean))).sort();
+                        const isSec = (ov.typeOf || glE?.typeOf || '').toLowerCase() === 'security';
+                        const inp = 'p-1.5 border border-gray-200 rounded-md text-[12px] bg-white';
+                        return (
+                          <div className="border border-efg-line rounded-lg bg-brand-bg-body/40 p-3">
+                            <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-2">
+                              No match in MERCURY → new position. Confirm the key fields — the rest gets safe defaults.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-2">
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Legal account</label>
+                                <input list={`adj-accounts-${l.row}`} value={ov.legalAccountNumber ?? glE?.legalAccountNumber ?? ''}
+                                  onChange={e => setOverride(l.row, 'legalAccountNumber', e.target.value)} className={`${inp} w-28`} />
+                                <datalist id={`adj-accounts-${l.row}`}>
+                                  {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{g.description || g.line}</option>)}
+                                </datalist>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">TypeOf</label>
+                                <select value={ov.typeOf ?? glE?.typeOf ?? ''} onChange={e => setOverride(l.row, 'typeOf', e.target.value)} className={`${inp} w-28`}>
+                                  <option value="">—</option>
+                                  {typeOfs.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">SubType</label>
+                                <input list="adj-subtypes" value={ov.subType ?? glE?.subType ?? ''}
+                                  onChange={e => setOverride(l.row, 'subType', e.target.value)} className={`${inp} w-28`} />
+                                <datalist id="adj-subtypes">{subTypes.map(t => <option key={t} value={t} />)}</datalist>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Maturity date</label>
+                                <input type="date" value={ov.maturityDate ?? l.matDate ?? ''}
+                                  onChange={e => setOverride(l.row, 'maturityDate', e.target.value)} className={inp} />
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-end gap-2 mt-2">
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Counterparty</label>
+                                <select value={ov.genericId ?? (genericCpty && svcMod ? svcMod.genericIdOf(l, mappings) : '')}
+                                  onChange={e => setOverride(l.row, 'genericId', e.target.value)} className={`${inp} w-60`}>
+                                  <option value="">Real client {l.client || '?'} (row created if missing)</option>
+                                  {svcMod && svcMod.genericsOf(mappings).map(g => (
+                                    <option key={g.id} value={g.id}>{g.id} — {g.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Rating class</label>
+                                <select value={ov.ratingClass ?? ''} onChange={e => setOverride(l.row, 'ratingClass', e.target.value)} className={`${inp} w-20`}>
+                                  <option value="">—</option>
+                                  {Array.from({ length: 11 }, (_, i) => String(i)).map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Credit quality</label>
+                                <select value={ov.creditQuality ?? ''} onChange={e => setOverride(l.row, 'creditQuality', e.target.value)} className={`${inp} w-16`}>
+                                  {['', 'A', 'B', 'C'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                </select>
+                              </div>
+                              {isSec && (<>
+                                <div>
+                                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Security profile</label>
+                                  <select value={ov.secProfile ?? ''} onChange={e => setOverride(l.row, 'secProfile', e.target.value)} className={`${inp} w-24`}>
+                                    <option value="">—</option>
+                                    {(svcMod?.SEC_PROFILES || []).map(pr => <option key={pr.key} value={pr.key}>{pr.typeOf}/{pr.key}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">HQLA</label>
+                                  <select value={ov.hqla ?? ''} onChange={e => setOverride(l.row, 'hqla', e.target.value)} className={`${inp} w-16`}>
+                                    {['', 'L1', 'L2a'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Inv. grade</label>
+                                  <select value={ov.investmentGrade ?? ''} onChange={e => setOverride(l.row, 'investmentGrade', e.target.value)} className={`${inp} w-14`}>
+                                    {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">LEX guar.</label>
+                                  <select value={ov.lexGuaranteed ?? ''} onChange={e => setOverride(l.row, 'lexGuaranteed', e.target.value)} className={`${inp} w-14`}>
+                                    {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
+                                  </select>
+                                </div>
+                              </>)}
+                            </div>
+                            <p className="text-[10px] text-brand-text-secondary mt-2">
+                              {(ov.genericId ?? (genericCpty ? 'preset' : '')) !== ''
+                                ? <>Generic: client <strong>{l.client || '?'}</strong> kept in InternalReference2 · domicile <strong>{l.res || '?'}</strong> / nationality <strong>{l.nat || l.res || '?'}</strong> from the line's RES/NAT.</>
+                                : <>A list_counterparties row is created for <strong>{l.client || '?'}</strong> if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'}).</>}
+                              {isSec && ' Security line: a list_securities row is created — issuer = the chosen counterparty.'}
+                            </p>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Action + SQL */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button onClick={() => makeScript(l)}
+                          disabled={cands.length > 0 && !cand}
+                          className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors disabled:opacity-40">
+                          {cands.length === 0 ? '✚ Generate the INSERT (position + referential)' : cand ? `✓ Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
+                        </button>
+                        {st !== 'ambiguous' && !scripts[l.row] && <span className="text-[11px] text-brand-text-secondary">or press Enter</span>}
+                      </div>
+                      {scripts[l.row] && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1">Generated SQL — review, copy, run in SSMS</p>
+                          <textarea readOnly value={scripts[l.row]} rows={Math.min(scripts[l.row].split('\n').length, 16)}
+                            className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
+                          <button onClick={() => copyAndLog(l, scripts[l.row])}
+                            className="mt-1 text-[12px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors">
+                            📋 Copy + log decision
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
             </>
           );
         })()}
-        {lines.length > 0 && (
-          <div className="overflow-x-auto border border-efg-line rounded-lg">
-            <table className="w-full text-xs">
-              <thead className="bg-brand-bg-body"><tr>
-                {['Row', 'LIGNE', 'Description', 'Reference', 'Client', 'Amount', 'GL account', 'Match'].map(h =>
-                  <th key={h} className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {lines.filter(l => {
-                  if (!adjFilter || !results) return true;
-                  const cands = results[l.row] || [];
-                  const st = cands.length === 0 ? 'new' : chosen[l.row] ? 'matched' : 'ambiguous';
-                  return st === adjFilter;
-                }).map(l => {
-                  const gl = mappings?.gl.get(l.ligne);
-                  const interco = l.ind ? mappings?.industry.get(l.ind)?.interco : undefined;
-                  const cands = results?.[l.row];
-                  const cand = cands?.find(c => c.id === chosen[l.row]);
-                  const status = !cands ? '—'
-                    : cands.length === 0 ? '✚ new position'
-                    : cand ? `✓ ${cand.id}`
-                    : `${cands.length} candidates`;
-                  const statusCls = !cands ? 'text-brand-text-secondary'
-                    : cands.length === 0 ? 'text-status-amber font-semibold'
-                    : cand ? 'text-status-green font-semibold'
-                    : 'text-status-red font-semibold';
-                  // Scope view: is the line eliminated (interco inside the
-                  // consolidation scope) or booked outside the scope?
-                  const rawField = (raw: Record<string, unknown> | undefined, name: string): string => {
-                    if (!raw) return '';
-                    const k = Object.keys(raw).find(x => x.toLowerCase() === name.toLowerCase());
-                    const v = k === undefined ? undefined : raw[k];
-                    return v === null || v === undefined ? '' : String(v).trim();
-                  };
-                  const lineCbc = interco ?? (cand ? rawField(cand.raw, 'CounterpartyBookingCenterId') : '');
-                  const lineBc = cand ? rawField(cand.raw, 'BookingCenterId') : bookingCenter.trim();
-                  const scopeTag = !scopeSet ? null
-                    : lineBc && !scopeSet.has(lineBc) ? { txt: `⊘ out of scope (${lineBc})`, cls: 'text-status-amber', tip: `Booked in ${lineBc}, outside the ${scopeSel} reporting set — excluded from the CONSOLIDATED impact preview only. The generated INSERT is not affected: it still copies the position's attributes as-is.` }
-                    : lineCbc && scopeSet.has(lineCbc) ? { txt: `✂ eliminated in ${scopeSel} (IC ${lineCbc})`, cls: 'text-status-red', tip: `Faces the intra-scope group company ${lineCbc} — netted out of the CONSOLIDATED impact preview only. The generated INSERT is not affected.` }
-                    : null;
-                  return (
-                    <React.Fragment key={l.row}>
-                      <tr onClick={() => setExpandedRow(expandedRow === l.row ? null : l.row)}
-                        className={`border-t border-efg-line align-top ${cands ? 'cursor-pointer hover:bg-brand-bg-body/50' : ''} ${expandedRow === l.row ? 'bg-brand-bg-body/40' : ''}`}>
-                        <td className="px-3 py-1.5 tabular-nums">{l.row}</td>
-                        <td className="px-3 py-1.5 font-semibold">{l.ligne}</td>
-                        <td className="px-3 py-1.5 whitespace-normal max-w-xs">{l.libelle || l.description || '—'}</td>
-                        <td className="px-3 py-1.5">{l.reference}</td>
-                        <td className="px-3 py-1.5">
-                          {l.client || '—'}
-                          {interco && (
-                            <span title={`Intercompany — IND ${l.ind} → ${mappings?.industry.get(l.ind || '')?.description || ''} → CounterpartyBookingCenterId ${interco}`}
-                              className="ml-1 text-[9px] font-semibold px-1 py-0.5 rounded border border-brand-secondary/50 text-brand-secondary">IC {interco}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</td>
-                        <td className="px-3 py-1.5">{gl?.legalAccountNumber || <span className="text-status-red">no GL map</span>}</td>
-                        <td className={`px-3 py-1.5 whitespace-nowrap ${statusCls}`}>
-                          {cands ? (expandedRow === l.row ? '\u25be ' : '\u25b8 ') : ''}{status}
-                          {scopeTag && <span title={scopeTag.tip} className={`ml-1.5 text-[10px] font-semibold cursor-help ${scopeTag.cls}`}>{scopeTag.txt}</span>}
-                        </td>
-                      </tr>
-                      {cands && expandedRow === l.row && (
-                        <tr className="border-t border-efg-line/50 bg-brand-bg-body/40">
-                          <td colSpan={8} className="px-4 py-2">
-                            {cands.length > 0 && (
-                              <table className="text-[11px] w-full mb-2">
-                                <thead><tr>
-                                  {['Pick', 'Position Id', 'Load', 'Account', 'TypeOf', 'Ccy', 'Book amount', 'Counterparty', 'InternalRef1', 'ContractId', 'Source'].map(h =>
-                                    <th key={h} className="px-2 py-1 text-left text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold">{h}</th>)}
-                                </tr></thead>
-                                <tbody>
-                                  {cands.map(c => (
-                                    <tr key={c.id} onClick={() => { setChosen(prev => ({ ...prev, [l.row]: c.id })); setScripts(prev => { const p = { ...prev }; delete p[l.row]; return p; }); }}
-                                      className={`border-t border-efg-line/60 cursor-pointer hover:bg-white ${chosen[l.row] === c.id ? 'bg-brand-secondary/10 font-semibold' : ''}`}>
-                                      <td className="px-2 py-1">{chosen[l.row] === c.id ? '●' : '○'}</td>
-                                      <td className="px-2 py-1">{c.id}</td>
-                                      <td className="px-2 py-1 text-brand-text-secondary">{c.loadId || '—'}</td>
-                                      <td className={`px-2 py-1 ${c.accountMatch ? 'text-status-green font-semibold' : ''}`}>{c.legalAccountNumber || '—'}{c.accountMatch ? ' ✓GL' : ''}</td>
-                                      <td className="px-2 py-1">{c.typeOf || '—'}{c.subType ? `/${c.subType}` : ''}</td>
-                                      <td className="px-2 py-1">{c.currency || '—'}</td>
-                                      <td className="px-2 py-1 text-right tabular-nums">{c.bookAmount?.toLocaleString('en-CH') ?? '—'}</td>
-                                      <td className="px-2 py-1">{c.counterpartyId || '—'}</td>
-                                      <td className="px-2 py-1">{c.internalReference1 || '—'}</td>
-                                      <td className="px-2 py-1">{c.contractId || '—'}</td>
-                                      <td className="px-2 py-1">{c.dataSource || '—'}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                            {cands.length === 0 && mappings && (() => {
-                              const glE = mappings.gl.get(l.ligne);
-                              const ov = rowOverrides[l.row] || {};
-                              const glAccounts = Array.from(new Map(Array.from(mappings.gl.values()).map(g => [g.legalAccountNumber, g])).values());
-                              const typeOfs = Array.from(new Set([...Array.from(mappings.gl.values()).map(g => g.typeOf || ''), 'Account', 'Contract', 'Security', 'Cash'].filter(Boolean))).sort();
-                              const subTypes = Array.from(new Set(Array.from(mappings.gl.values()).map(g => g.subType || '').filter(Boolean))).sort();
-                              const isSec = (ov.typeOf || glE?.typeOf || '').toLowerCase() === 'security';
-                              const inp = 'p-1.5 border border-gray-200 rounded-md text-[11px] bg-white';
-                              return (
-                                <div className="border border-efg-line rounded-lg bg-white/60 p-2.5 mb-2">
-                                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1.5">
-                                    New position — confirm the key fields, the rest gets safe defaults
-                                  </p>
-                                  <div className="flex flex-wrap items-end gap-2">
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Legal account</label>
-                                      <input list={`adj-accounts-${l.row}`} value={ov.legalAccountNumber ?? glE?.legalAccountNumber ?? ''}
-                                        onChange={e => setOverride(l.row, 'legalAccountNumber', e.target.value)} className={`${inp} w-28`} />
-                                      <datalist id={`adj-accounts-${l.row}`}>
-                                        {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{g.description || g.line}</option>)}
-                                      </datalist>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">TypeOf</label>
-                                      <select value={ov.typeOf ?? glE?.typeOf ?? ''} onChange={e => setOverride(l.row, 'typeOf', e.target.value)} className={`${inp} w-28`}>
-                                        <option value="">—</option>
-                                        {typeOfs.map(t => <option key={t} value={t}>{t}</option>)}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">SubType</label>
-                                      <input list="adj-subtypes" value={ov.subType ?? glE?.subType ?? ''}
-                                        onChange={e => setOverride(l.row, 'subType', e.target.value)} className={`${inp} w-28`} />
-                                      <datalist id="adj-subtypes">{subTypes.map(t => <option key={t} value={t} />)}</datalist>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Maturity date</label>
-                                      <input type="date" value={ov.maturityDate ?? l.matDate ?? ''}
-                                        onChange={e => setOverride(l.row, 'maturityDate', e.target.value)} className={inp} />
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-wrap items-end gap-2 mt-2">
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Counterparty</label>
-                                      <select value={ov.genericId ?? (genericCpty && svcMod ? svcMod.genericIdOf(l, mappings) : '')}
-                                        onChange={e => setOverride(l.row, 'genericId', e.target.value)} className={`${inp} w-56`}>
-                                        <option value="">Real client {l.client || '?'} (row created if missing)</option>
-                                        {svcMod && svcMod.genericsOf(mappings).map(g => (
-                                          <option key={g.id} value={g.id}>{g.id} — {g.name}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Rating class</label>
-                                      <select value={ov.ratingClass ?? ''} onChange={e => setOverride(l.row, 'ratingClass', e.target.value)} className={`${inp} w-20`}>
-                                        <option value="">—</option>
-                                        {Array.from({ length: 11 }, (_, i) => String(i)).map(r => <option key={r} value={r}>{r}</option>)}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Credit quality</label>
-                                      <select value={ov.creditQuality ?? ''} onChange={e => setOverride(l.row, 'creditQuality', e.target.value)} className={`${inp} w-16`}>
-                                        {['', 'A', 'B', 'C'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
-                                      </select>
-                                    </div>
-                                    {isSec && (<>
-                                      <div>
-                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Security profile</label>
-                                        <select value={ov.secProfile ?? ''} onChange={e => setOverride(l.row, 'secProfile', e.target.value)} className={`${inp} w-24`}>
-                                          <option value="">—</option>
-                                          {(svcMod?.SEC_PROFILES || []).map(pr => <option key={pr.key} value={pr.key}>{pr.typeOf}/{pr.key}</option>)}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">HQLA</label>
-                                        <select value={ov.hqla ?? ''} onChange={e => setOverride(l.row, 'hqla', e.target.value)} className={`${inp} w-16`}>
-                                          {['', 'L1', 'L2a'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Inv. grade</label>
-                                        <select value={ov.investmentGrade ?? ''} onChange={e => setOverride(l.row, 'investmentGrade', e.target.value)} className={`${inp} w-14`}>
-                                          {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">LEX guar.</label>
-                                        <select value={ov.lexGuaranteed ?? ''} onChange={e => setOverride(l.row, 'lexGuaranteed', e.target.value)} className={`${inp} w-14`}>
-                                          {['', '1', '0'].map(q => <option key={q} value={q}>{q || '—'}</option>)}
-                                        </select>
-                                      </div>
-                                    </>)}
-                                  </div>
-                                  <p className="text-[10px] text-brand-text-secondary mt-1.5">
-                                    {(ov.genericId ?? (genericCpty ? 'preset' : '')) !== ''
-                                      ? <>Generic: client <strong>{l.client || '?'}</strong> kept in InternalReference2 · domicile <strong>{l.res || '?'}</strong> / nationality <strong>{l.nat || l.res || '?'}</strong> from the line's RES/NAT.</>
-                                      : <>A list_counterparties row is created for <strong>{l.client || '?'}</strong> if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'}).</>}
-                                    {isSec && ' Security line: a list_securities row is created — issuer = the chosen counterparty.'}
-                                  </p>
-                                </div>
-                              );
-                            })()}
-                            <div className="flex gap-2">
-                              <button onClick={() => makeScript(l)}
-                                disabled={cands.length > 0 && !cand}
-                                className="text-[11px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1 px-2.5 rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-brand-secondary">
-                                {cands.length === 0 ? '✚ Generate the INSERT (position + referential)' : cand ? `Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
-                              </button>
-                            </div>
-                            {scripts[l.row] && (
-                              <div className="mt-2">
-                                <textarea readOnly value={scripts[l.row]} rows={Math.min(scripts[l.row].split('\n').length, 24)}
-                                  className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
-                                <button onClick={() => copyAndLog(l, scripts[l.row])}
-                                  className="mt-1 text-[11px] font-semibold text-brand-text-secondary border border-gray-300 hover:border-brand-secondary hover:text-brand-secondary py-1 px-3 rounded-md transition-colors">
-                                  📋 Copy + log decision (run in SSMS after review)
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+
         {oneShotItems && oneShotItems.ready.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mt-3 border border-efg-line rounded-lg bg-brand-bg-body/40 px-3 py-2">
             <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-brand-primary">

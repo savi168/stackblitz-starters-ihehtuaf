@@ -6,6 +6,31 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.15.0 — 14 September 2026
+
+**Theme: the Reco inbox.**
+
+- The adjustment lines are now worked **like an inbox**, in three
+  columns:
+  - **left** — the lines as cards (status dot, LIGNE + label, amount),
+    with the progress bar and the matched / to-pick / new filters on
+    top;
+  - **middle** — the selected line as a large working panel: a proper
+    header (amount, reference, client with IC badge, GL account and its
+    label, maturity, scope tag), the MERCURY **candidates as selectable
+    cards** (no more dense sub-table), or the new-position form for
+    no-match lines; one primary button generates the INSERT, and the
+    SQL appears below it for review + *Copy & log*;
+  - **right** — the live balance sheet, unchanged.
+- **Keyboard-driven**: ↑↓ moves through the lines, Enter generates the
+  selected line's INSERT (when it is matched or new) — a 100-line batch
+  is worked through like a mail queue.
+- Same functionality as before (matching rules, generics, per-line
+  overrides, one-shot exports) — only the presentation changed.
+- No schema changes.
+
+---
+
 ## v3.14.0 — 14 September 2026
 
 **Theme: Balance sheet analytics — wired to MERCURY.**
