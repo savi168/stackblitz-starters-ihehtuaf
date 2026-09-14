@@ -470,8 +470,18 @@ const AdjustmentsCard: React.FC<{
     // New-position form (no-match lines): the few fields that matter, editable
     // per line — everything else keeps neutral defaults / generic referential.
     const [rowOverrides, setRowOverrides] = useState<Record<number, NewPositionOverrides>>({});
+    const [advRow, setAdvRow] = useState<number | null>(null);
     const setOverride = (row: number, field: string, value: string) => {
       setRowOverrides(prev => ({ ...prev, [row]: { ...prev[row], [field]: value } }));
+      setScripts(prev => { const n = { ...prev }; delete n[row]; return n; });
+    };
+    const setRawOverride = (row: number, group: 'position' | 'security' | 'counterparty', col: string, value: string) => {
+      setRowOverrides(prev => {
+        const cur = prev[row] || {};
+        const raw = { ...(cur.raw || {}) };
+        raw[group] = { ...(raw[group] || {}), [col]: value };
+        return { ...prev, [row]: { ...cur, raw } };
+      });
       setScripts(prev => { const n = { ...prev }; delete n[row]; return n; });
     };
     const [baseRows, setBaseRows] = useState<Array<{ account?: string; prefix: string; bookingCenterId: string; counterpartyBookingCenterId: string; currency?: string; amount: number }> | null>(null);
@@ -1435,9 +1445,15 @@ const AdjustmentsCard: React.FC<{
                         const inp = 'p-1.5 border border-gray-200 rounded-md text-[12px] bg-white';
                         return (
                           <div className="border border-efg-line rounded-lg bg-brand-bg-body/40 p-3">
-                            <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-2">
-                              No match in MERCURY → new position. Confirm the key fields — the rest gets safe defaults.
-                            </p>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                              <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">
+                                No match in MERCURY → new position. Confirm the key fields — the rest gets safe defaults.
+                              </p>
+                              <button onClick={() => setAdvRow(advRow === l.row ? null : l.row)}
+                                className="text-[11px] underline text-brand-text-secondary hover:text-brand-primary">
+                                {advRow === l.row ? 'hide all fields' : '🔧 all fields (advanced)'}
+                              </button>
+                            </div>
                             <div className="flex flex-wrap items-end gap-2">
                               <div>
                                 <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Legal account</label>
@@ -1529,6 +1545,51 @@ const AdjustmentsCard: React.FC<{
                                 : <>A list_counterparties row is created for <strong>{l.client || '?'}</strong> if missing (IND {l.ind || '—'} → {(l.ind && mappings.industry.get(l.ind)?.typeOf) || '?'}).</>}
                               {isSec && ' Security line: a list_securities row is created — issuer = the chosen counterparty.'}
                             </p>
+                            {isSec && !l.client && !(ov.genericId ?? (genericCpty ? 'preset' : '')) && (
+                              <p className="text-[11px] text-status-red font-semibold mt-1">
+                                ⚠ No issuer: this security line has no client and no generic — pick a counterparty above so
+                                list_securities.IssuerId/IssuerPIT links to a list_counterparties row (otherwise → C5 orphan).
+                              </p>
+                            )}
+                            {advRow === l.row && svcMod && (() => {
+                              const effOpts = { ...buildOpts(), overrides: ov };
+                              const preview = svcMod.previewNewPositionRows(
+                                l, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, effOpts);
+                              const groups: Array<{ key: 'position' | 'counterparty' | 'security'; title: string; cols: Array<[string, string]>; row: Record<string, unknown> | null }> = [
+                                { key: 'position', title: 'core_positions', cols: svcMod.CORE_POSITION_COLS as unknown as Array<[string, string]>, row: preview.position },
+                                { key: 'counterparty', title: 'list_counterparties', cols: svcMod.LIST_CPTY_COLS as unknown as Array<[string, string]>, row: preview.counterparty },
+                                { key: 'security', title: 'list_securities', cols: svcMod.LIST_SEC_COLS as unknown as Array<[string, string]>, row: preview.security },
+                              ];
+                              return (
+                                <div className="mt-3 border-t border-efg-line pt-2 space-y-3">
+                                  <p className="text-[10px] text-brand-text-secondary">
+                                    Every column of the generated rows — the current value is what will be inserted; type to
+                                    override it (blank = keep). Greyed fields are chain-managed (ids, PITs, load).
+                                    Field definitions: <em>docs/mercury-model/datamodel (1).pdf</em> (Quadrum data model).
+                                  </p>
+                                  {groups.map(g => g.row && (
+                                    <div key={g.key}>
+                                      <p className="text-[10px] uppercase tracking-[0.1em] font-bold text-brand-primary mb-1">{g.title}</p>
+                                      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-x-2 gap-y-1.5">
+                                        {g.cols.map(([name]) => {
+                                          const chain = svcMod.CHAIN_COLS.has(name) || name === 'ReportingDate';
+                                          const overridden = ov.raw?.[g.key]?.[name] !== undefined && ov.raw?.[g.key]?.[name] !== '';
+                                          const shown = overridden ? ov.raw![g.key]![name] : String(g.row![name] ?? '');
+                                          return (
+                                            <div key={name}>
+                                              <label className={`block text-[8px] uppercase tracking-wider truncate ${overridden ? 'text-brand-primary font-bold' : 'text-brand-text-secondary'}`} title={name}>{name}</label>
+                                              <input value={shown} disabled={chain}
+                                                onChange={e => setRawOverride(l.row, g.key, name, e.target.value)}
+                                                className={`w-full p-1 border rounded text-[11px] ${chain ? 'bg-brand-bg-body/60 text-brand-text-secondary border-efg-line' : overridden ? 'bg-white border-brand-primary' : 'bg-white border-gray-200'}`} />
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}

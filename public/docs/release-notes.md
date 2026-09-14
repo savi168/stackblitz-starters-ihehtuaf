@@ -6,6 +6,35 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.18.0 — 14 September 2026
+
+**Theme: every field at hand — and the Excel referential fixed.**
+
+- **Fix — Excel one-shot export**: the `list_counterparties` /
+  `list_securities` sheets were built without the per-line choices —
+  a security booked on a generic (e.g. GEN-CGOV) got its position row
+  but **no issuer row**, breaking `ls.IssuerId/IssuerPIT =
+  lc.Id/PointInTime`, and the security sheet ignored the chosen
+  profile/maturity. The companion sheets now apply the same per-line
+  logic as the .sql script (generics included, one row per distinct
+  counterparty id). If you loaded from a previous Excel, re-export and
+  re-load the referential sheets.
+- **Advanced all-fields editor** on new-position lines (🔧 *all fields*):
+  the quick fields stay, and a panel now lists **every column of the
+  rows that will be generated** — `core_positions`,
+  `list_counterparties`, `list_securities` (security lines) — prefilled
+  with the exact values the INSERT will carry; type to override any of
+  them (blank = keep, overridden fields highlighted). Chain-managed
+  columns (ids, PITs, LoadId) are locked so the
+  position → security → issuer links can never break. Field
+  definitions: the Quadrum data model (docs/mercury-model).
+- **Issuer guard**: a security line with no client and no generic now
+  shows a red warning — the issuer link would be broken (future C5
+  orphan).
+- No schema changes.
+
+---
+
 ## v3.17.1 — 14 September 2026
 
 **Theme: HFM nomenclature seeded too.**

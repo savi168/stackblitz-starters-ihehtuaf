@@ -493,7 +493,43 @@ export interface NewPositionOverrides {
   hfmAccount?: string;
   /** GroupLEXId of the generated list_counterparties row. */
   groupLexId?: string;
+  /** Advanced editor: raw per-table field overrides, applied LAST on the
+   * generated rows (blank values are ignored). Chain fields (ids / PITs)
+   * are managed by the tool and never overridden from here. */
+  raw?: {
+    position?: Record<string, string>;
+    security?: Record<string, string>;
+    counterparty?: Record<string, string>;
+  };
 }
+
+/** Chain-managed columns the advanced editor must not touch. */
+export const CHAIN_COLS = new Set([
+  'Id', 'LoadId', 'PointInTime', 'SecurityId', 'SecurityPIT',
+  'CounterpartyId', 'CounterpartyPIT', 'IssuerId', 'IssuerPIT',
+]);
+
+/** Applies raw overrides onto a generated row, typed per column kind. */
+const applyRaw = (
+  row: Record<string, unknown>, cols: Array<[string, PosColKind]>, raw?: Record<string, string>
+): void => {
+  if (!raw) return;
+  const kinds = new Map(cols);
+  for (const [name, value] of Object.entries(raw)) {
+    if (CHAIN_COLS.has(name)) continue;
+    const v = value.trim();
+    if (v === '') continue; // blank = keep the computed value
+    const kind = kinds.get(name);
+    if (kind === 'num' || kind === 'pit') {
+      if (['true', 'yes', 'y', 'x'].includes(v.toLowerCase())) { row[name] = 1; continue; }
+      if (['false', 'no', 'n'].includes(v.toLowerCase())) { row[name] = 0; continue; }
+      const n = Number(v.replace(/['\s]/g, '').replace(',', '.'));
+      if (isFinite(n)) row[name] = n;
+    } else {
+      row[name] = v;
+    }
+  }
+};
 
 /** The GENERIC counterparty referential, seeded from the team's filled
  * template — one shared row per counterparty type. Domicile/HQ/nationality
@@ -625,6 +661,7 @@ const newPositionValues = (
     IsEdited: 1,
     ReportingDate: reportingDate,
   });
+  applyRaw(row, CORE_POSITION_COLS, ov?.raw?.position);
   return row;
 };
 
@@ -805,6 +842,7 @@ export const counterpartyValues = (
   if (rating && /^\d+$/.test(rating)) row.RatingClass = Number(rating);
   const cq = opts?.overrides?.creditQuality?.trim();
   if (cq) row.CreditQuality = cq;
+  applyRaw(row, LIST_CPTY_COLS, opts?.overrides?.raw?.counterparty);
   return row;
 };
 
@@ -848,6 +886,7 @@ export const securityValues = (
   // the generic carries the paper).
   const genId = effectiveGenericId(line, mappings, opts);
   if (genId) { row.IssuerId = genId; row.IssuerPIT = numOrSelf(loadId); }
+  applyRaw(row, LIST_SEC_COLS, opts?.overrides?.raw?.security);
   return row;
 };
 
@@ -889,6 +928,25 @@ export const buildNewPositionPackage = (
   }
   parts.push(buildNewPositionInsert(line, loadId, reportingDate, mappings, opts));
   return parts.join('\n\n');
+};
+
+/** Preview of every row a no-match line will generate (position + optional
+ * referential companions) — feeds the advanced all-fields editor. */
+export const previewNewPositionRows = (
+  line: AdjustmentLine, loadId: string, reportingDate: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
+): {
+  position: Record<string, unknown>;
+  counterparty: Record<string, unknown> | null;
+  security: Record<string, unknown> | null;
+} => {
+  const sec = isSecurityLine(line, mappings, opts);
+  const genId = effectiveGenericId(line, mappings, opts);
+  return {
+    position: newPositionValues(line, loadId, reportingDate, mappings, opts),
+    counterparty: (line.client || genId) ? counterpartyValues(line, loadId, reportingDate, mappings, opts) : null,
+    security: sec ? securityValues(line, loadId, reportingDate, mappings, opts) : null,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -1025,18 +1083,23 @@ export const exportAdjustmentsWorkbook = (
   // Referential companions of the new positions (deduplicated) — same rows the
   // one-shot .sql creates with IF NOT EXISTS.
   const newItems = items.filter(i => !i.cand);
+  const optsOf = (i: AdjustmentItem) => (i.overrides ? { ...opts, overrides: i.overrides } : opts);
   const cptyRows = new Map<string, Record<string, unknown>>();
   for (const i of newItems) {
-    if (!i.line.client || cptyRows.has(i.line.client)) continue;
-    cptyRows.set(i.line.client, counterpartyValues(i.line, loadId, reportingDate, mappings));
+    const o = optsOf(i);
+    // Same identity the position will reference: the generic when one is
+    // used, else the real client.
+    const key = effectiveGenericId(i.line, mappings, o) ?? i.line.client ?? '';
+    if (!key || cptyRows.has(key)) continue;
+    cptyRows.set(key, counterpartyValues(i.line, loadId, reportingDate, mappings, o));
   }
   if (cptyRows.size > 0) {
     XLSX.utils.book_append_sheet(wb,
       XLSX.utils.json_to_sheet(Array.from(cptyRows.values()), { header: LIST_CPTY_COLS.map(([n]) => n) }),
       'list_counterparties');
   }
-  const secRows = newItems.filter(i => isSecurityLine(i.line, mappings))
-    .map(i => securityValues(i.line, loadId, reportingDate, mappings));
+  const secRows = newItems.filter(i => isSecurityLine(i.line, mappings, optsOf(i)))
+    .map(i => securityValues(i.line, loadId, reportingDate, mappings, optsOf(i)));
   if (secRows.length > 0) {
     XLSX.utils.book_append_sheet(wb,
       XLSX.utils.json_to_sheet(secRows, { header: LIST_SEC_COLS.map(([n]) => n) }),
