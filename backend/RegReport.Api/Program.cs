@@ -107,6 +107,16 @@ using (var scope = app.Services.CreateScope())
         app.Logger.LogInformation("Seeded {N} LegalAccountNumber labels (kind lanlabel) into ProdMappingEntries.", AccountNomenclature.Labels.Count);
     }
 
+    // Official HFM (IFRS) nomenclature (kind "hfmname") — same contract:
+    // seeded when absent, authoritative over workbook-derived labels.
+    if (!db.ProdMappingEntries.Any(e => e.Kind == "hfmname"))
+    {
+        db.ProdMappingEntries.AddRange(HfmNomenclature.Labels.Select(kv =>
+            new RegReport.Api.Models.ProdMappingEntry { Kind = "hfmname", MapKey = kv.Key, TextValue = kv.Value }));
+        db.SaveChanges();
+        app.Logger.LogInformation("Seeded {N} HFM labels (kind hfmname) into ProdMappingEntries.", HfmNomenclature.Labels.Count);
+    }
+
     // Optional audit retention (App:ChangeLogRetentionDays). Default 0 = keep
     // everything — in banking the audit trail usually stays for years, and the
     // (Dataset, RowKey)/(At) indexes keep it fast even with millions of rows.

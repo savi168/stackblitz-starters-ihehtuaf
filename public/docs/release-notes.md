@@ -6,6 +6,24 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.17.1 — 14 September 2026
+
+**Theme: HFM nomenclature seeded too.**
+
+- The official **HFM (IFRS) nomenclature is now seeded into the
+  database** at API startup — 93 reporting lines (HFM account → label,
+  e.g. `113 01 01 — Due from other banks at term`), extracted from the
+  `Mapping_GL_BALANCESHEET` correspondence table (HFM_Account ×
+  CAO_DM.RepLineHFMDsc) the team already maintains. Stored as kind
+  `hfmname` rows, seeded only when absent, editable in the Data
+  Explorer, authoritative over workbook-derived labels everywhere the
+  IFRS view is shown (live balance sheet, Analytics top movements).
+- No separate nomenclature file needed — the workbook was already the
+  source of truth.
+- No schema changes.
+
+---
+
 ## v3.17.0 — 14 September 2026
 
 **Theme: the nomenclatures live in the database.**
