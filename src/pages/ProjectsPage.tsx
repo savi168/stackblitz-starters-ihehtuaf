@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Card, PageHeader, BackButton, Modal, SectionHeader } from '../components';
+import { Card, PageHeader, BackButton, Modal, SectionHeader, EmptyState } from '../components';
 import {
   DEFAULT_STATUSES, PROJECT_COLORS, deriveKey, isDoneTask, nowIso, projIdAlloc, statusesOf,
 } from '../services/projects';
@@ -98,7 +98,7 @@ export const ProjectsPage: React.FC = () => {
                 </div>
                 <div className="border-t border-efg-line pt-4">
                     {projects.active.length === 0 ? (
-                        <p className="text-sm text-brand-text-secondary py-6 text-center">No projects yet. Create one to get started.</p>
+                        <EmptyState compact title="No projects yet" hint="Create one to get started — board, list, timeline and files come with it." />
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                             {projects.active.map(row => <ProjectCard key={row.p.id} p={row} />)}

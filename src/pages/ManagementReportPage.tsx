@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Bar, BarChart, CartesianGrid, ComposedChart, LabelList, Legend, Line, LineChart,
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
-import { BackButton, Card, Modal, PageHeader, SectionHeader, Sparkline, TabButton } from '../components';
+import { BackButton, Card, EmptyState, Modal, PageHeader, SectionHeader, Sparkline, TabButton } from '../components';
 import { CET1CapitalBreakdown, FinStatement, FinStatementKind, LcrReport, NsfrReport } from '../types';
 import { computeFinSummary, DEFAULT_GAAP, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import { computeCapitalSummary } from '../services/capital';
@@ -2147,9 +2148,10 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
         </Card>
       ))}
       {rows.length === 0 && (
-        <p className="text-brand-text-secondary py-10 text-center col-span-2">
-          No data yet — import the FINMA/SNB Excel returns in the Capital &amp; Liquidity Workbench.
-        </p>
+        <div className="col-span-2">
+          <EmptyState title="No data yet"
+            hint="Import the FINMA/SNB Excel returns in the Capital & Liquidity Workbench — the overview builds itself from every entity found in the data." />
+        </div>
       )}
     </div>
   );
@@ -2492,8 +2494,14 @@ const TAB_TITLES: Record<ReportTab, string> = {
 
 export const ManagementReportPage: React.FC = () => {
   const { data, allEntities } = useData();
-  const [tab, setTab] = useState<ReportTab>('overview');
-  const [entity, setEntity] = useState(allEntities[0] || 'Group');
+  // ?entity= deep link (command palette): pre-select that entity's report.
+  const [urlParams] = useSearchParams();
+  const urlEntity = urlParams.get('entity');
+  const [tab, setTab] = useState<ReportTab>(urlEntity ? 'capital' : 'overview');
+  const [entity, setEntity] = useState(
+    urlEntity && (allEntities.length === 0 || allEntities.includes(urlEntity))
+      ? urlEntity
+      : allEntities[0] || 'Group');
   const [refDate, setRefDate] = useState('');
   const [exporting, setExporting] = useState(false);
   const contentRef = React.useRef<HTMLDivElement>(null);

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useData } from '../context/DataContext';
-import { Card, PageHeader, BackButton, SectionHeader, TabButton } from '../components';
+import { Card, PageHeader, BackButton, SectionHeader, TabButton, EmptyState } from '../components';
 import {
   getTechLog, subscribeTechLog, getLocalBusinessLog, TechEntry, BusinessEntry,
 } from '../services/appLog';
@@ -96,7 +96,7 @@ const TechnicalTab: React.FC = () => {
             </thead>
             <tbody>
               {clientRows.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-brand-text-secondary">No entries yet.</td></tr>
+                <tr><td colSpan={5}><EmptyState compact title="No entries yet" hint="API calls made by this tab appear here as you use the app." /></td></tr>
               ) : clientRows.map((r: TechEntry, i) => (
                 <tr key={i} className="border-t border-efg-line">
                   <td className="px-3 py-1.5 text-brand-text-secondary tabular-nums">{time(r.at)}</td>
@@ -209,7 +209,7 @@ const BusinessTab: React.FC = () => {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-brand-text-secondary">{rows == null ? 'Loading…' : 'No entries yet — they appear as soon as data changes.'}</td></tr>
+              <tr><td colSpan={6}>{rows == null ? <p className="px-3 py-8 text-center text-brand-text-secondary">Loading…</p> : <EmptyState compact title="No entries yet" hint="Every data change is recorded here — edits, imports, deletions, with who and when." />}</td></tr>
             ) : (filtered as (ServerBusinessEntry | BusinessEntry)[]).map((r, i) => (
               <tr key={i} className="border-t border-efg-line align-top">
                 <td className="px-3 py-1.5 text-brand-text-secondary whitespace-nowrap tabular-nums">{dateTime(r.at)}</td>

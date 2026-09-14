@@ -6,6 +6,25 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.5.0 — 14 September 2026
+
+**Theme: find anything — command palette & friendly empty states.**
+
+- **Command palette (Ctrl+K / Cmd+K**, or the 🔍 button in the ribbon):
+  type to jump anywhere — pages, built-in documentation, **entities**
+  (straight into their Management Report), projects, tasks, deadlines,
+  team members and contacts (searchable by department/topics), plus a
+  dark-mode toggle. Keyboard-driven (↑↓ + Enter), fully offline, and it
+  respects roles: Readers only see Report and Daily Reports.
+- The Management Report accepts an `?entity=` deep link (used by the
+  palette's entity results).
+- **Illustrated empty states**: bare "No rows." / "No data yet" texts
+  replaced by a small illustration with a helpful hint (Data Explorer,
+  Report overview, Logs, Projects).
+- No schema changes.
+
+---
+
 ## v3.4.0 — 14 September 2026
 
 **Theme: charts, refined — and trends at a glance.**

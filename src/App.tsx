@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router
 import { DataProvider, useData } from './context/DataContext';
 import { ErrorBoundary } from './components';
 import { APP_VERSION, fetchMeta } from './version';
+import { CommandPalette } from './CommandPalette';
 
 // adminOnly modules stay hidden (and their routes blocked) for users without
 // the Admin role — the API enforces the same rule server-side on mutations.
@@ -247,6 +248,15 @@ const App: React.FC = () => {
               <div className="flex items-center gap-2">
                 <NavBar />
                 <span className="flex items-center gap-0.5 pl-1 border-l border-efg-line">
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent('regreport:open-palette'))}
+                    title="Search everything — Ctrl K"
+                    className="p-1.5 rounded-md border border-transparent text-brand-text-secondary hover:text-brand-text-primary hover:border-efg-line transition-colors"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="Search">
+                      <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
+                    </svg>
+                  </button>
                   <IconNav />
                   <HeaderMenu />
                 </span>
@@ -257,6 +267,7 @@ const App: React.FC = () => {
               </div>
             </nav>
           </header>
+          <CommandPalette dark={dark} onToggleTheme={toggleTheme} />
           <main className="flex-1">
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>

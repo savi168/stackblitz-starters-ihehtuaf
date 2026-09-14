@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useData } from '../context/DataContext';
-import { Card, PageHeader, BackButton, SectionHeader, TabButton, Select, Modal, InfoBox } from '../components';
+import { Card, PageHeader, BackButton, SectionHeader, TabButton, Select, Modal, InfoBox, EmptyState } from '../components';
 import { BACKEND_TABLES, AGGREGATE_ENDPOINTS, TableMeta, EndpointMeta } from '../services/backendSchema';
 import {
     buildCsvTemplate, convertCsvRows, CSV_IMPORTABLE, CSV_NOTES,
@@ -760,7 +760,7 @@ const DataExplorer: React.FC = () => {
                         </thead>
                         <tbody>
                             {filtered.length === 0 ? (
-                                <tr><td colSpan={columns.length + 3} className="px-3 py-8 text-center text-brand-text-secondary">No rows.</td></tr>
+                                <tr><td colSpan={columns.length + 3}><EmptyState compact title="No rows" hint="Adjust the filters above, or use Insert Row / Import CSV to load data." /></td></tr>
                             ) : filtered.slice(0, 500).map((row, i) => (
                                 <tr key={i} onClick={() => setEditing(row)} title="Click to view / edit this row"
                                     className="border-t border-efg-line hover:bg-brand-bg-body cursor-pointer">

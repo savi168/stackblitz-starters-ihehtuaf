@@ -397,6 +397,36 @@ export const Sparkline: FC<{ points: (number | null)[]; height?: number; classNa
   });
 Sparkline.displayName = 'Sparkline';
 
+/**
+ * Friendly empty placeholder: a small chart-and-magnifier illustration in the
+ * current text color, a title, an optional hint and action. Replaces bare
+ * "No rows." / "No data yet" strings.
+ */
+export const EmptyState: FC<{
+  title: string;
+  hint?: string;
+  action?: ReactNode;
+  /** Tighter paddings for table cells / small panels. */
+  compact?: boolean;
+  className?: string;
+}> = memo(({ title, hint, action, compact, className = '' }) => (
+  <div className={`flex flex-col items-center text-center text-brand-text-secondary ${compact ? 'py-6' : 'py-12'} ${className}`}>
+    <svg width={compact ? 44 : 64} height={compact ? 44 : 64} viewBox="0 0 64 64" fill="none" aria-hidden="true" className="mb-3 opacity-70">
+      <rect x="6" y="10" width="44" height="36" rx="5" stroke="currentColor" strokeWidth="2.5" opacity="0.45" />
+      <path d="M15 37 v-8" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.4" />
+      <path d="M24 37 v-14" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.55" />
+      <path d="M33 37 v-5" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.4" />
+      <circle cx="44" cy="40" r="11" stroke="currentColor" strokeWidth="2.5" fill="rgb(var(--brand-bg-body))" />
+      <line x1="52" y1="48" x2="59" y2="55" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="44" cy="40" r="3" fill="rgb(var(--brand-primary))" />
+    </svg>
+    <p className="text-sm font-semibold text-brand-text-primary">{title}</p>
+    {hint && <p className={`text-xs mt-1 max-w-sm ${compact ? '' : 'leading-relaxed'}`}>{hint}</p>}
+    {action && <div className="mt-3">{action}</div>}
+  </div>
+));
+EmptyState.displayName = 'EmptyState';
+
 interface ComparisonBarChartProps {
   data: CalculatedKpis[];
   kpiKey: keyof CalculatedKpis;
