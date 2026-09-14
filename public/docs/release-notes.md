@@ -6,6 +6,42 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.16.0 — 14 September 2026
+
+**Theme: referential fidelity — official account names, HFM refs,
+security integrity.**
+
+- **Official FINMA account nomenclature** (circular 2020/1, appendix
+  A1/A2, from the Quadrum data-model reference): every place that names
+  a LegalAccountNumber now uses the real label — the Swiss GAAP rows of
+  the live balance sheet and of Analytics (e.g. 102 *Amounts due from
+  banks*, 104 *Amounts due from customers*), the GL chip of the reco
+  detail panel, and the account suggestion list of the new-position
+  form.
+- **HFM reference on every adjustment**: a per-line *HFM ref* field
+  (prefilled from the HFM mapping of the LIGNE's GL account, editable,
+  with the known HFM accounts as suggestions) is stamped on the
+  generated position in `InternalReference3` — matched adjustments and
+  new positions alike, one-shot exports included.
+- **GroupLexId for generated counterparties**: a per-line field feeds
+  `GroupLEXId` of the created `list_counterparties` row; a generic can
+  also carry a default (kind `generic` rows, TextValue column).
+- **Security lines tightened** (TypeOf = Security only):
+  - the position itself now carries `MaturityDate` (not only the
+    `list_securities` row);
+  - changing TypeOf to *Security* in the form now correctly creates the
+    `list_securities` row (the flag honors the override);
+  - the id/PIT chains are guaranteed: `core_positions.SecurityId/PIT` =
+    `list_securities.Id/PointInTime`, and `list_securities.IssuerId/PIT`
+    = `list_counterparties.Id/PointInTime` (the generic when one is
+    used).
+- IFRS nomenclature of the side balance sheet: the HFM labels come from
+  the mapping workbook today — send the official HFM nomenclature file
+  and it will be imported as the authoritative source.
+- No schema changes.
+
+---
+
 ## v3.15.0 — 14 September 2026
 
 **Theme: the Reco inbox.**

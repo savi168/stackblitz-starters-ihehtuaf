@@ -6,6 +6,7 @@ import {
   runOrphans, runSecurityDrift, runSecurityVsRef,
 } from '../services/productionControls';
 import type { AdjustmentLine, AdjustmentMappings, MatchCandidate, NewPositionOverrides } from '../services/adjustments';
+import { accountPrefixLabel, legalAccountLabel } from '../services/legalAccountLabels';
 
 /**
  * Production (team-only): consistency controls on the production data,
@@ -683,10 +684,10 @@ const AdjustmentsCard: React.FC<{
       const svc = await import('../services/adjustments');
       const cands = results?.[line.row] || [];
       const cand = cands.find(c => c.id === chosen[line.row]);
+      const opts = { ...buildOpts(), overrides: rowOverrides[line.row] };
       const sql = cand
-        ? svc.buildAdjustmentInsert(line, cand, loadId, mappings)
-        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings,
-            { ...buildOpts(), overrides: rowOverrides[line.row] });
+        ? svc.buildAdjustmentInsert(line, cand, loadId, mappings, opts)
+        : svc.buildNewPositionPackage(line, loadId, reportingDate || new Date().toISOString().slice(0, 10), mappings, opts);
       setScripts(prev => ({ ...prev, [line.row]: sql }));
     };
 
@@ -1092,7 +1093,7 @@ const AdjustmentsCard: React.FC<{
           const outOfScope = impact?.outOfScope ?? 0;
           const scoped = !!scopeSet;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
-          const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : mappings.accountLabels.get(k);
+          const labelOf = (k: string) => gaapAdj === 'ifrs' ? mappings.hfmLabels.get(k) : (accountPrefixLabel(k) ?? mappings.accountLabels.get(k));
           const sections: Array<{ title: string; match: (p: string) => boolean }> = [
             { title: 'Assets', match: p => p.startsWith('1') },
             { title: 'Liabilities & equity', match: p => p.startsWith('2') },
@@ -1376,7 +1377,8 @@ const AdjustmentsCard: React.FC<{
                               {interco && <span title={`Intercompany — IND ${l.ind} → CounterpartyBookingCenterId ${interco}`} className="ml-1 font-semibold text-brand-secondary">IC {interco}</span>}
                             </span>
                             <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
-                              GL {gl?.legalAccountNumber || <span className="text-status-red font-semibold">no map</span>}{gl?.description ? ` — ${gl.description}` : ''}
+                              GL {gl?.legalAccountNumber || <span className="text-status-red font-semibold">no map</span>}
+                              {gl?.legalAccountNumber ? ` — ${legalAccountLabel(gl.legalAccountNumber) ?? gl.description ?? ''}` : ''}
                             </span>
                             {l.matDate && <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">mat {l.matDate}</span>}
                             {scopeTag && <span title={scopeTag.tip} className={`px-2 py-0.5 rounded-full border border-current cursor-help font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
@@ -1439,7 +1441,7 @@ const AdjustmentsCard: React.FC<{
                                 <input list={`adj-accounts-${l.row}`} value={ov.legalAccountNumber ?? glE?.legalAccountNumber ?? ''}
                                   onChange={e => setOverride(l.row, 'legalAccountNumber', e.target.value)} className={`${inp} w-28`} />
                                 <datalist id={`adj-accounts-${l.row}`}>
-                                  {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{g.description || g.line}</option>)}
+                                  {glAccounts.map(g => <option key={g.legalAccountNumber} value={g.legalAccountNumber}>{legalAccountLabel(g.legalAccountNumber) || g.description || g.line}</option>)}
                                 </datalist>
                               </div>
                               <div>
@@ -1471,6 +1473,11 @@ const AdjustmentsCard: React.FC<{
                                     <option key={g.id} value={g.id}>{g.id} — {g.name}</option>
                                   ))}
                                 </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">GroupLexId</label>
+                                <input value={ov.groupLexId ?? ''} onChange={e => setOverride(l.row, 'groupLexId', e.target.value)}
+                                  placeholder="LEX-…" className={`${inp} w-28`} />
                               </div>
                               <div>
                                 <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary">Rating class</label>
@@ -1524,7 +1531,20 @@ const AdjustmentsCard: React.FC<{
                       })()}
 
                       {/* Action + SQL */}
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div>
+                          <label className="block text-[9px] uppercase tracking-wider text-brand-text-secondary"
+                            title="Stamped on the generated position in InternalReference3 — prefilled from the HFM mapping of the LIGNE's GL account, editable.">
+                            HFM ref (InternalReference3)
+                          </label>
+                          <input list="adj-hfm-accounts"
+                            value={rowOverrides[l.row]?.hfmAccount ?? (gl && svcMod ? (() => { const h = svcMod.hfmOf(gl.legalAccountNumber, mappings!); return h.startsWith('—') ? '' : h; })() : '')}
+                            onChange={e => setOverride(l.row, 'hfmAccount', e.target.value)}
+                            placeholder="e.g. 113 00 01" className="p-1.5 border border-gray-200 rounded-md text-[12px] bg-white w-36" />
+                          <datalist id="adj-hfm-accounts">
+                            {mappings && Array.from(mappings.hfmLabels.entries()).map(([acc, lbl]) => <option key={acc} value={acc}>{lbl}</option>)}
+                          </datalist>
+                        </div>
                         <button onClick={() => makeScript(l)}
                           disabled={cands.length > 0 && !cand}
                           className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors disabled:opacity-40">

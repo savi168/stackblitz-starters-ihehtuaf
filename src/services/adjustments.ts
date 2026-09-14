@@ -336,6 +336,7 @@ export const entriesToMappings = (rows: MappingEntryRow[]): AdjustmentMappings =
     else if (r.kind === 'generic') m.generics.set(r.mapKey, {
       id: r.mapKey, typeOf: r.typeOf || '', name: r.description || r.mapKey,
       economicActivityType: r.economicActivityType || '', smeFlag: r.numValue ? 1 : 0,
+      groupLexId: r.textValue || undefined,
     });
   }
   m.fx.set('CHF', 1);
@@ -484,6 +485,11 @@ export interface NewPositionOverrides {
   hqla?: string;
   investmentGrade?: string;  // '0' | '1'
   lexGuaranteed?: string;    // '0' | '1'
+  /** HFM (IFRS) account stamped on the position in InternalReference3 —
+   * prefilled from the HFM mapping of the LIGNE's GL account, editable. */
+  hfmAccount?: string;
+  /** GroupLEXId of the generated list_counterparties row. */
+  groupLexId?: string;
 }
 
 /** The GENERIC counterparty referential, seeded from the team's filled
@@ -498,6 +504,8 @@ export interface GenericDef {
   name: string;
   economicActivityType: string;
   smeFlag: number;
+  /** Optional GroupLEXId shared by everything booked on this generic. */
+  groupLexId?: string;
 }
 export const GENERIC_DEFAULTS: GenericDef[] = [
   { id: 'GEN-BANK',     typeOf: 'Bank', name: 'GENERIC BANK',                economicActivityType: '641001', smeFlag: 0 },
@@ -563,8 +571,11 @@ const chunk6 = (items: string[]): string[] => {
 /** A line builds a *security* position when the GL mapping says so — in that
  * case the package also creates the list_securities row (+ its issuer in
  * list_counterparties); otherwise only list_counterparties for the CLIENT. */
-export const isSecurityLine = (line: AdjustmentLine, mappings: AdjustmentMappings): boolean =>
-  (mappings.gl.get(line.ligne)?.typeOf ?? '').trim().toLowerCase() === 'security';
+export const isSecurityLine = (
+  line: AdjustmentLine, mappings: AdjustmentMappings, opts?: AdjustmentBuildOptions
+): boolean =>
+  (opts?.overrides?.typeOf?.trim() || mappings.gl.get(line.ligne)?.typeOf || '')
+    .trim().toLowerCase() === 'security';
 const newSecurityId = (line: AdjustmentLine): string => `ADJ-SEC-${line.ligne}-${line.row}`;
 const isIsin = (v: string): boolean => /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(v);
 
@@ -578,7 +589,9 @@ const newPositionValues = (
   const row: Record<string, unknown> = {};
   for (const [name, kind] of CORE_POSITION_COLS)
     row[name] = kind === 'pit' ? null : kind === 'date' ? '1900-01-01' : kind === 'num' ? 0 : '';
-  if (isSecurityLine(line, mappings)) {
+  if (isSecurityLine(line, mappings, opts)) {
+    // The position must point at the created list_securities row: same
+    // id + PointInTime pair on both sides.
     row.SecurityId = newSecurityId(line);
     row.SecurityPIT = numOrSelf(loadId);
   }
@@ -593,6 +606,10 @@ const newPositionValues = (
     InternalReference1: String(line.reference),
     // Generic counterparty: the real client number stays on the position.
     InternalReference2: genId ? line.client ?? '' : '',
+    // HFM (IFRS) account of the adjustment, for downstream reconciliation.
+    InternalReference3: ov?.hfmAccount?.trim() ?? '',
+    // A security position carries its maturity on the position itself too.
+    MaturityDate: ov?.maturityDate?.trim() || line.matDate || '1900-01-01',
     DataSource: 'ADJUSTMENT',
     PositionCurrencyBookAmount: line.montant,
     BookAmount: chf,
@@ -611,7 +628,8 @@ const newPositionValues = (
 /** Columns overridden on the matched position when creating the adjustment
  * (everything else is copied as-is). */
 const adjustmentOverrides = (
-  line: AdjustmentLine, cand: MatchCandidate, mappings: AdjustmentMappings
+  line: AdjustmentLine, cand: MatchCandidate, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): Record<string, unknown> => {
   const { chf } = chfOf(line, mappings);
   const interco = intercoOf(line, mappings);
@@ -622,6 +640,7 @@ const adjustmentOverrides = (
   const glEntry = mappings.gl.get(line.ligne);
   return {
     Id: `${cand.id}-ADJ-${line.row}`,
+    ...(opts?.overrides?.hfmAccount?.trim() ? { InternalReference3: opts.overrides.hfmAccount.trim() } : {}),
     ...(glEntry?.legalAccountNumber ? { LegalAccountNumber: numOrSelf(glEntry.legalAccountNumber) } : {}),
     ...(glEntry?.typeOf ? { TypeOf: glEntry.typeOf } : {}),
     ...(glEntry?.subType ? { SubType: glEntry.subType } : {}),
@@ -642,10 +661,11 @@ const adjustmentOverrides = (
 
 /** Adjustment INSERT based on an existing matched position (attributes copied). */
 export const buildAdjustmentInsert = (
-  line: AdjustmentLine, cand: MatchCandidate, loadId: string, mappings: AdjustmentMappings
+  line: AdjustmentLine, cand: MatchCandidate, loadId: string, mappings: AdjustmentMappings,
+  opts?: AdjustmentBuildOptions
 ): string => {
   const { rate, chf } = chfOf(line, mappings);
-  const over = adjustmentOverrides(line, cand, mappings);
+  const over = adjustmentOverrides(line, cand, mappings, opts);
   const adjId = String(over.Id);
   const interco = intercoOf(line, mappings);
   // With a load collection, the candidate keeps its own load — the adjustment
@@ -773,6 +793,7 @@ export const counterpartyValues = (
     DomicileCountry: line.res ?? '',
     HQDomicile: line.res ?? '',
     Nationality: line.nat ?? line.res ?? '',
+    GroupLEXId: opts?.overrides?.groupLexId?.trim() || def?.groupLexId || '',
     SMEFlag: def?.smeFlag ?? 0,
     IsEdited: 1,
     ReportingDate: reportingDate,
@@ -848,7 +869,7 @@ export const buildNewPositionPackage = (
   opts?: AdjustmentBuildOptions
 ): string => {
   const parts: string[] = [];
-  const sec = isSecurityLine(line, mappings);
+  const sec = isSecurityLine(line, mappings, opts);
   const genId = effectiveGenericId(line, mappings, opts);
   if (line.client || genId) {
     const who = genId
@@ -896,7 +917,8 @@ export const buildPositionRow = (
     if (typeof v === 'boolean') v = v ? 1 : 0;
     row[name] = v;
   }
-  Object.assign(row, adjustmentOverrides(line, cand, mappings));
+  Object.assign(row, adjustmentOverrides(line, cand, mappings,
+    item.overrides ? { ...opts, overrides: item.overrides } : opts));
   return row;
 };
 
@@ -914,10 +936,12 @@ export const buildAllSql = (
     `-- Review, then run in SSMS — consider wrapping in BEGIN TRAN / COMMIT.`,
     `-- ============================================================================`,
   ].join('\n');
-  return [header, ...items.map(i => (i.cand
-    ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings)
-    : buildNewPositionPackage(i.line, loadId, reportingDate, mappings,
-        i.overrides ? { ...opts, overrides: i.overrides } : opts)))].join('\n\n');
+  return [header, ...items.map(i => {
+    const o = i.overrides ? { ...opts, overrides: i.overrides } : opts;
+    return i.cand
+      ? buildAdjustmentInsert(i.line, i.cand, loadId, mappings, o)
+      : buildNewPositionPackage(i.line, loadId, reportingDate, mappings, o);
+  })].join('\n\n');
 };
 
 export interface ImpactEntry {
