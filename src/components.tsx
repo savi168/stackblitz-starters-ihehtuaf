@@ -1,8 +1,10 @@
 import { FC, ReactNode, useMemo, useState, useEffect, Component, ErrorInfo, memo, SelectHTMLAttributes } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  Area,
   Bar,
   BarChart,
+  ComposedChart,
   CartesianGrid,
   Cell,
   LabelList,
@@ -310,7 +312,7 @@ export const MultiEntityKpiChart: FC<{ historicalData: CalculatedKpis[], kpiKey:
                             type="monotone"
                             dataKey={entity}
                             stroke={COLORS[index % COLORS.length]}
-                            strokeWidth={1.5}
+                            strokeWidth={2}
                             dot={false}
                             activeDot={{ r: 4 }}
                             connectNulls
@@ -360,6 +362,41 @@ export const RwaDoughnutChart: FC<{ data: CalculatedKpis }> = memo(({ data }) =>
 });
 RwaDoughnutChart.displayName = 'RwaDoughnutChart';
 
+/**
+ * Tiny inline trend line (pure SVG — cheap enough for one per KPI tile).
+ * Strokes/area use currentColor so the caller sets the tone via text color;
+ * the last point is marked with a brand-red dot.
+ */
+export const Sparkline: FC<{ points: (number | null)[]; height?: number; className?: string }> =
+  memo(({ points, height = 20, className = '' }) => {
+    const vals = points.filter((v): v is number => v != null && isFinite(v));
+    if (vals.length < 2) return null;
+    const W = 100, H = 28;
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const pad = (max - min || Math.abs(max) || 1) * 0.18;
+    const lo = min - pad, hi = max + pad;
+    const step = points.length > 1 ? W / (points.length - 1) : W;
+    const segs = points
+      .map((v, i) => (v == null || !isFinite(v) ? null : [i * step, H - ((v - lo) / (hi - lo)) * H] as [number, number]))
+      .filter((p): p is [number, number] => p !== null);
+    const line = segs.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const area = `${line} L${segs[segs.length - 1][0].toFixed(1)},${H} L${segs[0][0].toFixed(1)},${H} Z`;
+    const last = segs[segs.length - 1];
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height }}
+        className={`w-full ${className}`} aria-hidden="true">
+        <path d={area} fill="currentColor" opacity="0.08" />
+        <path d={line} fill="none" stroke="currentColor" strokeOpacity="0.5" strokeWidth="1.5"
+          strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {/* zero-length round-capped stroke = a perfect dot despite the stretch */}
+        <path d={`M${last[0].toFixed(1)},${last[1].toFixed(1)} l0.01,0`} fill="none"
+          stroke="rgb(var(--brand-primary))" strokeWidth="4.5" strokeLinecap="round"
+          vectorEffect="non-scaling-stroke" />
+      </svg>
+    );
+  });
+Sparkline.displayName = 'Sparkline';
+
 interface ComparisonBarChartProps {
   data: CalculatedKpis[];
   kpiKey: keyof CalculatedKpis;
@@ -403,7 +440,7 @@ export const ComparisonBarChart: FC<ComparisonBarChartProps> = memo(({
             strokeDasharray="3 3"
           />
         )}
-        <Bar dataKey="value" name={kpiName} maxBarSize={60} fill={color} />
+        <Bar dataKey="value" name={kpiName} maxBarSize={60} fill={color} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -458,9 +495,9 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
             if (!dataPoint) return null;
 
             return (
-                <div className="bg-white p-3 border border-gray-300 rounded shadow-lg text-sm">
-                    <p className="font-bold">{formatDate(dataPoint.date)}</p>
-                    <p className="text-brand-primary">{`${kpiKey.toUpperCase()}: ${payload[0].value.toFixed(2)}%`}</p>
+                <div className="bg-white/95 backdrop-blur px-3 py-2 border border-efg-line rounded-lg shadow-card text-sm">
+                    <p className="text-[11px] uppercase tracking-wider text-brand-text-secondary">{formatDate(dataPoint.date)}</p>
+                    <p className="text-brand-primary font-semibold mt-0.5">{`${kpiKey.toUpperCase()}: ${payload[0].value.toFixed(2)}%`}</p>
                 </div>
             );
         }
@@ -471,7 +508,13 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
         <div className="mt-8 pt-6 border-t border-gray-200">
             <h3 className="text-base font-semibold text-brand-text-primary mb-4 text-center">{title}</h3>
             <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
+                <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
+                    <defs>
+                        <linearGradient id="kpiTrendFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={PALETTE.red} stopOpacity={0.22} />
+                            <stop offset="100%" stopColor={PALETTE.red} stopOpacity={0} />
+                        </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
                     <XAxis dataKey="name" />
                     <YAxis
@@ -490,17 +533,27 @@ export const SingleKpiChart: FC<SingleKpiChartProps> = memo(({ data, kpiKey, tit
                         </>
                     )}
 
+                    <Area
+                        type="monotone"
+                        dataKey="value"
+                        fill="url(#kpiTrendFill)"
+                        stroke="none"
+                        legendType="none"
+                        tooltipType="none"
+                        activeDot={false}
+                        connectNulls
+                    />
                     <Line
                         type="monotone"
                         dataKey="value"
                         name={kpiKey.toString().toUpperCase()}
                         stroke={PALETTE.red}
-                        strokeWidth={1.5}
+                        strokeWidth={2}
                         dot={{ r: 2.5, strokeWidth: 1.5, fill: '#fff', stroke: PALETTE.red }}
                         activeDot={{ r: 4, stroke: PALETTE.red, fill: PALETTE.red }}
                         connectNulls
                     />
-                </LineChart>
+                </ComposedChart>
             </ResponsiveContainer>
         </div>
     );
@@ -531,7 +584,7 @@ export const BreakdownBarChart: FC<BreakdownBarChartProps> = memo(({
         <XAxis type="number" />
         <YAxis dataKey="name" type="category" width={80} />
         <Tooltip formatter={(value: number) => `${formatNumber(value)} mCHF`} />
-        <Bar dataKey="value" fill={color} />
+        <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   </div>
@@ -709,7 +762,7 @@ export const WaterfallChart: FC<WaterfallChartProps> = memo(({
           <YAxis unit={unit} tick={{ fontSize: 11 }} />
           <Tooltip content={<CustomTooltip />} />
           <Bar dataKey="offset" stackId="a" fill="transparent" />
-          <Bar dataKey="value" stackId="a" barSize={26} maxBarSize={26}>
+          <Bar dataKey="value" stackId="a" barSize={26} maxBarSize={26} radius={[3, 3, 3, 3]}>
              <LabelList dataKey="value" content={<CustomLabel />} />
             {processedData.map((entry, index) => {
               const color = entry.isTotal

@@ -251,3 +251,31 @@ table { font-variant-numeric: tabular-nums; }
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
 }
 @keyframes skeleton-sweep { to { transform: translateX(100%); } }
+
+/* ---------------------------------------------------------------------------
+ * Charts (v3.4.0): global Recharts refinements — card-style tooltips,
+ * theme-aware axes and hover cursor. Applies to every chart at once.
+ * ------------------------------------------------------------------------- */
+.recharts-default-tooltip {
+  background-color: rgb(255 255 255 / 0.92) !important;
+  border: 1px solid rgb(var(--efg-line)) !important;
+  border-radius: 0.625rem !important;
+  box-shadow: 0 4px 14px -2px rgb(43 51 56 / 0.14);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  padding: 8px 12px !important;
+}
+.dark .recharts-default-tooltip {
+  background-color: rgb(28 33 37 / 0.92) !important;
+  box-shadow: 0 4px 14px -2px rgb(0 0 0 / 0.5);
+}
+.recharts-default-tooltip .recharts-tooltip-label {
+  color: rgb(var(--brand-text-secondary)) !important;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.recharts-tooltip-cursor { fill: rgb(var(--efg-line) / 0.4); }
+.recharts-cartesian-axis-tick-text { fill: rgb(var(--brand-text-secondary)) !important; }
+.recharts-cartesian-axis line { stroke: rgb(var(--efg-line)) !important; }
+.recharts-legend-item-text { font-size: 12px; }

@@ -4,7 +4,7 @@ import {
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
-import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
+import { BackButton, Card, Modal, PageHeader, SectionHeader, Sparkline, TabButton } from '../components';
 import { CET1CapitalBreakdown, FinStatement, FinStatementKind, LcrReport, NsfrReport } from '../types';
 import { computeFinSummary, DEFAULT_GAAP, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
 import { computeCapitalSummary } from '../services/capital';
@@ -147,11 +147,16 @@ const ccyLcOf = (p: CapitalPoint, c: string): { lc: number; rate: number; proxy:
 
 // --- Small building blocks --------------------------------------------------------
 
-const KpiTile: React.FC<{ label: string; value: string; delta?: string; deltaGood?: boolean | null; sub?: string; accent?: boolean }> =
-  ({ label, value, delta, deltaGood, sub, accent }) => (
+const KpiTile: React.FC<{ label: string; value: string; delta?: string; deltaGood?: boolean | null; sub?: string; accent?: boolean; trend?: (number | null)[] }> =
+  ({ label, value, delta, deltaGood, sub, accent, trend }) => (
     <div className={`px-5 py-5 text-center flex flex-col justify-center ${accent ? 'bg-brand-secondary text-white' : 'bg-white'}`}>
       <p className={`text-[11px] uppercase tracking-[0.15em] mb-1.5 ${accent ? 'text-white/70' : 'text-brand-text-secondary'}`}>{label}</p>
       <p className={`text-2xl font-light leading-none ${accent ? '' : 'text-brand-text-primary'}`}>{value}</p>
+      {trend && trend.filter(v => v != null).length >= 2 && (
+        <div className={accent ? 'text-white' : 'text-brand-secondary'}>
+          <Sparkline points={trend.slice(-12)} height={18} className="mt-2" />
+        </div>
+      )}
       {delta && (
         <p className={`text-[12px] mt-1.5 font-medium ${deltaGood == null ? (accent ? 'text-white/60' : 'text-brand-text-secondary') : deltaGood ? 'text-status-green' : 'text-status-red'}`}>
           {delta}
@@ -429,7 +434,7 @@ const CapitalTab: React.FC<{ entity: string; asOf: string }> = ({ entity, asOf }
               <CartesianGrid strokeDasharray="3 3" stroke={PALETTE.line} vertical={false} />
               <XAxis dataKey="name" tick={axisStyle} axisLine={{ stroke: PALETTE.line }} tickLine={false} />
               <YAxis tick={axisStyle} axisLine={false} tickLine={false} unit="%" />
-              <Tooltip formatter={(v: number, n: string) => [`${v.toFixed(1)}%`, n === 'cet1' ? 'CET1' : 'AT1 + T2']} />
+              <Tooltip formatter={(v: number, n: string) => [`${v.toFixed(1)}%`, n]} />
               <Bar dataKey="cet1" name="CET1" stackId="r" fill={PALETTE.sand} maxBarSize={44}>
                 <LabelList dataKey="cet1" position="inside" formatter={(v: number) => v.toFixed(1)} style={{ fill: '#fff', fontSize: 11, fontWeight: 600 }} />
               </Bar>
@@ -2058,10 +2063,25 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
       ytdMonths = sel.length;
     }
 
+    // 12-point trend series behind the ratio tiles (kpisHistory is the
+    // aggregated store every import projects into, so it covers all sources).
+    const hist = data.kpisHistory
+      .filter(k => k.entity === entity && k.date <= asOf)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const num = (v: string) => { const n = parseFloat(v); return isFinite(n) && n !== 0 ? n : null; };
+    const cet1Trend = hist.map(k => { const c = calculateKpis(k); return c ? num(c.cet1) : null; });
+    const levTrend = hist.map(k => { const c = calculateKpis(k); return c ? num(c.leverage) : null; });
+    const byDate = (a: { date: string }, b: { date: string }) => a.date.localeCompare(b.date);
+    const lcrTrend = (data.lcrReports || [])
+      .filter(l => l.entity === entity && l.date <= asOf).sort(byDate).map(l => l.lcrRatio);
+    const nsfrTrend = (data.nsfrReports || [])
+      .filter(n => n.entity === entity && n.date <= asOf).sort(byDate).map(n => n.nsfrRatio);
+
     return {
       entity, date: shownDate, cur, prev, lcrCur, lcrPrev, nsfrCur, nsfrPrev,
       topExpo, totalAssets: bsSections?.assets ?? null, totalEquity: bsSections?.equity ?? null,
       bsDate: bs?.date, ytdPnl, ytdMonths,
+      cet1Trend, levTrend, lcrTrend, nsfrTrend,
     };
   }).filter(Boolean) as Array<{
     entity: string; date?: string;
@@ -2071,6 +2091,8 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
     topExpo: { name: string; pct: number } | null;
     totalAssets: number | null; totalEquity: number | null; bsDate?: string;
     ytdPnl: number | null; ytdMonths: number;
+    cet1Trend: (number | null)[]; levTrend: (number | null)[];
+    lcrTrend: number[]; nsfrTrend: number[];
   }>, [allEntities, data, asOf]);
 
   const delta = (cur?: number | null, prev?: number | null) =>
@@ -2086,16 +2108,16 @@ const OverviewTab: React.FC<{ asOf: string; onDrill: (entity: string, tab: Repor
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 border border-efg-line rounded-lg overflow-hidden divide-x divide-efg-line mb-3">
             <button onClick={() => onDrill(r.entity, 'capital')} className="text-left hover:bg-brand-bg-body transition-colors">
-              <KpiTile label="CET1" value={fmtPct(r.cur?.cet1Ratio)} delta={delta(r.cur?.cet1Ratio, r.prev?.cet1Ratio)} deltaGood={r.cur?.cet1Ratio != null && r.prev?.cet1Ratio != null ? r.cur.cet1Ratio >= r.prev.cet1Ratio : null} />
+              <KpiTile label="CET1" trend={r.cet1Trend} value={fmtPct(r.cur?.cet1Ratio)} delta={delta(r.cur?.cet1Ratio, r.prev?.cet1Ratio)} deltaGood={r.cur?.cet1Ratio != null && r.prev?.cet1Ratio != null ? r.cur.cet1Ratio >= r.prev.cet1Ratio : null} />
             </button>
             <button onClick={() => onDrill(r.entity, 'capital')} className="text-left hover:bg-brand-bg-body transition-colors">
-              <KpiTile label="Leverage" value={fmtPct(r.cur?.leverage)} delta={delta(r.cur?.leverage, r.prev?.leverage)} deltaGood={r.cur?.leverage != null && r.prev?.leverage != null ? r.cur.leverage >= r.prev.leverage : null} />
+              <KpiTile label="Leverage" trend={r.levTrend} value={fmtPct(r.cur?.leverage)} delta={delta(r.cur?.leverage, r.prev?.leverage)} deltaGood={r.cur?.leverage != null && r.prev?.leverage != null ? r.cur.leverage >= r.prev.leverage : null} />
             </button>
             <button onClick={() => onDrill(r.entity, 'lcr')} className="text-left hover:bg-brand-bg-body transition-colors">
-              <KpiTile label="LCR" value={r.lcrCur ? fmtPct(r.lcrCur.lcrRatio, 0) : '—'} delta={r.lcrCur && r.lcrPrev ? delta(r.lcrCur.lcrRatio, r.lcrPrev.lcrRatio) : undefined} deltaGood={r.lcrCur && r.lcrPrev ? r.lcrCur.lcrRatio >= r.lcrPrev.lcrRatio : null} />
+              <KpiTile label="LCR" trend={r.lcrTrend} value={r.lcrCur ? fmtPct(r.lcrCur.lcrRatio, 0) : '—'} delta={r.lcrCur && r.lcrPrev ? delta(r.lcrCur.lcrRatio, r.lcrPrev.lcrRatio) : undefined} deltaGood={r.lcrCur && r.lcrPrev ? r.lcrCur.lcrRatio >= r.lcrPrev.lcrRatio : null} />
             </button>
             <button onClick={() => onDrill(r.entity, 'nsfr')} className="text-left hover:bg-brand-bg-body transition-colors">
-              <KpiTile label="NSFR" value={r.nsfrCur ? fmtPct(r.nsfrCur.nsfrRatio, 0) : '—'} delta={r.nsfrCur && r.nsfrPrev ? delta(r.nsfrCur.nsfrRatio, r.nsfrPrev.nsfrRatio) : undefined} deltaGood={r.nsfrCur && r.nsfrPrev ? r.nsfrCur.nsfrRatio >= r.nsfrPrev.nsfrRatio : null} />
+              <KpiTile label="NSFR" trend={r.nsfrTrend} value={r.nsfrCur ? fmtPct(r.nsfrCur.nsfrRatio, 0) : '—'} delta={r.nsfrCur && r.nsfrPrev ? delta(r.nsfrCur.nsfrRatio, r.nsfrPrev.nsfrRatio) : undefined} deltaGood={r.nsfrCur && r.nsfrPrev ? r.nsfrCur.nsfrRatio >= r.nsfrPrev.nsfrRatio : null} />
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 border border-efg-line rounded-lg overflow-hidden divide-x divide-efg-line mb-3">

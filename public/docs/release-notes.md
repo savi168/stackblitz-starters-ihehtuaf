@@ -6,6 +6,25 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.4.0 — 14 September 2026
+
+**Theme: charts, refined — and trends at a glance.**
+
+- **KPI sparklines**: the Management Report Overview tiles (CET1,
+  Leverage, LCR, NSFR) now carry a discreet 12-point trend line under the
+  ratio, ending in a brand-red dot — the direction of travel is visible
+  without opening the detailed view.
+- **Chart tooltips** across the whole app restyled as theme-aware cards
+  (rounded, soft shadow, frosted) — dark mode included.
+- **Axes & hover** harmonized everywhere: theme-colored tick labels and
+  axis lines, soft hover cursor on bar charts.
+- **Trend charts** gain a soft gradient fill under the line; bars get
+  rounded tops (waterfall segments softly rounded); slightly bolder
+  series strokes.
+- No schema changes.
+
+---
+
 ## v3.3.3 — 14 September 2026
 
 **Theme: brand mark.**
