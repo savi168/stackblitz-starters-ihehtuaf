@@ -258,7 +258,8 @@ SELECT LTRIM(RTRIM(ISNULL(CAST(lc.DomicileCountry AS varchar(2)), ''))) AS Count
        LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 1) AS Side,
        LTRIM(RTRIM(ISNULL(CAST(cp.BookingCenterId AS varchar(100)), ''))) AS Bc,
        LTRIM(RTRIM(ISNULL(CAST(cp.CounterpartyBookingCenterId AS varchar(100)), ''))) AS Cbc,
-       SUM(CAST(cp.BookAmount AS float)) AS Amount
+       SUM(CAST(cp.BookAmount AS float)) AS Amount,
+       LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 3) AS Prefix
 FROM core_positions cp
 LEFT JOIN list_counterparties lc
        ON lc.Id = cp.CounterpartyId AND lc.PointInTime = cp.CounterpartyPIT
@@ -266,7 +267,8 @@ WHERE cp.LoadId IN ({inClause})
 GROUP BY LTRIM(RTRIM(ISNULL(CAST(lc.DomicileCountry AS varchar(2)), ''))),
          LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 1),
          LTRIM(RTRIM(ISNULL(CAST(cp.BookingCenterId AS varchar(100)), ''))),
-         LTRIM(RTRIM(ISNULL(CAST(cp.CounterpartyBookingCenterId AS varchar(100)), '')))";
+         LTRIM(RTRIM(ISNULL(CAST(cp.CounterpartyBookingCenterId AS varchar(100)), ''))),
+         LEFT(CAST(cp.LegalAccountNumber AS varchar(20)), 3)";
         cmd.CommandTimeout = 120;
         for (var i = 0; i < ids.Count; i++)
             cmd.Parameters.AddWithValue($"@l{i}", ids[i]);
@@ -280,6 +282,7 @@ GROUP BY LTRIM(RTRIM(ISNULL(CAST(lc.DomicileCountry AS varchar(2)), ''))),
                 bookingCenterId = rd.IsDBNull(2) ? "" : rd.GetString(2),
                 counterpartyBookingCenterId = rd.IsDBNull(3) ? "" : rd.GetString(3),
                 amount = rd.IsDBNull(4) ? 0d : rd.GetDouble(4),
+                prefix = rd.IsDBNull(5) ? "" : rd.GetString(5),
             });
         }
         return rows;

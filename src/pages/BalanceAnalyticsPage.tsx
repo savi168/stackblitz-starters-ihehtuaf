@@ -8,7 +8,7 @@ import { BackButton, Card, EmptyState, PageHeader, SectionHeader, Sparkline } fr
 import { CHART_COLORS, PALETTE } from '../theme';
 import { hfmKeyOf } from '../services/hfm';
 import { lanLabelsFrom, prefixLabelOf } from '../services/legalAccountLabels';
-import { GeoFootprint } from '../components/GeoFootprint';
+import { GeoFootprint, type GeoDetailRow } from '../components/GeoFootprint';
 
 /**
  * Balance sheet analytics — wired to MERCURY.
@@ -29,6 +29,8 @@ type BalanceRow = {
 type ResidenceRow = {
   country: string; side: string; bookingCenterId: string;
   counterpartyBookingCenterId: string; amount: number;
+  /** 3-digit rubrique — present once the API ships the prefix column. */
+  prefix?: string;
 };
 type CollectionInfo = {
   loadCollectionId: number | string; name?: string | null; reportingDate?: string | null;
@@ -70,6 +72,7 @@ const BalanceAnalyticsPage: React.FC = () => {
   const [entitySel, setEntitySel] = useState('');
   const [balances, setBalances] = useState<Record<string, BalanceRow[]>>({});
   const [residence, setResidence] = useState<ResidenceRow[] | null>(null);
+  const [residencePrev, setResidencePrev] = useState<ResidenceRow[] | null>(null);
   const fetched = useRef(new Set<string>());
 
   useEffect(() => {
@@ -152,18 +155,20 @@ const BalanceAnalyticsPage: React.FC = () => {
           setBalances(prev => ({ ...prev, [key]: arr.filter(b => b.prefix) }));
         } catch { /* skip period */ }
       }
-      // Residence for the latest period.
-      const last = periods[periods.length - 1];
-      if (last) {
-        const qs = last.loadIds.length > 1 ? `loadIds=${encodeURIComponent(last.loadIds.join(','))}` : `loadId=${encodeURIComponent(last.loadIds[0])}`;
+      // Residence for the two latest periods (map figures + Δ vs previous).
+      const fetchRes = async (p: typeof periods[number] | undefined, set: (r: ResidenceRow[]) => void) => {
+        if (!p) return;
+        const qs = p.loadIds.length > 1 ? `loadIds=${encodeURIComponent(p.loadIds.join(','))}` : `loadId=${encodeURIComponent(p.loadIds[0])}`;
         try {
           const r = await fetch(`${apiBaseUrl}/production/mercury/balance-residence?${qs}`, { credentials: 'include' });
           if (r.ok) {
             const arr = await r.json() as ResidenceRow[];
-            if (!cancelled) setResidence(arr);
+            if (!cancelled) set(arr);
           }
         } catch { /* block hidden */ }
-      }
+      };
+      await fetchRes(periods[periods.length - 1], setResidence);
+      await fetchRes(periods.length > 1 ? periods[periods.length - 2] : undefined, setResidencePrev);
     })();
     return () => { cancelled = true; };
   }, [mode, apiBaseUrl, periods, entity]);
@@ -255,10 +260,10 @@ const BalanceAnalyticsPage: React.FC = () => {
   }, [latestRows, prevRows, conso]);
 
   // Full ISO2 → assets maps for the world map (no Other bucketing).
-  const geoResidence = useMemo(() => {
+  const geoResOf = (rows: ResidenceRow[] | null): Map<string, number> => {
     const by = new Map<string, number>();
-    if (!residence) return by;
-    for (const r of residence) {
+    if (!rows) return by;
+    for (const r of rows) {
       if (r.side !== '1') continue;
       if (scopeSet && r.bookingCenterId && !scopeSet.has(r.bookingCenterId)) continue;
       const elim = scopeSet && r.counterpartyBookingCenterId && scopeSet.has(r.counterpartyBookingCenterId) ? r.amount : 0;
@@ -266,17 +271,54 @@ const BalanceAnalyticsPage: React.FC = () => {
       by.set(k, (by.get(k) || 0) + r.amount - elim);
     }
     return by;
-  }, [residence, scopeSet]);
+  };
+  const geoResidence = useMemo(() => geoResOf(residence), [residence, scopeSet]); // eslint-disable-line react-hooks/exhaustive-deps
+  const geoResidencePrev = useMemo(() => geoResOf(residencePrev), [residencePrev, scopeSet]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const geoBooking = useMemo(() => {
+  const geoBcOf = (rows: Array<BalanceRow & { net: number }>): Map<string, number> => {
     const by = new Map<string, number>();
-    for (const r of latestRows) {
+    for (const r of rows) {
       if (!r.prefix.startsWith('1')) continue;
       const country = (conso?.bcCountries[r.bookingCenterId] || '').toUpperCase();
       by.set(country, (by.get(country) || 0) + r.net);
     }
     return by;
-  }, [latestRows, conso]);
+  };
+  const geoBooking = useMemo(() => geoBcOf(latestRows), [latestRows, conso]); // eslint-disable-line react-hooks/exhaustive-deps
+  const geoBookingPrev = useMemo(() => geoBcOf(prevRows), [prevRows, conso]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Per-country rubrique breakdown for the map's pinned detail panel.
+  const rubriqueLabel = (k: string) => prefixLabelOf(k, maps.lan) ?? maps.swissLbl.get(k) ?? '';
+  const geoDetailOf = (a2: string): GeoDetailRow[] => {
+    if (geoMode === 'residence') {
+      const agg = (rows: ResidenceRow[] | null) => {
+        const by = new Map<string, number>();
+        for (const r of rows || []) {
+          if (!(r.prefix || '').startsWith('1')) continue;
+          if ((r.country || '').toUpperCase() !== a2) continue;
+          if (scopeSet && r.bookingCenterId && !scopeSet.has(r.bookingCenterId)) continue;
+          const elim = scopeSet && r.counterpartyBookingCenterId && scopeSet.has(r.counterpartyBookingCenterId) ? r.amount : 0;
+          by.set(r.prefix!, (by.get(r.prefix!) || 0) + r.amount - elim);
+        }
+        return by;
+      };
+      const now = agg(residence), before = agg(residencePrev);
+      return Array.from(now.entries()).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6)
+        .map(([k, v]) => ({ k, label: rubriqueLabel(k), now: v, prev: residencePrev ? (before.get(k) || 0) : undefined }));
+    }
+    const agg = (rows: Array<BalanceRow & { net: number }>) => {
+      const by = new Map<string, number>();
+      for (const r of rows) {
+        if (!r.prefix.startsWith('1')) continue;
+        if ((conso?.bcCountries[r.bookingCenterId] || '').toUpperCase() !== a2) continue;
+        by.set(r.prefix, (by.get(r.prefix) || 0) + r.net);
+      }
+      return by;
+    };
+    const now = agg(latestRows), before = agg(prevRows);
+    return Array.from(now.entries()).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6)
+      .map(([k, v]) => ({ k, label: rubriqueLabel(k), now: v, prev: prev ? (before.get(k) || 0) : undefined }));
+  };
 
   const byRes = useMemo(() => {
     if (!residence) return null;
@@ -423,7 +465,7 @@ const BalanceAnalyticsPage: React.FC = () => {
 
           <Card>
             <div className="flex flex-wrap items-center gap-3 mb-3">
-              <SectionHeader title="🌍 Geographic footprint" suffix={`assets · ${latest?.p || ''} — hover a country`} />
+              <SectionHeader title="🌍 Geographic footprint" suffix={`assets · ${latest?.p || ''} — zoom, hover, click a country to pin its detail`} />
               <span className="ml-auto inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
                 {([['residence', 'Counterparty residence'], ['bc', 'Booking center']] as const).map(([k, lbl]) => (
                   <button key={k} onClick={() => setGeoMode(k)}
@@ -434,7 +476,12 @@ const BalanceAnalyticsPage: React.FC = () => {
               </span>
             </div>
             <GeoFootprint data={geoMode === 'residence' ? geoResidence : geoBooking}
-              fmt={(n: number) => fmtM(n)} unit="mCHF" />
+              prevData={geoMode === 'residence'
+                ? (residencePrev ? geoResidencePrev : undefined)
+                : (prev ? geoBookingPrev : undefined)}
+              detailOf={geoDetailOf}
+              fmt={(n: number) => fmtM(n)} unit="mCHF"
+              periodLabel={latest?.p} prevPeriodLabel={prev?.p} />
             <SourceNote>
               {geoMode === 'residence'
                 ? "DomicileCountry of list_counterparties at the position's PIT (assets side, scope applied); positions without counterparty appear as Unassigned."

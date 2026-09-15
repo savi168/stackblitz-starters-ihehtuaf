@@ -6,6 +6,33 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.20.0 — 15 September 2026
+
+**Theme: 🌍 Interactive map — the Power-BI feel.**
+
+- **Zoom & pan**: scroll to zoom (towards the cursor), drag to pan,
+  double-click a country to frame it (double-click the ocean resets).
+  On-map +/−/reset buttons and one-click region presets (World, Europe,
+  Asia-Pacific, Americas, Middle East & Africa). All hand-rolled on the
+  existing SVG — no new dependency, still fully offline.
+- **Richer read-out while you explore**: a floating tooltip with flag,
+  amount, share of total, **Δ vs the previous period** (▲/▼) and the
+  country's rank; once zoomed past ~2.6× the map itself annotates each
+  country with its ISO code and amount.
+- **Click to pin a country**: the side panel switches from the top-10
+  list to a country detail — total, share, rank, Δ vs previous period,
+  and a **breakdown by rubrique** (official FINMA labels) with per-line
+  deltas, plus a "zoom to country" shortcut. The top-10 list itself is
+  now clickable and zooms to the country. Works for both axes
+  (counterparty residence and booking center).
+- **API**: `/production/mercury/balance-residence` now also returns the
+  3-digit rubrique (`prefix`) — appended as an extra column, existing
+  consumers are unaffected. The Analytics page now fetches residence for
+  the two latest periods, powering the period-over-period deltas.
+- No schema migration.
+
+---
+
 ## v3.19.0 — 15 September 2026
 
 **Theme: 🌍 Geographic footprint.**
