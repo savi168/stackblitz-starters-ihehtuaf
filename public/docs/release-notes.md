@@ -6,6 +6,34 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.19.0 — 15 September 2026
+
+**Theme: 🌍 Geographic footprint.**
+
+- **A world map lands in Analytics** — the ERP-style geo view:
+  countries shaded by assets (choropleth) with proportional bubbles,
+  hover for amount and share of total, and a top-10 country list with
+  share bars beside the map (hover syncs both ways).
+- **Two axes**, one toggle: *Counterparty residence* (DomicileCountry
+  of list_counterparties at the position's PIT) and *Booking center*
+  (OfficeCountry of list_booking_centers, now exposed by the conso
+  endpoint). Both follow the entity, scope and interco-elimination
+  logic of the rest of the page.
+- **Financial-center micro-territories** (Hong Kong, Singapore, Monaco,
+  Liechtenstein, Bahrain, the Channel Islands, Cayman…) are too small
+  for the world polygons — they get dedicated point markers, so the
+  Hong Kong booking never disappears from the map.
+- **Fully offline**: the world boundaries (world-atlas TopoJSON) and
+  the ISO-3166 table are bundled with the app — nothing is fetched from
+  the internet, the Trivy posture is unchanged. The offline npm cache
+  was refreshed with the new packages (d3-geo, topojson-client,
+  world-atlas, iso-3166).
+- Note: before the geo work, the v3.18.1 state was preserved on branch
+  `backup/v3.18.1-pre-geo`.
+- No schema changes.
+
+---
+
 ## v3.18.1 — 14 September 2026
 
 **Theme: the data model at your fingertips.**

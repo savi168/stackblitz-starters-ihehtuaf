@@ -458,7 +458,8 @@ SELECT LTRIM(RTRIM(CAST(ReportingEntityId AS varchar(100)))) AS reportingEntityI
 FROM list_reporting_sets");
             var centers = await QueryAsync(@"
 SELECT LTRIM(RTRIM(CAST(Id AS varchar(100)))) AS id, Name AS name,
-       LTRIM(RTRIM(ISNULL(CAST(OwnerId AS varchar(100)), ''))) AS ownerId
+       LTRIM(RTRIM(ISNULL(CAST(OwnerId AS varchar(100)), ''))) AS ownerId,
+       LTRIM(RTRIM(ISNULL(CAST(OfficeCountry AS varchar(2)), ''))) AS officeCountry
 FROM list_booking_centers");
             return new { entities, sets, bookingCenters = centers };
         }

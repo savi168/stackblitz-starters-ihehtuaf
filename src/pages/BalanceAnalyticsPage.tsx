@@ -8,6 +8,7 @@ import { BackButton, Card, EmptyState, PageHeader, SectionHeader, Sparkline } fr
 import { CHART_COLORS, PALETTE } from '../theme';
 import { hfmKeyOf } from '../services/hfm';
 import { lanLabelsFrom, prefixLabelOf } from '../services/legalAccountLabels';
+import { GeoFootprint } from '../components/GeoFootprint';
 
 /**
  * Balance sheet analytics — wired to MERCURY.
@@ -62,7 +63,9 @@ const BalanceAnalyticsPage: React.FC = () => {
     entities: Array<{ id: string; name?: string }>;
     sets: Record<string, string[]>;
     bcNames: Record<string, string>;
+    bcCountries: Record<string, string>;
   } | null>(null);
+  const [geoMode, setGeoMode] = useState<'residence' | 'bc'>('residence');
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
   const [entitySel, setEntitySel] = useState('');
   const [balances, setBalances] = useState<Record<string, BalanceRow[]>>({});
@@ -78,12 +81,16 @@ const BalanceAnalyticsPage: React.FC = () => {
         const sets: Record<string, string[]> = {};
         for (const st of out.sets || []) (sets[String(st.reportingEntityId)] ??= []).push(String(st.bookingCenterId));
         const bcNames: Record<string, string> = {};
-        for (const b of out.bookingCenters || []) bcNames[String(b.id)] = String(b.name ?? '');
+        const bcCountries: Record<string, string> = {};
+        for (const b of out.bookingCenters || []) {
+          bcNames[String(b.id)] = String(b.name ?? '');
+          bcCountries[String(b.id)] = String(b.officeCountry ?? '').toUpperCase();
+        }
         setConso({
           entities: (out.entities || []).map((e: { id: unknown; name?: unknown }) => ({
             id: String(e.id), name: e.name ? String(e.name) : undefined,
           })),
-          sets, bcNames,
+          sets, bcNames, bcCountries,
         });
       })
       .catch(() => { /* unavailable */ });
@@ -247,6 +254,30 @@ const BalanceAnalyticsPage: React.FC = () => {
       }));
   }, [latestRows, prevRows, conso]);
 
+  // Full ISO2 → assets maps for the world map (no Other bucketing).
+  const geoResidence = useMemo(() => {
+    const by = new Map<string, number>();
+    if (!residence) return by;
+    for (const r of residence) {
+      if (r.side !== '1') continue;
+      if (scopeSet && r.bookingCenterId && !scopeSet.has(r.bookingCenterId)) continue;
+      const elim = scopeSet && r.counterpartyBookingCenterId && scopeSet.has(r.counterpartyBookingCenterId) ? r.amount : 0;
+      const k = (r.country || '').toUpperCase();
+      by.set(k, (by.get(k) || 0) + r.amount - elim);
+    }
+    return by;
+  }, [residence, scopeSet]);
+
+  const geoBooking = useMemo(() => {
+    const by = new Map<string, number>();
+    for (const r of latestRows) {
+      if (!r.prefix.startsWith('1')) continue;
+      const country = (conso?.bcCountries[r.bookingCenterId] || '').toUpperCase();
+      by.set(country, (by.get(country) || 0) + r.net);
+    }
+    return by;
+  }, [latestRows, conso]);
+
   const byRes = useMemo(() => {
     if (!residence) return null;
     const by: Record<string, number> = {};
@@ -388,6 +419,28 @@ const BalanceAnalyticsPage: React.FC = () => {
               </ResponsiveContainer>
             </div>
             <SourceNote>SUM(BookAmount) of each collection's loads, net of intra-scope interco. With one or two collections in MERCURY_MOCK the trend is short — it grows with every monthly load{baselines.length === 0 ? '; certify periods (Production → Certify) to mark the ✔ baselines' : ''}.</SourceNote>
+          </Card>
+
+          <Card>
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <SectionHeader title="🌍 Geographic footprint" suffix={`assets · ${latest?.p || ''} — hover a country`} />
+              <span className="ml-auto inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
+                {([['residence', 'Counterparty residence'], ['bc', 'Booking center']] as const).map(([k, lbl]) => (
+                  <button key={k} onClick={() => setGeoMode(k)}
+                    className={`px-2.5 py-1 transition-colors ${geoMode === k ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <GeoFootprint data={geoMode === 'residence' ? geoResidence : geoBooking}
+              fmt={(n: number) => fmtM(n)} unit="mCHF" />
+            <SourceNote>
+              {geoMode === 'residence'
+                ? "DomicileCountry of list_counterparties at the position's PIT (assets side, scope applied); positions without counterparty appear as Unassigned."
+                : 'OfficeCountry of list_booking_centers per position booking center (assets side, scope applied).'}
+              {' '}Bundled world-atlas boundaries — nothing is fetched from the internet.
+            </SourceNote>
           </Card>
 
           <div className="grid lg:grid-cols-2 gap-6">
