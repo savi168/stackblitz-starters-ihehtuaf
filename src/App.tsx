@@ -1,29 +1,16 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { HashRouter, Routes, Route, Link, NavLink, Navigate } from 'react-router-dom';
+import React, { lazy, Suspense, useState } from 'react';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { DataProvider, useData } from './context/DataContext';
+import { ScopeProvider } from './context/ScopeContext';
 import { ErrorBoundary } from './components';
-import { APP_VERSION, fetchMeta } from './version';
+import { Sidebar } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
 import { CommandPalette } from './CommandPalette';
-
-// adminOnly modules stay hidden (and their routes blocked) for users without
-// the Admin role — the API enforces the same rule server-side on mutations.
-// Readers (non-admin) only see the finished reports: Report + Daily Reports.
-// Everything else — working tools and internal modules — is team/admin only.
-const NAV_ITEMS = [
-  { to: '/report', label: 'Report' },
-  { to: '/scenarios', label: 'Scenarios', adminOnly: true },
-  { to: '/capital', label: 'Workbench', adminOnly: true },
-  { to: '/production', label: 'Production', adminOnly: true },
-  { to: '/daily-reports', label: 'Daily Reports' },
-  { to: '/library', label: 'Library', adminOnly: true },
-  { to: '/projects', label: 'Projects', adminOnly: true },
-  { to: '/cockpit', label: 'Backend', adminOnly: true },
-  { to: '/datamanagement', label: 'Admin', adminOnly: true },
-];
 
 // --- LAZY-LOADED PAGES ---
 // Each page (and its heavy chart/PDF dependencies) is split into its own chunk
 // so the initial load only ships the code needed for the landing page.
+const HomeCockpitPage = lazy(() => import('./pages/HomeCockpitPage'));
 const HubPage = lazy(() => import('./pages/HubPage').then(m => ({ default: m.HubPage })));
 const DeadlinesPage = lazy(() => import('./pages/DeadlinesPage').then(m => ({ default: m.DeadlinesPage })));
 const DataManagementPage = lazy(() => import('./pages/DataManagementPage').then(m => ({ default: m.DataManagementPage })));
@@ -59,150 +46,9 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
 };
 
-/** Release number + deployment environment (PROD / TEST / DEV / LOCAL) —
- * the environment comes from the API (/api/meta), so the badge tells at a
- * glance which backend this browser tab is talking to. */
-const VersionBadge: React.FC = () => {
-  const { mode, apiBaseUrl } = useData();
-  const [env, setEnv] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    if (mode !== 'api' || !apiBaseUrl) { setEnv('LOCAL'); return; }
-    fetchMeta(apiBaseUrl).then(m => { if (!cancelled) setEnv(m?.environmentLabel || null); });
-    return () => { cancelled = true; };
-  }, [mode, apiBaseUrl]);
-  const tone = env === 'PROD'
-    ? 'bg-status-green/15 text-status-green'
-    : env === 'LOCAL' ? 'bg-brand-bg-body text-brand-text-secondary'
-    : 'bg-status-amber/15 text-status-amber';
-  return (
-    <span className="flex items-center gap-1.5" title={`RegReport v${APP_VERSION}${env ? ` — ${env} environment` : ''}`}>
-      <span className="text-[10px] text-brand-text-secondary tabular-nums">v{APP_VERSION}</span>
-      {env && (
-        <span className={`text-[10px] font-bold tracking-wider rounded px-1.5 py-0.5 ${tone}`}>{env}</span>
-      )}
-    </span>
-  );
-};
-
-/** Icon shortcuts on the right of the ribbon (admins): Deadlines calendar
- * and the Team & Contacts directory. */
-const IconNav: React.FC = () => {
-  const { isAdmin } = useData();
-  if (!isAdmin) return null;
-  const cls = ({ isActive }: { isActive: boolean }) =>
-    `p-1.5 rounded-md border transition-colors ${
-      isActive
-        ? 'border-efg-line bg-brand-bg-body text-brand-primary'
-        : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary hover:border-efg-line'
-    }`;
-  return (
-    <>
-      <NavLink to="/deadlines" title="Deadlines" className={cls}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Deadlines">
-          <rect x="3" y="4" width="18" height="18" rx="2" />
-          <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
-          <line x1="3" y1="10" x2="21" y2="10" />
-        </svg>
-      </NavLink>
-      <NavLink to="/team" title="Team & Contacts" className={cls}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Team & Contacts">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      </NavLink>
-    </>
-  );
-};
-
-/** Top-right ☰ menu (admins): Logs page + the built-in documentation. The
- * doc links deep-link into the Library viewer via /library?doc=<stem>. */
-const HeaderMenu: React.FC = () => {
-  const { isAdmin } = useData();
-  const [open, setOpen] = useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-  if (!isAdmin) return null;
-
-  const item = 'block w-full text-left px-4 py-2 text-sm text-brand-text-primary hover:bg-brand-bg-body transition-colors';
-  const DOCS: { label: string; doc: string }[] = [
-    { label: 'RegReport — tool documentation', doc: 'regreport-documentation' },
-    { label: 'MERCURY — data model (PDF)', doc: 'mercury-datamodel' },
-    { label: 'MERCURY — integration & adjustments', doc: 'mercury-integration' },
-    { label: 'Release & upgrade procedure', doc: 'release-procedure' },
-    { label: 'Release notes (version history)', doc: 'release-notes' },
-  ];
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        title="Logs & documentation"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={`text-base leading-none px-2 py-1 rounded-md border transition-colors ${open ? 'border-efg-line bg-brand-bg-body' : 'border-transparent hover:border-efg-line'}`}
-      >
-        ☰
-      </button>
-      {open && (
-        <div role="menu" className="absolute right-0 mt-2 w-72 bg-white border border-efg-line rounded-lg shadow-lg py-2 z-50">
-          <Link to="/logs" role="menuitem" onClick={() => setOpen(false)} className={item}>
-            <span className="font-semibold">Logs</span>
-            <span className="block text-xs text-brand-text-secondary">Technical (API, debug) & business audit trail</span>
-          </Link>
-          <div className="my-2 border-t border-efg-line" />
-          <p className="px-4 pb-1 text-[10px] uppercase tracking-widest text-brand-text-secondary">Documentation</p>
-          {DOCS.map(d => (
-            <Link key={d.doc} to={`/library?doc=${d.doc}`} role="menuitem" onClick={() => setOpen(false)} className={item}>
-              {d.label}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const NavBar: React.FC = () => {
-  const { isAdmin, currentUser } = useData();
-  return (
-    <div className="flex items-center gap-1 sm:gap-2">
-      {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map(item => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          className={({ isActive }) =>
-            `px-2 py-1 text-sm font-medium border-b-2 transition-colors ${
-              isActive
-                ? 'border-brand-primary text-brand-primary'
-                : 'border-transparent text-brand-text-secondary hover:text-brand-text-primary'
-            }`
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-      {currentUser.securityMode !== 'None' && (
-        <span
-          title={`Signed in as ${currentUser.name} (${currentUser.roles.join(', ')})`}
-          className="ml-2 pl-2 border-l border-efg-line text-xs text-brand-text-secondary hidden md:inline"
-        >
-          {currentUser.name.split('\\').pop()}{isAdmin ? '' : ' · read-only'}
-        </span>
-      )}
-    </div>
-  );
-};
-
 // --- APP ROUTER ---
+// v3.21 architecture: grouped sidebar (all modules by domain) + a global
+// context bar (period & entity picked once) around the unchanged pages.
 
 const App: React.FC = () => {
   // Dark mode: a class on <html> flips the CSS variables (see index.css).
@@ -220,85 +66,50 @@ const App: React.FC = () => {
     try { localStorage.setItem('theme', next ? 'dark' : 'light'); } catch { /* no storage */ }
     setDark(next);
   };
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
     <DataProvider>
       <HashRouter>
-        <div className="min-h-screen flex flex-col bg-brand-bg-body text-brand-text-primary">
-          <header className="app-header border-b border-efg-line sticky top-0 z-40">
-            <nav className="container mx-auto px-6 h-16 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Link to="/" className="flex items-center gap-2.5 group">
-                  {/* Brand mark: ascending bars in the EFG deep red (same as
-                      favicon.svg). Token-driven so dark mode lightens it. */}
-                  <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"
-                    className="shrink-0 transition-transform duration-200 group-hover:scale-105">
-                    <rect width="32" height="32" rx="7" className="fill-brand-primary" />
-                    <rect x="7.5" y="17" width="4.5" height="8" rx="1.5" fill="#fff" opacity="0.85" />
-                    <rect x="13.75" y="12" width="4.5" height="13" rx="1.5" fill="#fff" opacity="0.92" />
-                    <rect x="20" y="7" width="4.5" height="18" rx="1.5" fill="#fff" />
-                  </svg>
-                  <span className="text-xl font-semibold tracking-tight text-brand-text-primary">
-                    Reg<span className="text-brand-primary">Report</span>
-                  </span>
-                  <span className="hidden sm:inline text-xs uppercase tracking-widest text-brand-text-secondary border-l border-efg-line pl-2">
-                    Regulatory Reporting
-                  </span>
-                </Link>
-                <VersionBadge />
-              </div>
-              <div className="flex items-center gap-2">
-                <NavBar />
-                <span className="flex items-center gap-0.5 pl-1 border-l border-efg-line">
-                  <button
-                    onClick={() => window.dispatchEvent(new CustomEvent('regreport:open-palette'))}
-                    title="Search everything — Ctrl K"
-                    className="p-1.5 rounded-md border border-transparent text-brand-text-secondary hover:text-brand-text-primary hover:border-efg-line transition-colors"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-label="Search">
-                      <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" />
-                    </svg>
-                  </button>
-                  <IconNav />
-                  <HeaderMenu />
-                </span>
-                <button onClick={toggleTheme} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-                  className="text-base leading-none px-2 py-1 rounded-md border border-transparent hover:border-efg-line transition-colors">
-                  {dark ? '☀️' : '🌙'}
-                </button>
-              </div>
-            </nav>
-          </header>
-          <CommandPalette dark={dark} onToggleTheme={toggleTheme} />
-          <main className="flex-1">
-            <ErrorBoundary>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/" element={<HubPage />} />
-                  <Route path="/daily-reports" element={<DailyReportsPage />} />
-                  <Route path="/deadlines" element={<AdminRoute><DeadlinesPage /></AdminRoute>} />
-                  <Route path="/library" element={<AdminRoute><LibraryPage /></AdminRoute>} />
-                  <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
-                  <Route path="/projects" element={<AdminRoute><ProjectsPage /></AdminRoute>} />
-                  <Route path="/projects/:projectId" element={<AdminRoute><ProjectDetailPage /></AdminRoute>} />
-                  <Route path="/team" element={<AdminRoute><TeamPage /></AdminRoute>} />
-                  <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
-                  <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
-                  <Route path="/report" element={<ManagementReportPage />} />
-                  <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />
-                  <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
-                  <Route path="/production/analytics" element={<AdminRoute><BalanceAnalyticsPage /></AdminRoute>} />
-                  <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
-                </Routes>
-              </Suspense>
-            </ErrorBoundary>
-          </main>
-          <footer className="border-t border-efg-line bg-white">
-            <div className="container mx-auto px-6 py-3 flex flex-col sm:flex-row justify-between items-center gap-1 text-xs text-brand-text-secondary">
-              <span>RegReport · Regulatory Reporting Dashboard</span>
-              <span>Multi-entity regulatory KPI control center</span>
+        <ScopeProvider>
+          <div className="min-h-screen flex bg-brand-bg-body text-brand-text-primary">
+            <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+            <div className="flex-1 min-w-0 flex flex-col">
+              <TopBar dark={dark} onToggleTheme={toggleTheme} onOpenSidebar={() => setSidebarOpen(true)} />
+              <CommandPalette dark={dark} onToggleTheme={toggleTheme} />
+              <main className="flex-1">
+                <ErrorBoundary>
+                  <Suspense fallback={<PageLoader />}>
+                    <Routes>
+                      <Route path="/" element={<HomeCockpitPage />} />
+                      <Route path="/hub" element={<HubPage />} />
+                      <Route path="/daily-reports" element={<DailyReportsPage />} />
+                      <Route path="/deadlines" element={<AdminRoute><DeadlinesPage /></AdminRoute>} />
+                      <Route path="/library" element={<AdminRoute><LibraryPage /></AdminRoute>} />
+                      <Route path="/datamanagement" element={<AdminRoute><DataManagementPage /></AdminRoute>} />
+                      <Route path="/projects" element={<AdminRoute><ProjectsPage /></AdminRoute>} />
+                      <Route path="/projects/:projectId" element={<AdminRoute><ProjectDetailPage /></AdminRoute>} />
+                      <Route path="/team" element={<AdminRoute><TeamPage /></AdminRoute>} />
+                      <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
+                      <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
+                      <Route path="/report" element={<ManagementReportPage />} />
+                      <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />
+                      <Route path="/production" element={<AdminRoute><ProductionPage /></AdminRoute>} />
+                      <Route path="/production/reco" element={<AdminRoute><ProductionPage initialStep="reco" /></AdminRoute>} />
+                      <Route path="/production/analytics" element={<AdminRoute><BalanceAnalyticsPage /></AdminRoute>} />
+                      <Route path="/logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
+                    </Routes>
+                  </Suspense>
+                </ErrorBoundary>
+              </main>
+              <footer className="border-t border-efg-line bg-white">
+                <div className="px-6 py-3 flex flex-col sm:flex-row justify-between items-center gap-1 text-xs text-brand-text-secondary">
+                  <span>RegReport · Regulatory Reporting Dashboard</span>
+                  <span>Multi-entity regulatory KPI control center</span>
+                </div>
+              </footer>
             </div>
-          </footer>
-        </div>
+          </div>
+        </ScopeProvider>
       </HashRouter>
     </DataProvider>
   );

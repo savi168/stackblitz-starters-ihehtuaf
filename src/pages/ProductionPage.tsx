@@ -1840,9 +1840,9 @@ const CONTROL_DOCS: Array<{ id: string; title: string; what: string; base: strin
   },
 ];
 
-const ProductionPage: React.FC = () => {
+const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
   const { data, setData, allEntities, currentUser, mode, apiBaseUrl } = useData();
-  const [step, setStep] = useState<Step>('scope');
+  const [step, setStep] = useState<Step>(initialStep ?? 'scope');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

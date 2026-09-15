@@ -26,7 +26,7 @@ export const PALETTE = {
   mist: '#A9B8BE',       // tertiary chart color — light blue-grey
   sand: '#C9C7BB',       // quaternary chart color — warm light grey
   get line() { return cssVar('--pal-line', '#E4E6E4'); },     // grid / hairline rules
-  get bg() { return cssVar('--pal-bg', '#F4F5F4'); },         // page background
+  get bg() { return cssVar('--pal-bg', '#F7F6F3'); },         // page background (warm paper white)
 };
 
 /** Ordered categorical palette for multi-series charts (pies, multi-line, stacks). */

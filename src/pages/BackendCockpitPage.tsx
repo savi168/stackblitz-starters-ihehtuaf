@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
 import { Card, PageHeader, BackButton, SectionHeader, TabButton, Select, Modal, InfoBox, EmptyState } from '../components';
 import { BACKEND_TABLES, AGGREGATE_ENDPOINTS, TableMeta, EndpointMeta } from '../services/backendSchema';
@@ -470,6 +471,12 @@ const RowEditorPanel: React.FC<{
 const DataExplorer: React.FC = () => {
     const { data, setData, mode, apiBaseUrl } = useData();
     const [selectedKey, setSelectedKey] = useState<string>(BACKEND_TABLES[0].key as string);
+    // Deep link (v3.21): ?table=<key> from the sidebar preselects a dataset.
+    const [dlParams] = useSearchParams();
+    useEffect(() => {
+        const t = dlParams.get('table');
+        if (t && BACKEND_TABLES.some(x => (x.key as string) === t)) setSelectedKey(t);
+    }, [dlParams]);
     const [query, setQuery] = useState('');
     const [colFilters, setColFilters] = useState<Record<string, string>>({});
     const [editing, setEditing] = useState<Record<string, unknown> | null>(null);
@@ -908,6 +915,13 @@ const SchemaMap: React.FC = () => {
 
 export const BackendCockpitPage: React.FC = () => {
     const [tab, setTab] = useState<'data' | 'schema'>('data');
+    // Sidebar deep links (v3.21): /cockpit?tab=data opens the explorer,
+    // ?table=<key> preselects a dataset (e.g. prodMappingEntries).
+    const [params] = useSearchParams();
+    useEffect(() => {
+        const t = params.get('tab');
+        if (t === 'data' || t === 'schema') setTab(t);
+    }, [params]);
 
     return (
         <div className="p-5 md:p-8">

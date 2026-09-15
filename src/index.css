@@ -32,7 +32,8 @@
   --brand-accent: 169 184 190;
   --brand-text-primary: 43 51 56;
   --brand-text-secondary: 107 119 128;
-  --brand-bg-body: 244 245 244;
+  /* Warm paper white (v3.21) — the cool grey-blue #F4F5F4 read too blue. */
+  --brand-bg-body: 247 246 243;
   --efg-steel: 126 140 154;
   --efg-sand: 201 199 187;
   --efg-line: 228 230 228;
@@ -43,7 +44,7 @@
   --pal-ink: 43 51 56;
   --pal-muted: 107 119 128;
   --pal-line: 228 230 228;
-  --pal-bg: 244 245 244;
+  --pal-bg: 247 246 243;
 }
 .dark {
   color-scheme: dark;

@@ -6,6 +6,39 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.21.0 — 15 September 2026
+
+**Theme: 🏛 New architecture, phase 1 — sidebar, global context, Home cockpit.**
+Frontend only: no schema migration, no data touched, every existing page
+keeps 100% of its features (they render unchanged inside the new shell).
+Rollback branch: `backup/v3.20.0-pre-archi`.
+
+- **Grouped sidebar navigation** replaces the top nav: every module,
+  organized by domain — Monthly close (Production line, Reco &
+  adjustments, Calendar & deadlines), Analytics (Balance analytics,
+  Management report, Daily reports), Simulation (Scenarios, Capital &
+  liquidity), Data (Data explorer, Mappings & nomenclatures, Library),
+  Workspace (Projects, Team & contacts), Admin (Backend cockpit, Data
+  management, Logs & audit). Admin-only items stay hidden for readers,
+  exactly as before. Off-canvas drawer on small screens.
+- **Global context bar**: the reporting period and entity are picked once
+  in the top bar (persisted per browser) with a live Certified ✔ /
+  Close-in-progress status from the certified baselines. Phase 1 stores
+  and shows the selection; modules will be wired to it progressively.
+- **Home = close cockpit**: the pipeline Scope → Data → Controls → Reco →
+  Certify with real states (loads visible, baseline certified), total
+  booked assets of the scope, certified-baselines and next-deadline
+  tiles, upcoming deadlines and the recent business audit trail. The
+  classic module-cards hub remains at `#/hub` (linked from Home).
+- **Direct entries**: `#/production/reco` opens the Reco workspace
+  directly; the sidebar's Data explorer / Mappings entries deep-link into
+  the Backend cockpit (`?tab=data`, `?table=prodMappingEntries`).
+- **Warm light theme**: the page background moves from the cool grey-blue
+  `#F4F5F4` to a warm paper white `#F7F6F3` (dark mode unchanged).
+- No schema migration.
+
+---
+
 ## v3.20.0 — 15 September 2026
 
 **Theme: 🌍 Interactive map — the Power-BI feel.**
