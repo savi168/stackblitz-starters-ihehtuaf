@@ -6,6 +6,18 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.28.1 — 16 September 2026
+
+Footnote accuracy fix on the Live balance impact card: the Account view
+books **all** loaded lines on their LIGNE's GL account (the candidate
+only supplies qualitative data), so the footnote now says
+`adj = all N lines on their LIGNE's GL account (n resolved)` there, and
+keeps `adj = resolved lines only (n/N)` on the Currency / Booking-ctr
+pivots, which do exclude ambiguous lines until a candidate is picked.
+The thin progress bar reads "n/N resolved". Frontend only.
+
+---
+
 ## v3.28.0 — 16 September 2026
 
 **Theme: 📊 Live balance impact card — matched to the canvas.**

@@ -1318,11 +1318,13 @@ const AdjustmentsCard: React.FC<{
                 </tbody>
               </table>
               )}
-              <div className="h-1 rounded-full bg-efg-line overflow-hidden" title={`${included}/${lines.length} line(s) feed the deltas`}>
+              <div className="h-1 rounded-full bg-efg-line overflow-hidden" title={`${included}/${lines.length} line(s) resolved`}>
                 <div className="h-full bg-brand-secondary transition-all duration-300" style={{ width: `${pct}%` }} />
               </div>
               <p className="text-[10.5px] text-brand-text-secondary leading-relaxed whitespace-normal">
-                {unitLabel}{scopeSel ? ` · net of intra-scope interco (${scopeSel} reporting set)` : ' · no interco elimination — pick a reporting set'} · base = {baseLbl}, adj = checked lines only ({included}/{lines.length}).
+                {unitLabel}{scopeSel ? ` · net of intra-scope interco (${scopeSel} reporting set)` : ' · no interco elimination — pick a reporting set'} · base = {baseLbl}{viewDim === 'account'
+                  ? ` · adj = all ${lines.length} lines on their LIGNE's GL account (${included} resolved)`
+                  : ` · adj = resolved lines only (${included}/${lines.length})`}.
                 {!baseAgg && ' Base unavailable — deltas only.'}
               </p>
             </div>
