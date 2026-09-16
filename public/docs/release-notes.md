@@ -6,6 +6,35 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.28.0 — 16 September 2026
+
+**Theme: 📊 Live balance impact card — matched to the canvas.**
+Frontend only, no schema migration, no database impact.
+
+- **Card chrome**: the Reco right panel is now a proper card (rounded,
+  soft shadow, padded) instead of a bordered box with a grey header
+  bar. Row 1 = title + SWISS GAAP / IFRS (HFM) toggle right-aligned;
+  row 2 = pivot pills (Account · Currency · Booking ctr) with the
+  reporting-set select on the right.
+- **Canvas table style**: rubrique number in bold with its official
+  label inline on the same line (`102 Due from banks`), adjusted rows
+  tinted maroon, deltas signed and bold (green `+2.5` / red `−0.7`),
+  untouched cells as a mist `—`, the After value bold on adjusted
+  rows, and bold **Total assets** / **Total liabilities & equity**
+  section totals. Currency and booking-center pivots share the style.
+- **Figures in mCHF**: amounts switch to millions with one decimal and
+  Swiss apostrophe grouping (4'218.0) whenever the balance sheet is
+  large enough; small test datasets stay in raw CHF. The unit is
+  stated in the footnote.
+- **Progress bar + footnote**: a thin bar shows how many lines feed
+  the deltas, and the footnote reads like the canvas — `mCHF · net of
+  intra-scope interco (MOCK-GROUP reporting set) · base = JAN-26 GROUP
+  monthly, adj = checked lines only (12/18)`.
+- Nothing functional changed: same scope filter, same IC elimination,
+  same dual-GAAP regrouping, same pivots — presentation only.
+
+---
+
 ## v3.27.0 — 16 September 2026
 
 **Theme: 🏛 Reco pixel pass — the top-bar collection is THE link.**

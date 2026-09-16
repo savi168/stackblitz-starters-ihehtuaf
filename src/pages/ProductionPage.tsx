@@ -1138,8 +1138,22 @@ const AdjustmentsCard: React.FC<{
 
         <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_400px] xl:gap-4 xl:items-start">
         {showImpact && mappings && (impact || baseAgg) && (() => {
-          const fmt = (n: number) => n.toLocaleString('en-CH', { maximumFractionDigits: 0 });
           const per = impact?.perPrefix ?? new Map<string, { gross: number; eliminated: number; net: number; lines: number }>();
+          // Canvas-style figures: mCHF with one decimal + Swiss apostrophe
+          // grouping when the balance sheet is large enough, raw CHF otherwise.
+          const maxAbs = Math.max(1,
+            ...Object.values(baseAgg || {}).map(b => Math.abs(b.amount - b.eliminated)),
+            ...Array.from(per.values()).map(d => Math.abs(d.net)));
+          const mchf = maxAbs >= 5e6;
+          const unitLabel = mchf ? 'mCHF' : 'CHF';
+          const fmt = (n: number) => {
+            const v = n / (mchf ? 1e6 : 1);
+            const s = Math.abs(v).toFixed(mchf ? 1 : 0);
+            const neg = v < 0 && parseFloat(s) !== 0;
+            const [ip, dp] = s.split('.');
+            return `${neg ? '−' : ''}${ip.replace(/\B(?=(\d{3})+(?!\d))/g, "'")}${dp ? '.' + dp : ''}`;
+          };
+          const fmtD = (n: number) => (n > 0 ? `+${fmt(n)}` : fmt(n));
           const outOfScope = impact?.outOfScope ?? 0;
           const scoped = !!scopeSet;
           const prefixes = Array.from(new Set([...Object.keys(baseAgg || {}), ...per.keys()])).sort();
@@ -1151,36 +1165,41 @@ const AdjustmentsCard: React.FC<{
           ];
           const levelsOf = (e: { bankOffice?: boolean; parentCompany?: boolean; consoGroup?: boolean }) =>
             [e.bankOffice ? 'BO' : '', e.parentCompany ? 'PC' : '', e.consoGroup ? 'GR' : ''].filter(Boolean).join('/');
-          const deltaCls = (n: number) => n > 0 ? 'text-status-green' : n < 0 ? 'text-status-red' : 'text-brand-text-secondary';
+          const adjCls = (n: number) => n === 0 ? 'text-brand-accent' : n > 0 ? 'text-status-green font-bold' : 'text-status-red font-bold';
+          // Checked = lines feeding the deltas (auto-matched, picked, or new
+          // positions); ambiguous lines stay out until a candidate is chosen.
+          const included = results ? lines.filter(l => { const c = results[l.row] || []; return c.length === 0 || !!chosen[l.row]; }).length : 0;
+          const pct = lines.length > 0 ? Math.round((included / lines.length) * 100) : 0;
+          const baseLbl = collection ? (collection.name || `collection ${String(collection.loadCollectionId)}`) : (loadId ? `load ${loadId}` : 'collection');
           return (
             // Sticky on wide screens: the balance sheet stays in view while
             // you scroll through the adjustment lines — every pick updates it.
-            <div className="xl:col-start-2 xl:row-start-1 xl:sticky xl:top-4 min-w-0 border border-efg-line rounded-lg mb-3 xl:mb-0 xl:max-h-[88vh] xl:overflow-y-auto bg-white dark:bg-transparent">
-              <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40 sticky top-0">
-                <span className="text-[13px] font-bold whitespace-nowrap">Live balance impact</span>
-                <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
+            <div className="xl:col-start-2 xl:row-start-1 xl:sticky xl:top-4 min-w-0 rounded-xl border border-efg-line shadow-sm mb-3 xl:mb-0 xl:max-h-[88vh] xl:overflow-y-auto bg-white dark:bg-transparent p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-semibold whitespace-nowrap">Live balance impact</span>
+                <span className="ml-auto inline-flex rounded-[7px] border border-brand-accent overflow-hidden text-[10px] font-bold whitespace-nowrap">
                   {(['swiss', 'ifrs'] as const).map(g => (
                     <button key={g} onClick={() => setGaapAdj(g)}
-                      className={`px-2 py-1 transition-colors ${gaapAdj === g ? 'bg-brand-primary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-primary'}`}>
+                      className={`px-2 py-1 transition-colors ${gaapAdj === g ? 'bg-brand-primary text-white' : 'bg-white dark:bg-transparent text-brand-text-secondary hover:text-brand-primary'}`}>
                       {g === 'swiss' ? 'SWISS GAAP' : 'IFRS (HFM)'}
                     </button>
                   ))}
                 </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {([['account', 'Account'], ['currency', 'Currency'], ['bc', 'Booking ctr']] as const).map(([k, lbl]) => (
+                  <button key={k} onClick={() => setViewDim(k)}
+                    className={`text-[11px] font-semibold rounded-full px-2.5 py-[3px] transition-colors ${viewDim === k ? 'bg-brand-secondary text-white' : 'text-brand-text-secondary border border-efg-line hover:border-brand-secondary hover:text-brand-secondary'}`}>
+                    {lbl}
+                  </button>
+                ))}
                 <select value={scopeSel} onChange={e => setScopeSel(e.target.value)}
-                  className="p-1 border border-gray-200 rounded-md text-[11px] bg-white max-w-[160px]">
+                  className="ml-auto p-1 border border-gray-200 rounded-md text-[11px] bg-white max-w-[140px]">
                   <option value="">— no scope —</option>
                   {(conso?.entities || []).map(e => (
                     <option key={e.id} value={e.id}>{e.id}{levelsOf(e) ? ` (${levelsOf(e)})` : ''}</option>
                   ))}
                 </select>
-                <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[10px] font-semibold">
-                  {([['account', 'Account'], ['currency', 'CCY'], ['bc', 'Booking ctr']] as const).map(([k, lbl]) => (
-                    <button key={k} onClick={() => setViewDim(k)}
-                      className={`px-2 py-1 transition-colors ${viewDim === k ? 'bg-brand-secondary text-white' : 'bg-white text-brand-text-secondary hover:text-brand-secondary'}`}>
-                      {lbl}
-                    </button>
-                  ))}
-                </span>
                 {outOfScope > 0 && (
                   <span className="text-[10px] text-status-amber font-semibold" title="Lines booked outside the reporting set — excluded from this consolidated view only; their INSERTs are unaffected.">
                     ⊘ {outOfScope} out of scope
@@ -1188,7 +1207,7 @@ const AdjustmentsCard: React.FC<{
                 )}
               </div>
               {gaapAdj === 'ifrs' && mappings.hfm.size === 0 && (
-                <p className="text-[10px] text-status-amber font-semibold px-3 py-1.5 border-b border-efg-line">
+                <p className="text-[10px] text-status-amber font-semibold">
                   ⚠ prefix fallback rules only — re-upload Mapping.xlsb + 💾 save for the account-level HFM mapping
                 </p>
               )}
@@ -1223,38 +1242,41 @@ const AdjustmentsCard: React.FC<{
                   .sort((a, b) => Math.abs(baseBy[b] || 0) - Math.abs(baseBy[a] || 0));
                 let tb = 0, ta = 0;
                 return (
-                  <table className="w-full text-[11px] whitespace-nowrap">
-                    <thead className="bg-brand-bg-body"><tr>
-                      {[viewDim === 'currency' ? 'CCY' : 'Booking center', 'Base', 'Adj', 'After'].map((h, hi) =>
-                        <th key={h} className={`px-2 py-1.5 text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                  <table className="w-full text-[11.5px] whitespace-nowrap">
+                    <thead><tr>
+                      {[viewDim === 'currency' ? 'Currency' : 'Booking ctr', 'Base', 'Adj', 'After'].map((h, hi) =>
+                        <th key={h} className={`px-1.5 py-[5px] text-[9.5px] uppercase tracking-[0.1em] text-brand-text-secondary font-semibold border-b border-efg-line ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {keys.map(k => {
                         const b = baseBy[k] || 0, a = adjBy[k] || 0;
                         tb += b; ta += a;
                         return (
-                          <tr key={k} className={`border-t border-efg-line/60 ${a !== 0 ? 'font-semibold bg-brand-secondary/5' : ''}`}>
-                            <td className="px-2 py-1">{viewDim === 'bc' ? (conso?.bcNames[k] ? `${k} — ${conso.bcNames[k]}` : k) : k}</td>
-                            <td className="px-2 py-1 text-right tabular-nums">{fmt(b)}</td>
-                            <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(a)}`}>{a === 0 ? '—' : fmt(a)}</td>
-                            <td className="px-2 py-1 text-right tabular-nums">{fmt(b + a)}</td>
+                          <tr key={k} className={`border-b border-efg-line/60 ${a !== 0 ? 'bg-brand-primary/5' : ''}`}>
+                            <td className="px-1.5 py-[5px] max-w-[170px] overflow-hidden text-ellipsis">
+                              <span className="font-bold">{k}</span>
+                              {viewDim === 'bc' && conso?.bcNames[k] ? ` ${conso.bcNames[k]}` : ''}
+                            </td>
+                            <td className="px-1.5 py-[5px] text-right tabular-nums">{fmt(b)}</td>
+                            <td className={`px-1.5 py-[5px] text-right tabular-nums ${adjCls(a)}`}>{a === 0 ? '—' : fmtD(a)}</td>
+                            <td className={`px-1.5 py-[5px] text-right tabular-nums ${a !== 0 ? 'font-bold' : ''}`}>{fmt(b + a)}</td>
                           </tr>
                         );
                       })}
-                      <tr className="border-t border-efg-line font-semibold">
-                        <td className="px-2 py-1">Total</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{fmt(tb)}</td>
-                        <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(ta)}`}>{ta === 0 ? '—' : fmt(ta)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">{fmt(tb + ta)}</td>
+                      <tr className="font-bold">
+                        <td className="px-1.5 py-[6px]">Total</td>
+                        <td className="px-1.5 py-[6px] text-right tabular-nums">{fmt(tb)}</td>
+                        <td className={`px-1.5 py-[6px] text-right tabular-nums ${adjCls(ta)}`}>{ta === 0 ? '—' : fmtD(ta)}</td>
+                        <td className="px-1.5 py-[6px] text-right tabular-nums">{fmt(tb + ta)}</td>
                       </tr>
                     </tbody>
                   </table>
                 );
               })() : (
-              <table className="w-full text-[11px] whitespace-nowrap">
-                <thead className="bg-brand-bg-body"><tr>
+              <table className="w-full text-[11.5px] whitespace-nowrap">
+                <thead><tr>
                   {[gaapAdj === 'ifrs' ? 'HFM' : 'Acct', 'Base', 'Adj', 'After'].map((h, hi) =>
-                    <th key={h} className={`px-2 py-1.5 text-[9px] uppercase tracking-wider text-brand-text-secondary font-semibold ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
+                    <th key={h} className={`px-1.5 py-[5px] text-[9.5px] uppercase tracking-[0.1em] text-brand-text-secondary font-semibold border-b border-efg-line ${hi >= 1 ? 'text-right' : 'text-left'}`}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {sections.map(sec => {
@@ -1263,9 +1285,6 @@ const AdjustmentsCard: React.FC<{
                     let tBase = 0, tNet = 0;
                     return (
                       <React.Fragment key={sec.title}>
-                        <tr className="border-t border-efg-line bg-brand-bg-body/60">
-                          <td colSpan={4} className="px-2 py-1 font-semibold text-[10px] uppercase tracking-[0.08em] text-brand-text-secondary">{sec.title}</td>
-                        </tr>
                         {ps.map(p => {
                           const b = baseAgg?.[p];
                           const baseNet = (b?.amount ?? 0) - (b?.eliminated ?? 0);
@@ -1275,23 +1294,23 @@ const AdjustmentsCard: React.FC<{
                           const net = scoped ? (d?.net ?? 0) : gross;
                           tBase += baseNet; tNet += net;
                           return (
-                            <tr key={p} className={`border-t border-efg-line/60 ${net !== 0 ? 'font-semibold bg-brand-secondary/5' : ''}`}
+                            <tr key={p} className={`border-b border-efg-line/60 ${net !== 0 ? 'bg-brand-primary/5' : ''}`}
                               title={`${labelOf(p) || p}${d ? ` — ${d.lines} line(s), gross ${fmt(gross)}${elim ? `, IC eliminated ${fmt(-elim)}` : ''}` : ''}`}>
-                              <td className="px-2 py-1 max-w-[150px]">
-                                <span className="font-semibold">{p}</span>
-                                {labelOf(p) && <span className="block text-[9px] text-brand-text-secondary font-normal truncate leading-tight">{labelOf(p)}</span>}
+                              <td className="px-1.5 py-[5px] max-w-[180px] overflow-hidden text-ellipsis">
+                                <span className="font-bold">{p}</span>
+                                {labelOf(p) ? ` ${labelOf(p)}` : ''}
                               </td>
-                              <td className="px-2 py-1 text-right tabular-nums align-top">{baseAgg ? fmt(baseNet) : '—'}</td>
-                              <td className={`px-2 py-1 text-right tabular-nums align-top ${deltaCls(net)}`}>{net === 0 ? '—' : fmt(net)}</td>
-                              <td className="px-2 py-1 text-right tabular-nums align-top">{baseAgg ? fmt(baseNet + net) : '—'}</td>
+                              <td className="px-1.5 py-[5px] text-right tabular-nums">{baseAgg ? fmt(baseNet) : '—'}</td>
+                              <td className={`px-1.5 py-[5px] text-right tabular-nums ${adjCls(net)}`}>{net === 0 ? '—' : fmtD(net)}</td>
+                              <td className={`px-1.5 py-[5px] text-right tabular-nums ${net !== 0 ? 'font-bold' : ''}`}>{baseAgg ? fmt(baseNet + net) : '—'}</td>
                             </tr>
                           );
                         })}
-                        <tr className="border-t border-efg-line font-semibold">
-                          <td className="px-2 py-1">Total</td>
-                          <td className="px-2 py-1 text-right tabular-nums">{baseAgg ? fmt(tBase) : '—'}</td>
-                          <td className={`px-2 py-1 text-right tabular-nums ${deltaCls(tNet)}`}>{tNet === 0 ? '—' : fmt(tNet)}</td>
-                          <td className="px-2 py-1 text-right tabular-nums">{baseAgg ? fmt(tBase + tNet) : '—'}</td>
+                        <tr className="font-bold">
+                          <td className="px-1.5 py-[6px]">Total {sec.title === 'Assets' ? 'assets' : sec.title.toLowerCase()}</td>
+                          <td className="px-1.5 py-[6px] text-right tabular-nums">{baseAgg ? fmt(tBase) : '—'}</td>
+                          <td className={`px-1.5 py-[6px] text-right tabular-nums ${adjCls(tNet)}`}>{tNet === 0 ? '—' : fmtD(tNet)}</td>
+                          <td className="px-1.5 py-[6px] text-right tabular-nums">{baseAgg ? fmt(tBase + tNet) : '—'}</td>
                         </tr>
                       </React.Fragment>
                     );
@@ -1299,9 +1318,11 @@ const AdjustmentsCard: React.FC<{
                 </tbody>
               </table>
               )}
-              <p className="text-[10px] text-brand-text-secondary px-3 py-2 border-t border-efg-line whitespace-normal">
-                CHF, rounded. Each line is booked on its LIGNE's GL account — the match only supplies qualitative data.
-                {viewDim === 'account' ? ' Hover a row for gross / IC-eliminated detail.' : ' Pivot view: ambiguous lines excluded until a candidate is picked.'}
+              <div className="h-1 rounded-full bg-efg-line overflow-hidden" title={`${included}/${lines.length} line(s) feed the deltas`}>
+                <div className="h-full bg-brand-secondary transition-all duration-300" style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[10.5px] text-brand-text-secondary leading-relaxed whitespace-normal">
+                {unitLabel}{scopeSel ? ` · net of intra-scope interco (${scopeSel} reporting set)` : ' · no interco elimination — pick a reporting set'} · base = {baseLbl}, adj = checked lines only ({included}/{lines.length}).
                 {!baseAgg && ' Base unavailable — deltas only.'}
               </p>
             </div>
