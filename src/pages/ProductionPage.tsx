@@ -439,9 +439,12 @@ const OrphanInsertHelper: React.FC<{ keyValue: string; periodDate?: string }> = 
  * INSERT scripts (copied attributes, or full build from the mappings). */
 const AdjustmentsCard: React.FC<{
   entity: string; presetCollectionId?: string;
+  /** Reports an in-card collection pick back to the page (and the global
+   * scope), so the top bar and the card never disagree. */
+  onCollectionPicked?: (id: string, entityId?: string, date?: string) => void;
   onNotice: (m: string) => void; onError: (m: string) => void;
 }> =
-  ({ entity, presetCollectionId, onNotice, onError }) => {
+  ({ entity, presetCollectionId, onCollectionPicked, onNotice, onError }) => {
     const { mode, apiBaseUrl, data, setData, currentUser } = useData();
     const [mappings, setMappings] = useState<AdjustmentMappings | null>(null);
     const [mappingInfo, setMappingInfo] = useState('');
@@ -607,11 +610,19 @@ const AdjustmentsCard: React.FC<{
       if (ids.length > 0) setLoadId(ids[0]);
       // The collection's reporting entity IS the consolidation level.
       setScopeSel(c.reportingEntityId ? String(c.reportingEntityId) : '');
+      onCollectionPicked?.(String(c.loadCollectionId),
+        c.reportingEntityId ? String(c.reportingEntityId) : undefined,
+        c.reportingDate ? String(c.reportingDate).slice(0, 10) : undefined);
     };
 
     // Collection preset by the Scope step: apply it once the list arrives.
     useEffect(() => {
-      if (!presetCollectionId || collectionSel || collections.length === 0) return;
+      // v3.27: the top-bar scope IS the link — the card follows the page's
+      // collection continuously (not only on first load), so changing the
+      // period/entity up top re-scopes the Reco. An in-card pick reports
+      // back through pickCollection, so both stay equal and nothing fights.
+      if (!presetCollectionId || collections.length === 0) return;
+      if (presetCollectionId === collectionSel) return;
       const c = collections.find(x => String(x.loadCollectionId) === presetCollectionId);
       if (c) pickCollection(c);
     }, [presetCollectionId, collections]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -921,7 +932,9 @@ const AdjustmentsCard: React.FC<{
           {([
             ['Mapping workbook', storedMappings.length > 0 || !!mappings, storedMappings.length > 0 ? 'stored in database' : mappings ? 'loaded this session' : 'upload Mapping.xlsb below (once) and 💾 save'],
             ['Adjustments file', lines.length > 0, lines.length > 0 ? `${lines.length} line(s)` : 'the accounting extract (LIGNE / REFERENCE / CLIENT / MONTANT…)'],
-            ['Load collection', collLoadIds.length > 0 || !!loadId, collLoadIds.length > 0 ? `load(s) ${collLoadIds.join(', ')}` : 'from the Scope step, or a loadid below'],
+            [collection ? (collection.name || `Collection ${String(collection.loadCollectionId)}`) : 'Load collection',
+              collLoadIds.length > 0 || !!loadId,
+              collLoadIds.length > 0 ? `load(s) ${collLoadIds.join(', ')} — from the top-bar scope` : 'from the top-bar scope, or pick below'],
           ] as Array<[string, boolean, string]>).map(([label, ok, hint]) => (
             <button key={label} title={`${hint} — click to open the file & scope sections`}
               onClick={() => setShowSources(v => !v)}
@@ -1144,6 +1157,7 @@ const AdjustmentsCard: React.FC<{
             // you scroll through the adjustment lines — every pick updates it.
             <div className="xl:col-start-2 xl:row-start-1 xl:sticky xl:top-4 min-w-0 border border-efg-line rounded-lg mb-3 xl:mb-0 xl:max-h-[88vh] xl:overflow-y-auto bg-white dark:bg-transparent">
               <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-efg-line bg-brand-bg-body/40 sticky top-0">
+                <span className="text-[13px] font-bold whitespace-nowrap">Live balance impact</span>
                 <span className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
                   {(['swiss', 'ifrs'] as const).map(g => (
                     <button key={g} onClick={() => setGaapAdj(g)}
@@ -1361,25 +1375,29 @@ const AdjustmentsCard: React.FC<{
                 large working panel in the middle — the live balance sheet
                 keeps the right column. */}
             <div className="lg:grid lg:grid-cols-[290px_minmax(0,1fr)] lg:gap-3 outline-none" tabIndex={0} onKeyDown={onKey}>
-              <div className="border border-efg-line rounded-lg overflow-y-auto max-h-[74vh] divide-y divide-efg-line/70 mb-3 lg:mb-0 bg-white dark:bg-transparent">
+              <div className="overflow-y-auto max-h-[74vh] space-y-1.5 mb-3 lg:mb-0 pr-0.5">
                 {filtered.length === 0 ? (
                   <EmptyState title="Nothing under this filter" hint="Clear the status filter above." compact />
                 ) : filtered.map(l => {
                   const st = statusOf(l);
                   const active = sel?.row === l.row;
                   const meta = STATUS_META[st];
+                  const glAcct = mappings?.gl.get(l.ligne)?.legalAccountNumber;
                   return (
                     <button key={l.row} onClick={() => setExpandedRow(l.row)}
-                      className={`block w-full text-left px-3 py-2.5 transition-colors border-l-[3px] ${active
-                        ? 'border-l-brand-primary bg-brand-primary/5'
-                        : 'border-l-transparent hover:bg-brand-bg-body/60'}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-[12px] truncate">LIGNE {l.ligne} · {l.libelle || l.description || l.reference}</span>
+                      className={`block w-full text-left px-3 py-2.5 rounded-[10px] border transition-colors ${active
+                        ? 'border-brand-primary border-[1.5px] bg-brand-primary/5'
+                        : 'border-efg-line bg-white hover:border-brand-accent'}`}>
+                      <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
+                        <span className="font-semibold text-[12px] truncate">{l.ligne}{glAcct ? ` · ${glAcct}` : ''}</span>
+                        <span className={`ml-auto tabular-nums text-[12px] font-semibold whitespace-nowrap ${l.montant < 0 ? 'text-status-red' : ''}`}>
+                          {l.montant > 0 ? '+' : ''}{l.montant.toLocaleString('en-CH')}
+                        </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-brand-text-secondary mt-0.5">
-                        <span className="truncate">{meta.label}{scripts[l.row] ? ' · SQL ready' : ''}</span>
-                        <span className="tabular-nums whitespace-nowrap">{l.montant.toLocaleString('en-CH')} {l.ccy}</span>
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-brand-text-secondary mt-0.5 pl-4">
+                        <span className="truncate">{l.libelle || l.description || l.reference} · {l.ccy}</span>
+                        <span className="whitespace-nowrap">{scripts[l.row] ? 'SQL ✓' : meta.label}</span>
                       </div>
                     </button>
                   );
@@ -1405,33 +1423,36 @@ const AdjustmentsCard: React.FC<{
                   return (
                     <div className="space-y-3">
                       {/* Line header */}
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-lg font-bold leading-tight">LIGNE {l.ligne} <span className="font-normal text-brand-text-secondary">· {l.libelle || l.description || '—'}</span></p>
-                          <div className="flex flex-wrap gap-1.5 mt-1.5 text-[11px]">
-                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">ref {l.reference}</span>
-                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
-                              client {l.client || '—'}
-                              {interco && <span title={`Intercompany — IND ${l.ind} → CounterpartyBookingCenterId ${interco}`} className="ml-1 font-semibold text-brand-secondary">IC {interco}</span>}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">
-                              GL {gl?.legalAccountNumber || <span className="text-status-red font-semibold">no map</span>}
-                              {gl?.legalAccountNumber ? ` — ${accountLabelOf(gl.legalAccountNumber, lanMap) ?? gl.description ?? ''}` : ''}
-                            </span>
-                            {l.matDate && <span className="px-2 py-0.5 rounded-full border border-efg-line bg-brand-bg-body/60">mat {l.matDate}</span>}
-                            {scopeTag && <span title={scopeTag.tip} className={`px-2 py-0.5 rounded-full border border-current cursor-help font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
-                          </div>
+                      {/* Canvas header: chip row — LIGNE · GL · amount · status */}
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[12px] font-bold bg-brand-text-primary text-white rounded-md px-2.5 py-1 dark:bg-gray-200 dark:text-gray-900">LIGNE {l.ligne}</span>
+                          <span className="text-[12px] font-semibold text-brand-primary border border-brand-primary/40 bg-brand-primary/5 rounded-md px-2.5 py-1">
+                            GL {gl?.legalAccountNumber || 'no map'}
+                            {gl?.legalAccountNumber ? ` — ${accountLabelOf(gl.legalAccountNumber, lanMap) ?? gl.description ?? ''}` : ''}
+                          </span>
+                          <span className={`text-[12px] font-semibold border border-efg-line rounded-md px-2.5 py-1 tabular-nums ${l.montant < 0 ? 'text-status-red' : ''}`}>
+                            {l.montant > 0 ? '+' : ''}{l.montant.toLocaleString('en-CH')} {l.ccy}
+                          </span>
+                          {scopeTag && <span title={scopeTag.tip} className={`text-[11px] px-2 py-1 rounded-md border border-current cursor-help font-semibold ${scopeTag.cls}`}>{scopeTag.txt}</span>}
+                          <span className={`ml-auto inline-flex items-center gap-1.5 text-[11px] font-bold whitespace-nowrap ${
+                            statusOf(l) === 'matched' ? 'text-status-green' : statusOf(l) === 'ambiguous' ? 'text-status-amber' : 'text-status-red'}`}>
+                            <span className={`w-2 h-2 rounded-full ${STATUS_META[statusOf(l)].dot}`} />
+                            {statusOf(l) === 'matched' ? 'MATCHED' : statusOf(l) === 'ambiguous' ? `AMBIGUOUS — ${cands.length} candidates` : 'NEW POSITION'}
+                          </span>
                         </div>
-                        <p className={`text-xl font-bold tabular-nums whitespace-nowrap ${l.montant < 0 ? 'text-status-red' : ''}`}>
-                          {l.montant.toLocaleString('en-CH')} <span className="text-sm font-semibold">{l.ccy}</span>
+                        <p className="text-[11.5px] text-brand-text-secondary mt-1.5">
+                          {l.libelle || l.description || '—'} · ref {l.reference} · client {l.client || '—'}
+                          {interco && <span title={`Intercompany — IND ${l.ind} → CounterpartyBookingCenterId ${interco}`} className="ml-1 font-semibold text-brand-secondary">IC {interco}</span>}
+                          {l.matDate ? ` · mat ${l.matDate}` : ''}
                         </p>
                       </div>
 
                       {/* Candidates OR new-position form */}
                       {cands.length > 0 ? (
                         <div>
-                          <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1.5">
-                            {cands.length} MERCURY candidate(s) — the pick supplies the qualitative data; the booking stays on GL {gl?.legalAccountNumber || '?'}
+                          <p className="text-[13px] font-semibold border-b border-brand-text-primary/70 pb-1.5 mb-2">
+                            Matching candidates <span className="text-[11px] font-light text-brand-text-secondary">— qualitative data only, the booking follows the line's GL account {gl?.legalAccountNumber || '?'}</span>
                           </p>
                           <div className="space-y-1.5">
                             {cands.map(c => {
@@ -1638,17 +1659,33 @@ const AdjustmentsCard: React.FC<{
                             {mappings && Array.from(mappings.hfmLabels.entries()).map(([acc, lbl]) => <option key={acc} value={acc}>{lbl}</option>)}
                           </datalist>
                         </div>
+                        {/* Canvas: booking preview strip above the primary action. */}
+                        <div className="w-full basis-full rounded-lg border border-efg-line bg-brand-bg-body/50 px-3.5 py-2.5 text-[12px] text-brand-secondary">
+                          <b className="text-brand-text-primary">Booking preview</b> — the adjustment posts on{' '}
+                          <b className="text-brand-primary">{gl?.legalAccountNumber || '?'}{gl?.legalAccountNumber ? ` · ${accountLabelOf(gl.legalAccountNumber, lanMap) ?? ''}` : ''}</b>
+                          {cand ? ` with the qualitative attributes of ${cand.id}` : cands.length === 0 ? ' with a new position + referential rows' : ' once a candidate is picked'};
+                          the HFM reference goes to InternalReference3.
+                        </div>
                         <button onClick={() => makeScript(l)}
                           disabled={cands.length > 0 && !cand}
-                          className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2 px-4 rounded-md transition-colors disabled:opacity-40">
-                          {cands.length === 0 ? '✚ Generate the INSERT (position + referential)' : cand ? `✓ Prepare adjustment INSERT from ${cand.id}` : 'Pick a candidate first'}
+                          className="text-sm font-semibold bg-brand-primary hover:bg-brand-primary-dark text-white py-2.5 px-5 rounded-lg shadow-card transition-colors disabled:opacity-40">
+                          {cands.length === 0 ? '✚ Confirm & generate SQL — new position' : cand ? '✓ Confirm & generate SQL' : 'Pick a candidate first'}
                         </button>
                         {st !== 'ambiguous' && !scripts[l.row] && <span className="text-[11px] text-brand-text-secondary">or press Enter</span>}
+                        {(() => {
+                          const nx = filtered.find(x => x.row !== l.row && !scripts[x.row]);
+                          return nx ? (
+                            <button onClick={() => setExpandedRow(nx.row)}
+                              className="ml-auto text-[12px] text-brand-secondary hover:text-brand-primary font-semibold whitespace-nowrap">
+                              Next unresolved: line {nx.ligne} →
+                            </button>
+                          ) : null;
+                        })()}
                       </div>
                       {scripts[l.row] && (
                         <div className="rounded-lg p-3 pt-2.5" style={{ background: '#22292E' }}>
                           <div className="flex items-center mb-1.5">
-                            <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-brand-accent">Generated SQL — review, copy, run in SSMS</p>
+                            <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-brand-accent" title="Review, copy, run once in SSMS">Generated SQL — load {loadId || '?'}</p>
                             <button onClick={() => copyAndLog(l, scripts[l.row])}
                               className="ml-auto text-[11px] font-semibold text-white/90 border border-white/25 hover:border-white/60 hover:bg-white/10 py-1 px-2.5 rounded-md transition-colors">
                               📋 Copy + log decision
@@ -2166,12 +2203,23 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
       )}
       <div className="flex flex-wrap items-center gap-2">
         {!recoMode && STEPS.map(stepBtn)}
-        <div className="ml-auto">
-          <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
-          <select value={entity} onChange={e => { setEntitySel(e.target.value); globalScope.setEntity(e.target.value); }} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
-            {entities.map(e => <option key={e} value={e}>{entityLabel(e)}</option>)}
-          </select>
-        </div>
+        {recoMode ? (
+          // The scope is driven by the TOP BAR (period + entity) — the page
+          // just shows what it resolved to (canvas target).
+          collLoadIds.length > 0 && (
+            <span className="ml-auto inline-flex items-center gap-2 text-[12px] font-medium bg-white border border-efg-line rounded-full px-3.5 py-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-status-green" />
+              load(s) {collLoadIds.join(', ')}{collDate ? ` · ${collDate}` : ''}
+            </span>
+          )
+        ) : (
+          <div className="ml-auto">
+            <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
+            <select value={entity} onChange={e => { setEntitySel(e.target.value); globalScope.setEntity(e.target.value); }} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+              {entities.map(e => <option key={e} value={e}>{entityLabel(e)}</option>)}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Working-scope banner: always visible once something is picked. */}
@@ -2588,6 +2636,11 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
       {/* ------------------------------------------------ RECO & ADJUSTMENTS */}
       {step === 'reco' && (
         <AdjustmentsCard entity={entity} presetCollectionId={collectionSel || undefined}
+          onCollectionPicked={(id, ent, date) => {
+            setCollectionSel(id);
+            if (ent) setEntitySel(ent);
+            if (ent && date) globalScope.setScope(ent, date);
+          }}
           onNotice={m => { setNotice(m); setError(null); }} onError={m => setError(m)} />
       )}
 

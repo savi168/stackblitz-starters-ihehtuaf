@@ -6,6 +6,33 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.27.0 — 16 September 2026
+
+**Theme: 🏛 Reco pixel pass — the top-bar collection is THE link.**
+Frontend only, no schema migration.
+
+- **The top-bar scope drives Production line AND Reco continuously**:
+  changing the period/entity up top re-scopes the Reco card even after
+  a collection was already selected (master preferred); an in-card pick
+  now reports back to the page and the global scope, so the top bar,
+  the Production line and the Reco can never disagree.
+- **Reco header**: the resolved loads chip (● load(s) 1002 ·
+  2026-01-31) sits top-right; the entity select is gone from the page —
+  the top bar owns it. The collection checklist chip shows the real
+  collection name.
+- **Inbox restyled to the canvas**: line cards (rounded, status dot,
+  LIGNE · GL account, signed amount, label · CCY under) with the
+  selected card outlined in maroon; detail header as chips (black LIGNE
+  tag, maroon GL chip, amount chip, status badge right); "Matching
+  candidates — qualitative data only…" ruled section; a **Booking
+  preview** strip above the primary action; **✓ Confirm & generate
+  SQL** as the primary button with **Next unresolved: line N →**; the
+  dark SQL block titled "Generated SQL — load N"; the right panel
+  titled **Live balance impact**.
+- No schema migration.
+
+---
+
 ## v3.26.0 — 16 September 2026
 
 **Theme: 🏛 Reco lands straight in the inbox; Analytics follows the
