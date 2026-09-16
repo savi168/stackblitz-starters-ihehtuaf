@@ -1298,10 +1298,11 @@ const AdjustmentsCard: React.FC<{
               if (cands.length === 0 || chosen[sel.row]) { e.preventDefault(); void makeScript(sel); }
             }
           };
+          // v3.24 canvas colors: green matched · AMBER ambiguous · RED new.
           const STATUS_META = {
             matched: { dot: 'bg-status-green', label: '✓ matched' },
-            ambiguous: { dot: 'bg-status-red', label: '? pick a candidate' },
-            new: { dot: 'bg-status-amber', label: '✚ new position' },
+            ambiguous: { dot: 'bg-status-amber', label: '? pick a candidate' },
+            new: { dot: 'bg-status-red', label: '✚ new position' },
           } as const;
           const rawField = (raw: Record<string, unknown> | undefined, name: string): string => {
             if (!raw) return '';
@@ -1316,16 +1317,16 @@ const AdjustmentsCard: React.FC<{
               <span className="text-[12px] tabular-nums font-semibold">{nM + nN} / {lines.length} ready{nA > 0 ? ` — ${nA} need your pick` : ' ✓'}</span>
               <div className="flex-1 min-w-[140px] h-2 rounded-full overflow-hidden bg-brand-bg-body border border-efg-line flex">
                 <div className="bg-status-green h-full" style={{ width: `${(nM / total) * 100}%` }} />
-                <div className="bg-status-amber h-full" style={{ width: `${(nN / total) * 100}%` }} />
-                <div className="bg-status-red h-full" style={{ width: `${(nA / total) * 100}%` }} />
+                <div className="bg-status-amber h-full" style={{ width: `${(nA / total) * 100}%` }} />
+                <div className="bg-status-red h-full" style={{ width: `${(nN / total) * 100}%` }} />
               </div>
               <span className="text-[10px] text-brand-text-secondary">↑↓ navigate · Enter generates</span>
             </div>
             <div className="flex flex-wrap gap-2 mb-2 text-[11px] font-semibold">
               {([
                 ['matched', `✓ ${nM} matched`, 'text-status-green border-status-green/40'],
-                ['ambiguous', `? ${nA} to disambiguate`, 'text-status-red border-status-red/40'],
-                ['new', `✚ ${nN} new position(s)`, 'text-status-amber border-status-amber/40'],
+                ['ambiguous', `? ${nA} to disambiguate`, 'text-status-amber border-status-amber/40'],
+                ['new', `✚ ${nN} new position(s)`, 'text-status-red border-status-red/40'],
               ] as Array<['matched' | 'ambiguous' | 'new', string, string]>).map(([key, label, cls]) => (
                 <button key={key} onClick={() => setAdjFilter(adjFilter === key ? '' : key)}
                   className={`px-2.5 py-1 rounded-full border transition-colors ${cls} ${adjFilter === key ? 'ring-2 ring-brand-primary/30 bg-brand-bg-body' : 'bg-white hover:bg-brand-bg-body/60'}`}>
@@ -1623,14 +1624,17 @@ const AdjustmentsCard: React.FC<{
                         {st !== 'ambiguous' && !scripts[l.row] && <span className="text-[11px] text-brand-text-secondary">or press Enter</span>}
                       </div>
                       {scripts[l.row] && (
-                        <div>
-                          <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary mb-1">Generated SQL — review, copy, run in SSMS</p>
+                        <div className="rounded-lg p-3 pt-2.5" style={{ background: '#22292E' }}>
+                          <div className="flex items-center mb-1.5">
+                            <p className="text-[10px] uppercase tracking-[0.14em] font-semibold text-brand-accent">Generated SQL — review, copy, run in SSMS</p>
+                            <button onClick={() => copyAndLog(l, scripts[l.row])}
+                              className="ml-auto text-[11px] font-semibold text-white/90 border border-white/25 hover:border-white/60 hover:bg-white/10 py-1 px-2.5 rounded-md transition-colors">
+                              📋 Copy + log decision
+                            </button>
+                          </div>
                           <textarea readOnly value={scripts[l.row]} rows={Math.min(scripts[l.row].split('\n').length, 16)}
-                            className="w-full font-mono text-[11px] bg-white border border-efg-line rounded-md p-2" />
-                          <button onClick={() => copyAndLog(l, scripts[l.row])}
-                            className="mt-1 text-[12px] font-semibold border border-brand-secondary text-brand-secondary hover:bg-brand-secondary hover:text-white py-1.5 px-3 rounded-md transition-colors">
-                            📋 Copy + log decision
-                          </button>
+                            className="w-full font-mono text-[11px] rounded-md p-2 border-0 focus:ring-0"
+                            style={{ background: 'transparent', color: '#C9D2D7' }} />
                         </div>
                       )}
                     </div>
@@ -2080,19 +2084,33 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
     return Array.from(by.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [collections]);
 
+  // v3.24 canvas-style pipeline: each step shows its real state — green ✓
+  // when done, amber when it needs attention, numbered circle otherwise.
+  const stepDone: Record<string, boolean> = {
+    scope: !!collection,
+    data: collLoadIds.length > 0,
+    controls: false, // no persisted "battery passed" state — driven by findings below
+    certify: !!collDate && baselines.some(b => b.date === collDate),
+  };
   const stepBtn = (s: typeof STEPS[number], i: number) => {
     const active = step === s.key;
-    const badge = s.key === 'controls' && counts.error > 0 ? ` · ${counts.error} ⚠` : '';
+    const done = !!stepDone[s.key];
+    const warn = s.key === 'controls' && counts.error > 0;
     return (
       <React.Fragment key={s.key}>
-        {i > 0 && <span className="text-brand-text-secondary/40 select-none">›</span>}
+        {i > 0 && <span className={`hidden sm:block w-6 h-0.5 rounded-full ${done || stepDone[STEPS[i - 1].key] ? 'bg-status-green/50' : 'bg-efg-line'}`} />}
         <button onClick={() => setStep(s.key)}
-          className={`flex items-center gap-2 text-sm font-semibold py-1.5 px-3 rounded-full border transition-colors ${
-            active ? 'bg-brand-primary text-white border-brand-primary'
+          className={`flex items-center gap-2 text-sm font-semibold py-1.5 pl-1.5 pr-3.5 rounded-full border transition-colors ${
+            active ? 'bg-brand-primary text-white border-brand-primary shadow-card'
               : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-primary hover:text-brand-primary'}`}>
-          <span className={`w-5 h-5 rounded-full text-[11px] flex items-center justify-center font-bold ${
-            active ? 'bg-white/20' : 'bg-brand-bg-body'}`}>{s.n}</span>
-          {s.label}{badge}
+          <span className={`w-6 h-6 rounded-full text-[11px] flex items-center justify-center font-bold ${
+            active ? 'bg-white/20 text-white'
+            : done ? 'bg-status-green text-white'
+            : warn ? 'bg-status-amber text-white'
+            : 'bg-brand-bg-body border border-efg-line'}`}>
+            {done && !active ? '✓' : warn && !active ? counts.error : s.n}
+          </span>
+          {s.label}
         </button>
       </React.Fragment>
     );
@@ -2118,7 +2136,7 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
         <a href="#/production/analytics"
           className="flex items-center gap-1.5 text-sm font-semibold py-1.5 px-3 rounded-full border bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary transition-colors"
           title="Balance sheet analytics — trends, currency / booking-center / residence breakdowns (preview with sample data).">
-          📈 Analytics <span className="text-[9px] uppercase tracking-wider bg-status-amber/15 text-status-amber px-1 rounded">preview</span>
+          📈 Analytics
         </a>
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>

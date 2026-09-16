@@ -41,9 +41,6 @@ type Item = {
   to: string; label: string; icon: string; adminOnly?: boolean;
   /** Exact-path matching (so /production isn't active on /production/reco). */
   end?: boolean;
-  /** Query fragment that must (or must not) be present for the active state
-   * — used by the three /cockpit entries. */
-  search?: string; noSearch?: boolean;
 };
 const GROUPS: Array<{ label: string; items: Item[] }> = [
   { label: '', items: [{ to: '/', label: 'Home', icon: 'home', end: true }] },
@@ -59,11 +56,11 @@ const GROUPS: Array<{ label: string; items: Item[] }> = [
   ] },
   { label: 'Simulation', items: [
     { to: '/scenarios', label: 'Scenarios & projections', icon: 'flask', adminOnly: true },
-    { to: '/capital', label: 'Capital & liquidity', icon: 'coins', adminOnly: true },
   ] },
   { label: 'Data', items: [
-    { to: '/cockpit?tab=data', label: 'Data explorer', icon: 'db', adminOnly: true, search: 'tab=data' },
-    { to: '/cockpit?tab=data&table=prodMappingEntries', label: 'Mappings & nomenclatures', icon: 'map2', adminOnly: true, search: 'table=prodMappingEntries' },
+    { to: '/capital', label: 'Workbench', icon: 'coins', adminOnly: true },
+    { to: '/explorer', label: 'Data explorer', icon: 'db', adminOnly: true },
+    { to: '/mappings', label: 'Mappings & nomenclatures', icon: 'map2', adminOnly: true },
     { to: '/library', label: 'Library', icon: 'book', adminOnly: true },
   ] },
   { label: 'Workspace', items: [
@@ -71,7 +68,7 @@ const GROUPS: Array<{ label: string; items: Item[] }> = [
     { to: '/team', label: 'Team & contacts', icon: 'people', adminOnly: true },
   ] },
   { label: 'Admin', items: [
-    { to: '/cockpit', label: 'Backend cockpit', icon: 'server', adminOnly: true, noSearch: true },
+    { to: '/cockpit', label: 'Backend cockpit', icon: 'server', adminOnly: true },
     { to: '/datamanagement', label: 'Data management', icon: 'gear', adminOnly: true },
     { to: '/logs', label: 'Logs & audit', icon: 'shield', adminOnly: true },
   ] },
@@ -105,14 +102,9 @@ export const Sidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open
 
   const activeOf = (item: Item): boolean => {
     const path = item.to.split('?')[0];
-    const onPath = item.end || item.search || item.noSearch
+    return item.end
       ? location.pathname === path
       : location.pathname === path || location.pathname.startsWith(`${path}/`);
-    if (!onPath) return false;
-    if (item.search) return location.search.includes(item.search) &&
-      (item.search.includes('table=') || !location.search.includes('table='));
-    if (item.noSearch) return !location.search.includes('tab=') && !location.search.includes('table=');
-    return true;
   };
 
   const shortName = currentUser.name.split('\\').pop() || currentUser.name;

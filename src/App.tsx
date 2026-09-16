@@ -20,6 +20,8 @@ const TeamPage = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.T
 const DailyReportsPage = lazy(() => import('./pages/DailyReportsPage').then(m => ({ default: m.DailyReportsPage })));
 const LibraryPage = lazy(() => import('./pages/LibraryPage').then(m => ({ default: m.LibraryPage })));
 const BackendCockpitPage = lazy(() => import('./pages/BackendCockpitPage').then(m => ({ default: m.BackendCockpitPage })));
+const DataExplorerPage = lazy(() => import('./pages/DataExplorerPage'));
+const MappingsPage = lazy(() => import('./pages/MappingsPage'));
 const CapitalWorkbenchPage = lazy(() => import('./pages/CapitalWorkbenchPage').then(m => ({ default: m.CapitalWorkbenchPage })));
 const ManagementReportPage = lazy(() => import('./pages/ManagementReportPage').then(m => ({ default: m.ManagementReportPage })));
 const ScenariosPage = lazy(() => import('./pages/ScenariosPage').then(m => ({ default: m.ScenariosPage })));
@@ -90,6 +92,8 @@ const App: React.FC = () => {
                       <Route path="/projects/:projectId" element={<AdminRoute><ProjectDetailPage /></AdminRoute>} />
                       <Route path="/team" element={<AdminRoute><TeamPage /></AdminRoute>} />
                       <Route path="/cockpit" element={<AdminRoute><BackendCockpitPage /></AdminRoute>} />
+                      <Route path="/explorer" element={<AdminRoute><DataExplorerPage /></AdminRoute>} />
+                      <Route path="/mappings" element={<AdminRoute><MappingsPage /></AdminRoute>} />
                       <Route path="/capital" element={<AdminRoute><CapitalWorkbenchPage /></AdminRoute>} />
                       <Route path="/report" element={<ManagementReportPage />} />
                       <Route path="/scenarios" element={<AdminRoute><ScenariosPage /></AdminRoute>} />

@@ -270,6 +270,8 @@ export const LibraryPage: React.FC = () => {
   const [urlParams] = useSearchParams();
   const [search, setSearch] = useState(() => urlParams.get('q') || '');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // v3.24 two-column layout: the folder selected in the left tree ('' = all).
+  const [selectedFolder, setSelectedFolder] = useState('');
   const [upFolder, setUpFolder] = useState('Regulations');
   const [upTitle, setUpTitle] = useState('');
   const [busy, setBusy] = useState(false);
@@ -479,7 +481,7 @@ export const LibraryPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  const fileRow = (d: DocMeta, indent: number) => (
+  const fileRow = (d: DocMeta, indent: number, showPath = false) => (
     <div key={d.id}
       draggable={isAdmin}
       onDragStart={e => {
@@ -505,6 +507,7 @@ export const LibraryPage: React.FC = () => {
         {d.title || d.fileName}
       </button>
       {d.title && d.title !== d.fileName && <span className="text-xs text-brand-text-secondary">({d.fileName})</span>}
+      {showPath && d.folder && <span className="text-[10px] text-brand-text-secondary bg-brand-bg-body border border-efg-line rounded px-1.5 py-px whitespace-nowrap">{d.folder}</span>}
       <span className="text-xs text-brand-text-secondary ml-auto tabular-nums whitespace-nowrap">
         {fmtSize(d.sizeBytes)} · {d.uploadedBy.split('\\').pop()} · {d.uploadedAt.slice(0, 10)}
       </span>
@@ -528,128 +531,148 @@ export const LibraryPage: React.FC = () => {
     </div>
   );
 
+  const inScope = (d: DocMeta) =>
+    selectedFolder === '' ? true : d.folder === selectedFolder || d.folder.startsWith(selectedFolder + '/');
+  const scoped = filtered.filter(inScope).slice().sort((a, b) =>
+    (a.folder || '').localeCompare(b.folder || '') || (a.title || a.fileName).localeCompare(b.title || b.fileName));
+
   return (
     <div className="p-5 md:p-8 space-y-6">
       <BackButton />
       <PageHeader title="Library"
         subtitle="Regulatory texts, norms and working files — stored in the RegReport database, organised in folders, available offline and re-downloadable at any time." />
+      {error && <p className="text-sm text-status-red">{error}</p>}
 
-      <Card>
-        <SectionHeader title="Built-in documentation" suffix="shipped with the app — opens right here, works even with an empty database" />
-        <div className="flex flex-wrap gap-4 text-sm">
-          {BUILT_IN_DOCS.map(d => (
-            <button key={d.stem} onClick={() => openBuiltIn(d.title, d.path)}
-              className="underline text-brand-secondary hover:text-brand-primary">{d.icon} {d.label}</button>
-          ))}
-        </div>
-      </Card>
-
-      <Card>
-        <div className="flex flex-wrap items-end gap-4 mb-3">
-          <SectionHeader title="Document library" suffix={`${docs.length} file(s) in the database`} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            className="ml-auto p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary w-64" />
-        </div>
-        {mode !== 'api' ? (
-          <p className="text-sm text-brand-text-secondary">
-            Connect the API backend to use the library (run docs/SQL_DOCUMENTS.sql once on RegReport).
-          </p>
-        ) : (
-          <>
-            {error && <p className="text-sm text-status-red mb-2">{error}</p>}
-            {isAdmin && (
-              <div className="flex flex-wrap items-end gap-3 mb-4 border border-efg-line rounded-lg p-3">
-                <div>
-                  <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Folder (use / for subfolders)</label>
-                  <input list="lib-folders" value={upFolder} onChange={e => setUpFolder(e.target.value)}
-                    placeholder="e.g. Regulations/EBA" className="p-2 border border-gray-200 rounded-md text-sm bg-white w-64" />
-                  <datalist id="lib-folders">{folders.map(f => <option key={f} value={f} />)}</datalist>
-                </div>
+      {/* v3.24: the validated two-column layout — folder tree + built-in shelf
+          on the left, the selected folder's documents on the right. Every
+          feature is kept: drag & drop (files AND folders, OS drops), rename /
+          move, subfolders, upload-into-folder, in-app viewer. */}
+      <div className="grid lg:grid-cols-[300px_minmax(0,1fr)] gap-6 items-start">
+        <div className="space-y-6">
+          <Card className="!p-4">
+            <div className="flex items-center mb-2">
+              <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Folders</p>
+              {isAdmin && mode === 'api' && (
                 <button onClick={() => addFolder()}
-                  className="text-sm font-semibold border border-gray-300 text-brand-text-secondary hover:border-brand-secondary hover:text-brand-secondary py-2 px-3 rounded-md transition-colors mb-px">
-                  ＋ New folder
+                  className="ml-auto text-[11px] font-semibold text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-colors">
+                  ＋ New
                 </button>
-                <div>
-                  <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Title (optional)</label>
-                  <input value={upTitle} onChange={e => setUpTitle(e.target.value)}
-                    placeholder="e.g. CAO — Capital Adequacy Ordinance" className="p-2 border border-gray-200 rounded-md text-sm bg-white w-72" />
-                </div>
-                <input type="file" disabled={busy} onChange={e => { onUpload(e.target.files?.[0]); e.target.value = ''; }}
-                  className="block text-sm text-brand-text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-gray-300 file:bg-white file:text-sm file:font-semibold hover:file:border-brand-secondary" />
-                {busy && <span className="text-sm text-brand-text-secondary pb-2">Uploading…</span>}
-              </div>
-            )}
-            {filtered.length === 0 && folders.length === 0 ? (
-              <p className="text-sm text-brand-text-secondary">
-                {q ? 'No document matches the search.' : 'The library is empty — upload the first document above (e.g. the Swiss CAO/OFR PDF into Regulations/Swiss).'}
-              </p>
+              )}
+            </div>
+            {mode !== 'api' ? (
+              <p className="text-xs text-brand-text-secondary">Connect the API backend to use the document library (run docs/SQL_DOCUMENTS.sql once on RegReport).</p>
             ) : (
-              <div className="border border-efg-line rounded-lg px-3 py-1">
-                {dragging && (
-                  <div {...dropProps('')}
-                    className={`flex items-center gap-2 py-1.5 text-sm text-brand-text-secondary border border-dashed border-gray-300 rounded my-1${dropHighlight('')}`}>
-                    <span className="pl-2">📂 Drop here to move to the root ( / )</span>
-                  </div>
-                )}
-                {filtered.filter(d => !d.folder).map(d => fileRow(d, 0))}
+              <div className="text-sm -mx-1">
+                <div {...dropProps('')} onClick={() => setSelectedFolder('')}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors ${selectedFolder === '' ? 'bg-brand-primary/[0.07] text-brand-primary font-semibold' : 'hover:bg-brand-bg-body'}${dropHighlight('')}`}>
+                  <span>🗂️</span> All documents
+                  <span className="text-[11px] text-brand-text-secondary font-normal ml-auto tabular-nums">{filtered.length}</span>
+                </div>
                 {folders.map(f => {
                   if (hiddenBy(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')) return null;
                   const depth = f.split('/').length - 1;
-                  const inFolder = filtered.filter(d => d.folder === f);
+                  const sel = selectedFolder === f;
                   return (
-                    <React.Fragment key={f}>
-                      <div onClick={() => toggle(f)} {...dropProps(f)}
-                        draggable={isAdmin}
-                        onDragStart={e => {
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', `folder:${f}`);
-                          setTimeout(() => setDragFolder(f), 0); // defer: see file rows
-                        }}
-                        onDragEnd={() => { setDragId(null); setDragFolder(null); setDropFolder(null); clearExpandTimer(); }}
-                        className={`group flex items-center gap-2 py-1.5 border-t border-efg-line/50 cursor-pointer hover:bg-brand-bg-body/50 text-sm font-semibold${dropHighlight(f)} ${dragFolder === f ? 'opacity-40' : ''}`}
-                        style={{ paddingLeft: `${depth * 1.25}rem` }}>
-                        <span>{!q && collapsed.has(f) ? '▸' : '▾'}</span>
-                        <span>📁 {f.split('/').pop()}</span>
-                        <span className="text-xs text-brand-text-secondary font-normal">({docCount(f)})</span>
-                        {isAdmin && (
-                          <>
-                            <button onClick={e => { e.stopPropagation(); addFolder(f); }}
-                              title={`New subfolder under ${f}`}
-                              className="opacity-0 group-hover:opacity-100 text-xs text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-all">
-                              ＋ sub
-                            </button>
-                            <button onClick={e => { e.stopPropagation(); renameFolder(f); }}
-                              title={`Rename or move ${f}`}
-                              className="opacity-0 group-hover:opacity-100 text-xs text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-all">
-                              ✏️
-                            </button>
-                            <button onClick={e => { e.stopPropagation(); setUpFolder(f); }}
-                              title={`Upload into ${f}`}
-                              className="opacity-0 group-hover:opacity-100 text-xs text-brand-text-secondary hover:text-brand-secondary border border-gray-300 hover:border-brand-secondary rounded px-1.5 transition-all">
-                              ⬆ here
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      {(q || !collapsed.has(f)) && inFolder.map(d => fileRow(d, depth + 1))}
-                    </React.Fragment>
+                    <div key={f} {...dropProps(f)}
+                      draggable={isAdmin}
+                      onDragStart={e => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', `folder:${f}`);
+                        setTimeout(() => setDragFolder(f), 0); // defer: see file rows
+                      }}
+                      onDragEnd={() => { setDragId(null); setDragFolder(null); setDropFolder(null); clearExpandTimer(); }}
+                      onClick={() => { setSelectedFolder(f); setUpFolder(f); }}
+                      className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer text-sm transition-colors ${sel ? 'bg-brand-primary/[0.07] text-brand-primary font-semibold' : 'hover:bg-brand-bg-body'}${dropHighlight(f)} ${dragFolder === f ? 'opacity-40' : ''}`}
+                      style={{ paddingLeft: `${depth * 0.9 + 0.35}rem` }}>
+                      <button onClick={e => { e.stopPropagation(); toggle(f); }}
+                        className="w-4 shrink-0 text-brand-text-secondary" title="Collapse / expand">
+                        {!q && collapsed.has(f) ? '▸' : '▾'}
+                      </button>
+                      <span>📁</span>
+                      <span className="truncate">{f.split('/').pop()}</span>
+                      <span className="text-[11px] text-brand-text-secondary font-normal ml-auto tabular-nums">{docCount(f)}</span>
+                      {isAdmin && (
+                        <span className="hidden group-hover:flex items-center shrink-0">
+                          <button onClick={e => { e.stopPropagation(); addFolder(f); }} title={`New subfolder under ${f}`}
+                            className="text-[11px] px-1 text-brand-text-secondary hover:text-brand-secondary">＋</button>
+                          <button onClick={e => { e.stopPropagation(); renameFolder(f); }} title={`Rename or move ${f}`}
+                            className="text-[11px] px-1 text-brand-text-secondary hover:text-brand-secondary">✏️</button>
+                        </span>
+                      )}
+                    </div>
                   );
                 })}
+                <p className="text-[10px] text-brand-text-secondary px-2 pt-2 border-t border-efg-line/60 mt-2">
+                  Click a folder to browse it · drag files or folders onto a folder (or "All documents" = root) to move them · drop files from the explorer to upload.
+                </p>
               </div>
             )}
-            <p className="text-[11px] text-brand-text-secondary mt-3">
-              Folders: ＋ New folder (or ＋ sub on a folder row) creates any depth of subfolders — a folder becomes permanent
-              once it holds at least one file. Move files AND folders by drag &amp; drop onto a folder (or the root drop zone) — a dragged
-              folder takes all its content with it; ✏️ renames a file (display name) or a folder (editing the full path also moves it);
-              dropping files from the Windows explorer onto a folder uploads them straight into it; ⬆ here preselects a folder for the next upload.
-              Files are stored inside the RegReport SQL database (varbinary) — a database backup includes every document,
-              nothing leaves the local environment, and anyone can re-download the original at any time.
-              Workbench source files (working papers, CASABIS/LCR_G/NSFR_G) uploaded from the Workbench page land here too,
-              under Workbench/&lt;entity&gt;/&lt;period&gt;, tagged by entity, period and type.
+          </Card>
+
+          <Card className="!p-4">
+            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary mb-2">Built-in documentation</p>
+            <div className="flex flex-col gap-1.5 text-sm">
+              {BUILT_IN_DOCS.map(d => (
+                <button key={d.stem} onClick={() => openBuiltIn(d.title, d.path)}
+                  className="text-left underline text-brand-secondary hover:text-brand-primary">{d.icon} {d.label}</button>
+              ))}
+            </div>
+          </Card>
+        </div>
+
+        <Card>
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <SectionHeader title={selectedFolder || 'All documents'}
+              suffix={`${scoped.length} file(s)${q ? ' matching the search' : ''}`} className="!mb-0 !pb-1 flex-1 min-w-40" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder={selectedFolder ? `Search in ${selectedFolder}…` : 'Search…'}
+              className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary w-64" />
+          </div>
+          {mode !== 'api' ? (
+            <p className="text-sm text-brand-text-secondary">
+              Connect the API backend to use the library (run docs/SQL_DOCUMENTS.sql once on RegReport).
             </p>
-          </>
-        )}
-      </Card>
+          ) : (
+            <>
+              {isAdmin && (
+                <div className="flex flex-wrap items-end gap-3 mb-4 border border-efg-line rounded-lg p-3">
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Folder (use / for subfolders)</label>
+                    <input list="lib-folders" value={upFolder} onChange={e => setUpFolder(e.target.value)}
+                      placeholder="e.g. Regulations/EBA" className="p-2 border border-gray-200 rounded-md text-sm bg-white w-64" />
+                    <datalist id="lib-folders">{folders.map(f => <option key={f} value={f} />)}</datalist>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Title (optional)</label>
+                    <input value={upTitle} onChange={e => setUpTitle(e.target.value)}
+                      placeholder="e.g. CAO — Capital Adequacy Ordinance" className="p-2 border border-gray-200 rounded-md text-sm bg-white w-72" />
+                  </div>
+                  <input type="file" disabled={busy} onChange={e => { onUpload(e.target.files?.[0]); e.target.value = ''; }}
+                    className="block text-sm text-brand-text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-gray-300 file:bg-white file:text-sm file:font-semibold hover:file:border-brand-secondary" />
+                  {busy && <span className="text-sm text-brand-text-secondary pb-2">Uploading…</span>}
+                </div>
+              )}
+              {scoped.length === 0 ? (
+                <p className="text-sm text-brand-text-secondary">
+                  {q ? 'No document matches the search here.'
+                    : selectedFolder ? `"${selectedFolder}" is empty — upload above or drag files onto the folder.`
+                    : 'The library is empty — upload the first document above (e.g. the Swiss CAO/OFR PDF into Regulations/Swiss).'}
+                </p>
+              ) : (
+                <div className="border border-efg-line rounded-lg px-3 py-1">
+                  {scoped.map(d => fileRow(d, 0, selectedFolder === '' || d.folder !== selectedFolder))}
+                </div>
+              )}
+              <p className="text-[11px] text-brand-text-secondary mt-3">
+                Files are stored inside the RegReport SQL database (varbinary) — a database backup includes every document,
+                nothing leaves the local environment, and anyone can re-download the original at any time. ✏️ renames,
+                📂 moves, drag &amp; drop works between the list and the folder tree. Workbench source files land under
+                Workbench/&lt;entity&gt;/&lt;period&gt;, tagged by entity, period and type.
+              </p>
+            </>
+          )}
+        </Card>
+      </div>
 
       {viewer && <DocViewer v={viewer} onClose={() => setViewer(null)} />}
     </div>

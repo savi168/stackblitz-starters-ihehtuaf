@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '../context/DataContext';
 import { useScopeEntityDefault } from '../context/ScopeContext';
-import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
+import { BackButton, Card, Modal, PageHeader, SectionHeader } from '../components';
 import { DocumentsPanel } from './LibraryPage';
 import {
   CapitalLineItem,
@@ -1755,19 +1755,35 @@ export const CapitalWorkbenchPage: React.FC = () => {
         </div>
       )}
 
-      {/* --- Sub-applications --- */}
+      {/* --- Sub-applications (v3.24: the validated card layout — every
+           former tab is a card, same content below, nothing dropped) --- */}
       <Card>
-        <div className="flex flex-wrap gap-1 border-b border-efg-line mb-6 -mt-1">
-          <TabButton label="Shareholder Equity" isActive={tab === 'equity'} onClick={() => setTab('equity')} />
-          <TabButton label="Deductions" isActive={tab === 'deduction'} onClick={() => setTab('deduction')} />
-          <TabButton label="AT1 & T2" isActive={tab === 'at1t2'} onClick={() => setTab('at1t2')} />
-          <TabButton label="RWA" isActive={tab === 'rwa'} onClick={() => setTab('rwa')} />
-          <TabButton label={`LCR (${entityLcrs.length})`} isActive={tab === 'lcr'} onClick={() => setTab('lcr')} />
-          <TabButton label={`NSFR${nsfrReport ? ' ✓' : ''}`} isActive={tab === 'nsfr'} onClick={() => setTab('nsfr')} />
-          <TabButton label={`Balance Sheet${finFor('balanceSheet') ? ' ✓' : ''}`} isActive={tab === 'finBs'} onClick={() => setTab('finBs')} />
-          <TabButton label={`P&L${finFor('pnl') ? ' ✓' : ''}`} isActive={tab === 'finPnl'} onClick={() => setTab('finPnl')} />
-          <TabButton label={`Equity Stmt${finFor('equity') ? ' ✓' : ''}`} isActive={tab === 'finEq'} onClick={() => setTab('finEq')} />
-          <TabButton label="Comments" isActive={tab === 'comments'} onClick={() => setTab('comments')} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5 mb-6">
+          {([
+            ['equity', 'Shareholder Equity', 'balance sheet equity detail', !!report],
+            ['deduction', 'Deductions', 'goodwill, intangibles, DTA…', !!report],
+            ['at1t2', 'AT1 & T2', 'instruments register', !!report],
+            ['rwa', 'RWA', 'credit / market / operational', !!report],
+            ['lcr', 'LCR', `${entityLcrs.length} report(s) this period`, entityLcrs.length > 0],
+            ['nsfr', 'NSFR', 'stable funding (ASF / RSF)', !!nsfrReport],
+            ['finBs', 'Balance Sheet', 'financial statement', !!finFor('balanceSheet')],
+            ['finPnl', 'P&L', 'financial statement', !!finFor('pnl')],
+            ['finEq', 'Equity Stmt', 'financial statement', !!finFor('equity')],
+            ['comments', 'Comments', 'analyst notes per period', false],
+          ] as Array<[WorkTab, string, string, boolean]>).map(([key, label, meta, done]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={`text-left rounded-xl border px-3.5 py-3 transition-colors ${
+                tab === key
+                  ? 'border-brand-primary bg-brand-primary/5'
+                  : 'border-efg-line bg-white hover:border-brand-accent'
+              }`}>
+              <span className="flex items-center gap-2">
+                <span className={`text-[13px] font-semibold ${tab === key ? 'text-brand-primary' : ''}`}>{label}</span>
+                {done && <span className="ml-auto text-[11px] font-bold text-status-green">✓</span>}
+              </span>
+              <span className="block text-[10.5px] text-brand-text-secondary mt-0.5">{meta}</span>
+            </button>
+          ))}
         </div>
 
         {tab !== 'lcr' && tab !== 'nsfr' && !FIN_TAB_KIND[tab] && tab !== 'comments' && !report && (

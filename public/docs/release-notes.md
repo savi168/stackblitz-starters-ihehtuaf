@@ -6,6 +6,39 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.24.0 — 16 September 2026
+
+**Theme: 🏛 Architecture phase 4 — the validated canvas designs land in the
+modules.** Frontend only, no schema migration, database connection
+untouched. Rollback branch: `backup/v3.23.0-pre-modules`.
+
+- **Data pages split** — no more "three links, one page": `#/explorer` is
+  the Data Explorer as its own module (same table picker, per-column
+  filters, row editor with audit, CSV); `#/mappings` is Mappings &
+  nomenclatures (the 11 kinds explained, the explorer opened on
+  ProdMappingEntries, bulk-reload pointers); the **Backend cockpit**
+  keeps the connection panel, schema and API map.
+- **Workbench** (validated card design): every sub-application is now a
+  card — Shareholder Equity, Deductions, AT1 & T2, RWA, LCR, NSFR,
+  Balance Sheet, P&L, Equity Stmt, Comments — with a ✓ when the period
+  carries data. Moved to the **Data** section of the sidebar and renamed
+  *Workbench*; all imports and entry flows unchanged.
+- **Library** (validated two-column layout): folder tree + built-in
+  documentation shelf on the left, the selected folder's documents on
+  the right with scoped search. Everything kept: drag & drop of files
+  AND folders (incl. drops from the OS explorer), rename/move,
+  subfolders, upload-into-folder, the in-app viewer, versioned storage.
+- **Production line**: the step row becomes the canvas pipeline — green
+  ✓ on completed steps (collection picked, loads present, baseline
+  certified), amber finding count on Controls, connector lines.
+- **Reco & adjustments**: canvas status colors (green matched, amber
+  ambiguous, red new) across dots, filter pills and the progress bar,
+  and the generated SQL now sits in the dark code block with the Copy
+  action on top.
+- No schema migration.
+
+---
+
 ## v3.23.0 — 16 September 2026
 
 **Theme: 🏛 Architecture phase 3 — every module pre-positions on the scope

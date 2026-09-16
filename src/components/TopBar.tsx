@@ -25,8 +25,11 @@ const TITLES: Array<[string, string, string]> = [
   ['/report', 'Analytics /', 'Management report'],
   ['/daily-reports', 'Analytics /', 'Daily reports'],
   ['/scenarios', 'Simulation /', 'Scenarios & projections'],
-  ['/capital', 'Simulation /', 'Capital & liquidity workbench'],
+  ['/capital', 'Data /', 'Workbench'],
+  ['/explorer', 'Data /', 'Data explorer'],
+  ['/mappings', 'Data /', 'Mappings & nomenclatures'],
   ['/library', 'Data /', 'Library'],
+  ['/cockpit', 'Admin /', 'Backend cockpit'],
   ['/projects', 'Workspace /', 'Projects'],
   ['/team', 'Workspace /', 'Team & contacts'],
   ['/datamanagement', 'Admin /', 'Data management'],
@@ -92,13 +95,8 @@ export const TopBar: React.FC<{
   const scope = useScope();
   const location = useLocation();
 
-  let [, crumb, title] = TITLES.find(([p]) =>
+  const [, crumb, title] = TITLES.find(([p]) =>
     p === '/' ? location.pathname === '/' : location.pathname === p || location.pathname.startsWith(`${p}/`)) ?? ['', '', ''];
-  if (location.pathname === '/cockpit') {
-    crumb = location.search.includes('table=') || location.search.includes('tab=data') ? 'Data /' : 'Admin /';
-    title = location.search.includes('table=prodMappingEntries') ? 'Mappings & nomenclatures'
-      : location.search.includes('tab=data') ? 'Data explorer' : 'Backend cockpit';
-  }
 
   const certified = scope.entity && scope.period
     ? (data.prodBaselines || []).some(b => b.entity === scope.entity && b.date === scope.period)

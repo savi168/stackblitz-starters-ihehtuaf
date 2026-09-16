@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useData } from '../context/DataContext';
-import { Card, PageHeader, BackButton, SectionHeader, TabButton, Select, Modal, InfoBox, EmptyState } from '../components';
+import { Card, PageHeader, BackButton, SectionHeader, Select, Modal, InfoBox, EmptyState } from '../components';
 import { BACKEND_TABLES, AGGREGATE_ENDPOINTS, TableMeta, EndpointMeta } from '../services/backendSchema';
 import {
     buildCsvTemplate, convertCsvRows, CSV_IMPORTABLE, CSV_NOTES,
@@ -468,10 +468,12 @@ const RowEditorPanel: React.FC<{
 };
 
 // --- Data explorer (spreadsheet) ---
-const DataExplorer: React.FC = () => {
+export const DataExplorer: React.FC<{ initialTable?: string }> = ({ initialTable }) => {
     const { data, setData, mode, apiBaseUrl } = useData();
-    const [selectedKey, setSelectedKey] = useState<string>(BACKEND_TABLES[0].key as string);
-    // Deep link (v3.21): ?table=<key> from the sidebar preselects a dataset.
+    const [selectedKey, setSelectedKey] = useState<string>(
+        initialTable && BACKEND_TABLES.some(x => (x.key as string) === initialTable)
+            ? initialTable : BACKEND_TABLES[0].key as string);
+    // Deep link: ?table=<key> preselects a dataset (sidebar, palette).
     const [dlParams] = useSearchParams();
     useEffect(() => {
         const t = dlParams.get('table');
@@ -913,32 +915,18 @@ const SchemaMap: React.FC = () => {
     );
 };
 
+// v3.24: the Data Explorer moved to its own page (/explorer, /mappings) —
+// the cockpit keeps the connection panel, schema and API map.
 export const BackendCockpitPage: React.FC = () => {
-    const [tab, setTab] = useState<'data' | 'schema'>('data');
-    // Sidebar deep links (v3.21): /cockpit?tab=data opens the explorer,
-    // ?table=<key> preselects a dataset (e.g. prodMappingEntries).
-    const [params] = useSearchParams();
-    useEffect(() => {
-        const t = params.get('tab');
-        if (t === 'data' || t === 'schema') setTab(t);
-    }, [params]);
-
     return (
         <div className="p-5 md:p-8">
             <BackButton />
-            <PageHeader title="Backend Cockpit" subtitle="Connection, live tables, schema and API map" />
+            <PageHeader title="Backend Cockpit" subtitle="Connection status, schema and API map — the Data Explorer lives in the Data section" />
 
             <ConnectionPanel />
 
-            <div className="mb-6 border-b border-efg-line">
-                <nav className="-mb-px flex space-x-8">
-                    <TabButton label="Data Explorer" isActive={tab === 'data'} onClick={() => setTab('data')} />
-                    <TabButton label="Schema & API Map" isActive={tab === 'schema'} onClick={() => setTab('schema')} />
-                </nav>
-            </div>
-
             <div className="animate-fade-in">
-                {tab === 'data' ? <DataExplorer /> : <SchemaMap />}
+                <SchemaMap />
             </div>
         </div>
     );
