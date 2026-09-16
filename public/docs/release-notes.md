@@ -6,6 +6,30 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.22.0 — 16 September 2026
+
+**Theme: 🏛 Architecture phase 2 — the global scope drives the modules.**
+Frontend only, no schema migration. Scenarios untouched (by decision).
+
+- **Production line & Reco follow the top bar**: changing the period or
+  entity in the global context bar selects the matching load collection
+  in the Production page (master collection preferred) — and picking a
+  collection or entity inside the page pushes back to the global scope,
+  so the whole app stays on the same period/entity. A deliberate pick of
+  a sibling (non-master) collection for the same entity+date is
+  respected.
+- **Balance analytics follows too**: the entity selector on the
+  Analytics page now reads and writes the global scope — switch entity
+  there and Production, Reco and Home move with you.
+- **Home cockpit** already consumed the global scope (v3.21); with this
+  release the Continue button always lands on the same scope you see in
+  the top bar.
+- Scope setters hardened (atomic entity+period update when a collection
+  is picked).
+- No schema migration.
+
+---
+
 ## v3.21.0 — 15 September 2026
 
 **Theme: 🏛 New architecture, phase 1 — sidebar, global context, Home cockpit.**

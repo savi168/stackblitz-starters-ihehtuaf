@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
+import { useScope } from '../context/ScopeContext';
 import { BackButton, Card, EmptyState, PageHeader, SectionHeader, Sparkline } from '../components';
 import { CHART_COLORS, PALETTE } from '../theme';
 import { hfmKeyOf } from '../services/hfm';
@@ -69,7 +70,9 @@ const BalanceAnalyticsPage: React.FC = () => {
   } | null>(null);
   const [geoMode, setGeoMode] = useState<'residence' | 'bc'>('residence');
   const [collections, setCollections] = useState<CollectionInfo[]>([]);
-  const [entitySel, setEntitySel] = useState('');
+  // v3.22: the entity comes from the GLOBAL scope (top bar) — changing it
+  // here pushes back, so Production/Reco/Home follow too.
+  const globalScope = useScope();
   const [balances, setBalances] = useState<Record<string, BalanceRow[]>>({});
   const [residence, setResidence] = useState<ResidenceRow[] | null>(null);
   const [residencePrev, setResidencePrev] = useState<ResidenceRow[] | null>(null);
@@ -110,7 +113,7 @@ const BalanceAnalyticsPage: React.FC = () => {
     const withCols = Array.from(new Set(collections.map(c => String(c.reportingEntityId ?? '')).filter(Boolean)));
     return withCols.length > 0 ? withCols.sort() : (conso?.entities || []).map(e => e.id);
   }, [collections, conso]);
-  const entity = entities.includes(entitySel) ? entitySel : entities[0] || '';
+  const entity = entities.includes(globalScope.entity) ? globalScope.entity : entities[0] || '';
   const entityName = conso?.entities.find(e => e.id === entity)?.name;
 
   const baselines = useMemo(() =>
@@ -399,7 +402,7 @@ const BalanceAnalyticsPage: React.FC = () => {
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
-          <select value={entity} onChange={e => setEntitySel(e.target.value)}
+          <select value={entity} onChange={e => globalScope.setEntity(e.target.value)}
             className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
             {entities.map(e => <option key={e} value={e}>{conso?.entities.find(x => x.id === e)?.name ? `${e} — ${conso.entities.find(x => x.id === e)!.name}` : e}</option>)}
           </select>

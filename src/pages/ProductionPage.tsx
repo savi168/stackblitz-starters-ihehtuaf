@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useData } from '../context/DataContext';
+import { useScope } from '../context/ScopeContext';
 import { BackButton, Card, EmptyState, PageHeader, SectionHeader } from '../components';
 import {
   ControlFinding, PROD_DATASETS, runCounterpartyDrift, runCrossDataset,
@@ -1907,7 +1908,33 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
   const pickCollection = (c: CollectionInfo) => {
     setCollectionSel(String(c.loadCollectionId));
     if (c.reportingEntityId) setEntitySel(String(c.reportingEntityId));
+    // Push the pick to the GLOBAL scope (top bar) so every module follows.
+    const d = c.reportingDate ? String(c.reportingDate).slice(0, 10) : '';
+    if (c.reportingEntityId && d) globalScope.setScope(String(c.reportingEntityId), d);
   };
+
+  // --- v3.22: two-way sync with the global scope (period + entity picked in
+  // the top bar). Top bar → page: follow the global selection whenever the
+  // current collection no longer matches it (master collection preferred; a
+  // deliberate in-page pick of a sibling collection for the SAME entity+date
+  // is left alone). Page → top bar: pickCollection / the entity select push.
+  const globalScope = useScope();
+  useEffect(() => {
+    if (!globalScope.entity) return;
+    if (entities.includes(globalScope.entity) && entity !== globalScope.entity) setEntitySel(globalScope.entity);
+    if (!globalScope.period) return;
+    const cur = collections.find(c => String(c.loadCollectionId) === collectionSel);
+    const curMatches = cur
+      && String(cur.reportingEntityId ?? '') === globalScope.entity
+      && String(cur.reportingDate ?? '').slice(0, 10) === globalScope.period;
+    if (curMatches) return;
+    const cands = collections.filter(c =>
+      String(c.reportingEntityId ?? '') === globalScope.entity &&
+      String(c.reportingDate ?? '').slice(0, 10) === globalScope.period &&
+      (c.loadIds || []).length > 0);
+    const master = cands.find(c => c.isMaster) ?? cands[0];
+    if (master) setCollectionSel(String(master.loadCollectionId));
+  }, [globalScope.entity, globalScope.period, collections]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dates = useMemo(() => {
     const set = new Set<string>();
@@ -2095,7 +2122,7 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
         </a>
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
-          <select value={entity} onChange={e => setEntitySel(e.target.value)} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
+          <select value={entity} onChange={e => { setEntitySel(e.target.value); globalScope.setEntity(e.target.value); }} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
             {entities.map(e => <option key={e} value={e}>{entityLabel(e)}</option>)}
           </select>
         </div>

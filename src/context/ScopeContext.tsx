@@ -24,6 +24,8 @@ interface GlobalScope {
   /** Reporting date YYYY-MM-DD of the selected period, '' when unknown. */
   period: string;
   setPeriod: (p: string) => void;
+  /** Atomic entity + period update (a collection pick sets both at once). */
+  setScope: (e: string, p: string) => void;
   /** Entities that carry load collections (fallback: conso entities). */
   entities: Array<{ id: string; name?: string }>;
   /** Reporting dates available for the selected entity, most recent first. */
@@ -37,7 +39,7 @@ interface GlobalScope {
 }
 
 const ScopeCtx = createContext<GlobalScope>({
-  entity: '', setEntity: () => {}, period: '', setPeriod: () => {},
+  entity: '', setEntity: () => {}, period: '', setPeriod: () => {}, setScope: () => {},
   entities: [], periods: [], collections: [], scopeLoadIds: [], ready: false,
 });
 
@@ -104,14 +106,20 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return master ? master.loadIds.map(String) : [];
   }, [collections, entity, period]);
 
-  const persist = (next: { entity: string; period: string }) => {
-    setSel(next);
-    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* no storage */ }
+  // Functional updates so two setters in the same tick (a collection pick
+  // sets entity AND period) never clobber each other.
+  const persist = (updater: (prev: { entity: string; period: string }) => { entity: string; period: string }) => {
+    setSel(prev => {
+      const next = updater(prev);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* no storage */ }
+      return next;
+    });
   };
 
   const value: GlobalScope = {
-    entity, setEntity: e => persist({ entity: e, period: sel.period }),
-    period, setPeriod: p => persist({ entity: sel.entity || entity, period: p }),
+    entity, setEntity: e => persist(prev => ({ ...prev, entity: e })),
+    period, setPeriod: p => persist(prev => ({ ...prev, period: p })),
+    setScope: (e, p) => persist(() => ({ entity: e, period: p })),
     entities, periods, collections, scopeLoadIds, ready,
   };
   return <ScopeCtx.Provider value={value}>{children}</ScopeCtx.Provider>;
