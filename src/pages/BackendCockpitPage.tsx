@@ -501,6 +501,25 @@ export const DataExplorer: React.FC<{ initialTable?: string }> = ({ initialTable
         return Array.from(set);
     }, [rows]);
 
+    // v3.25: distinct values per column, feeding the filter datalists — you
+    // see what a field actually contains instead of knowing it by heart.
+    const colValues = useMemo(() => {
+        const map: Record<string, string[]> = {};
+        for (const c of columns) {
+            const set = new Set<string>();
+            for (const r of rows) {
+                const cell = r[c];
+                const s = cell === null || cell === undefined ? ''
+                    : typeof cell === 'object' ? JSON.stringify(cell) : String(cell);
+                if (s !== '') set.add(s.length > 60 ? `${s.slice(0, 60)}…` : s);
+                if (set.size > 300) break;
+            }
+            map[c] = set.size > 300 ? []
+                : Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).slice(0, 200);
+        }
+        return map;
+    }, [rows, columns]);
+
     const filtered = useMemo(() => {
         let out = rows;
         if (query.trim()) {
@@ -754,9 +773,18 @@ export const DataExplorer: React.FC<{ initialTable?: string }> = ({ initialTable
                                         <input
                                             value={colFilters[c] || ''}
                                             onChange={e => setColFilters(f => ({ ...f, [c]: e.target.value }))}
-                                            placeholder="filter…"
+                                            placeholder={(colValues[c]?.length ?? 0) > 0 ? `filter… (${colValues[c].length}${colValues[c].length === 200 ? '+' : ''})` : 'filter…'}
+                                            title={(colValues[c]?.length ?? 0) > 0
+                                                ? `Click to see the ${colValues[c].length}${colValues[c].length === 200 ? '+' : ''} distinct value(s) of ${c}`
+                                                : `Filter ${c} (contains, case-insensitive)`}
+                                            list={`colf-${selectedKey}-${c}`}
                                             className="w-full min-w-[5.5rem] text-[11px] font-normal border border-efg-line rounded px-1.5 py-1 bg-white focus:border-brand-primary focus:outline-none"
                                         />
+                                        {(colValues[c]?.length ?? 0) > 0 && (
+                                            <datalist id={`colf-${selectedKey}-${c}`}>
+                                                {colValues[c].map(v => <option key={v} value={v} />)}
+                                            </datalist>
+                                        )}
                                     </th>
                                 ))}
                                 <th className="px-2 py-1 text-right">

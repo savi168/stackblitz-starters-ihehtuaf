@@ -6,6 +6,26 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.25.0 — 16 September 2026
+
+**Theme: 🏛 Reco and Production line become true canvas pages; filter
+values become visible.** Frontend only, no schema migration.
+
+- **Reco & adjustments is its own page**: opening it from the sidebar
+  shows its own header and the workspace directly — no more "Production"
+  title, intro or step pills around it. The **Production line** page
+  keeps only its four steps (Scope → Data → Controls → Certify), titled
+  and subtitled per the validated canvas; Reco and Analytics are reached
+  from the sidebar.
+- **Per-column filters now show the available values**: in the Data
+  Explorer (and therefore the Mappings page), clicking a column filter
+  opens the list of distinct values of that column (up to 200, sorted,
+  count shown in the placeholder) — no need to know a field's contents
+  by heart. Typing still filters as before (contains, case-insensitive).
+- No schema migration.
+
+---
+
 ## v3.24.0 — 16 September 2026
 
 **Theme: 🏛 Architecture phase 4 — the validated canvas designs land in the

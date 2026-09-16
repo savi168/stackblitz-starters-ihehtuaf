@@ -2116,28 +2116,27 @@ const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
     );
   };
 
+  // v3.25: Reco is its OWN page (canvas): the /production/reco route renders
+  // only the Reco workspace with its own header — no Production title, no
+  // step pills. The Production line keeps just its four steps (the sidebar
+  // carries Reco and Analytics).
+  const recoMode = initialStep === 'reco';
   return (
     <div className="p-5 md:p-8 space-y-6">
       <BackButton />
-      <PageHeader
-        title="Production"
-        subtitle="Two workspaces: the monthly certification line (scope, feed, controls vs the certified baseline, certify) — and Reco & adjustments, with the live consolidated balance sheet."
-      />
+      {recoMode ? (
+        <PageHeader
+          title="Reco & adjustments"
+          subtitle="Load the accounting adjustments, match them against MERCURY, review each line and watch the consolidated balance sheet react live."
+        />
+      ) : (
+        <PageHeader
+          title="Production line"
+          subtitle="Guided certification: scope, data feed, controls battery against the certified baseline, certify — with documented findings."
+        />
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        {STEPS.map(stepBtn)}
-        <span className="mx-1 text-brand-text-secondary/40 select-none">|</span>
-        <button onClick={() => setStep('reco')}
-          className={`flex items-center gap-2 text-sm font-semibold py-1.5 px-3 rounded-full border transition-colors ${
-            step === 'reco' ? 'bg-brand-secondary text-white border-brand-secondary'
-              : 'bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary'}`}
-          title="Reconciliation workspace: accounting adjustments matched against the load collection, with the live consolidated balance sheet at your side.">
-          🧾 Reco & adjustments
-        </button>
-        <a href="#/production/analytics"
-          className="flex items-center gap-1.5 text-sm font-semibold py-1.5 px-3 rounded-full border bg-white text-brand-text-secondary border-gray-300 hover:border-brand-secondary hover:text-brand-secondary transition-colors"
-          title="Balance sheet analytics — trends, currency / booking-center / residence breakdowns (preview with sample data).">
-          📈 Analytics
-        </a>
+        {!recoMode && STEPS.map(stepBtn)}
         <div className="ml-auto">
           <label className="block text-[11px] uppercase tracking-[0.1em] text-brand-text-secondary mb-1">Reporting entity (scope)</label>
           <select value={entity} onChange={e => { setEntitySel(e.target.value); globalScope.setEntity(e.target.value); }} className="p-2 border border-gray-200 rounded-md text-sm bg-white focus:border-brand-primary">
