@@ -6,6 +6,31 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.23.0 — 16 September 2026
+
+**Theme: 🏛 Architecture phase 3 — every module pre-positions on the scope
+entity.** Frontend only, no schema migration, no backend change — the
+database connection is untouched.
+
+- **Management report, Daily reports and the Capital & liquidity
+  workbench now pre-position on the global scope entity** (top bar).
+  Read-only follow: when the global entity changes AND it exists in the
+  module's own entity list, the module switches to it — otherwise
+  nothing happens. Each module's own selector keeps working exactly as
+  before, and a manual local choice is never overridden until the
+  global scope changes again.
+- **Periods stay free everywhere**: the Management report keeps its
+  Compare / History modes on any past dates (comparatives are not
+  restricted to the scope period); the workbench still resets the
+  period on an entity switch, exactly like a manual pick; the ?entity=
+  deep link into the Management report keeps priority.
+- Modules whose entity nomenclature differs from the MERCURY reporting
+  entities are simply left alone (no match → no-op), so nothing can
+  jump unexpectedly.
+- Scenarios untouched (by decision). No schema migration.
+
+---
+
 ## v3.22.0 — 16 September 2026
 
 **Theme: 🏛 Architecture phase 2 — the global scope drives the modules.**

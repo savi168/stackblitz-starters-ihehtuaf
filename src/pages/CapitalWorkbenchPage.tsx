@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useData } from '../context/DataContext';
+import { useScopeEntityDefault } from '../context/ScopeContext';
 import { BackButton, Card, Modal, PageHeader, SectionHeader, TabButton } from '../components';
 import { DocumentsPanel } from './LibraryPage';
 import {
@@ -863,6 +864,9 @@ export const CapitalWorkbenchPage: React.FC = () => {
   const { data, setData, allEntities, mode, apiBaseUrl } = useData();
   const [entity, setEntity] = useState(allEntities[0] || 'Group');
   const [date, setDate] = useState('');
+  // v3.23: pre-position on the global scope entity (same behavior as picking
+  // it manually: the period resets and is chosen next). Nothing else changes.
+  useScopeEntityDefault(allEntities, e => { setEntity(e); setDate(''); });
   const [tab, setTab] = useState<WorkTab>('equity');
   const [parsed, setParsed] = useState<ParsedImport | null>(null);
   // Original Excel kept until the import is confirmed, so it can be archived

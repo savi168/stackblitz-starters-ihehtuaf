@@ -5,6 +5,7 @@ import {
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useData } from '../context/DataContext';
+import { useScopeEntityDefault } from '../context/ScopeContext';
 import { BackButton, Card, EmptyState, Modal, PageHeader, SectionHeader, Sparkline, TabButton } from '../components';
 import { CET1CapitalBreakdown, FinStatement, FinStatementKind, LcrReport, NsfrReport } from '../types';
 import { computeFinSummary, DEFAULT_GAAP, gaapOf, KIND_LABELS, KIND_SECTIONS } from '../services/finStatements';
@@ -2502,6 +2503,9 @@ export const ManagementReportPage: React.FC = () => {
     urlEntity && (allEntities.length === 0 || allEntities.includes(urlEntity))
       ? urlEntity
       : allEntities[0] || 'Group');
+  // v3.23: pre-position on the global scope entity (unless a ?entity= deep
+  // link asked for a specific one). Periods/comparisons stay fully free.
+  useScopeEntityDefault(urlEntity ? [] : allEntities, setEntity);
   const [refDate, setRefDate] = useState('');
   const [exporting, setExporting] = useState(false);
   const contentRef = React.useRef<HTMLDivElement>(null);

@@ -126,3 +126,24 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 export const useScope = (): GlobalScope => useContext(ScopeCtx);
+
+/**
+ * v3.23: pre-position a module's LOCAL entity selector on the global scope
+ * entity — read-only follow. `apply` runs only when the global pick changes
+ * AND the id exists in the module's own entity list, so:
+ *  - module functionality is unchanged (its own selector keeps working, and
+ *    a manual local choice is never fought);
+ *  - modules whose entity nomenclature differs from the MERCURY reporting
+ *    entities are simply left alone (no match → no-op).
+ * Pass an empty list to disable (e.g. when a ?entity= deep link is active).
+ */
+export const useScopeEntityDefault = (entities: string[], apply: (e: string) => void): void => {
+  const { entity } = useScope();
+  const key = entities.join('|');
+  useEffect(() => {
+    if (entity && entities.includes(entity)) apply(entity);
+    // Refire on the GLOBAL pick (or the list arriving) only — never on
+    // re-renders, so local changes stay untouched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity, key]);
+};

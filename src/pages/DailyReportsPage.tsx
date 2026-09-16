@@ -1,5 +1,6 @@
 import { FC, useState, useMemo, useEffect } from 'react';
 import { useData } from '../context/DataContext';
+import { useScopeEntityDefault } from '../context/ScopeContext';
 import { CalculatedKpis } from '../types';
 import { calculateKpis, formatDate, formatNumber } from '../utils';
 import { Card, PageHeader, BackButton, Select, TabButton, SectionHeader } from '../components';
@@ -152,6 +153,9 @@ export const DailyReportsPage: FC = () => {
         return Array.from(set).sort();
     }, [data.kpisHistory, data.largeExposures]);
     const selectedEntity = entities.includes(entitySel) ? entitySel : entities[0] || '';
+    // v3.23: pre-position on the global scope entity; the entity tabs keep
+    // working exactly as before.
+    useScopeEntityDefault(entities, setEntitySel);
 
     const hasLargeExposures = useMemo(
         () => data.largeExposures.some(le => le.entity === selectedEntity),
