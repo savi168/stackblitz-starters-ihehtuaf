@@ -6,6 +6,15 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.25.1 — 16 September 2026
+
+**Fix: the Reco page showed a stale view.** `/production` and
+`/production/reco` render the same component, so navigating between them
+kept the previous step on screen (the Reco page could show the Scope
+step). The view now follows the route. No other change.
+
+---
+
 ## v3.25.0 — 16 September 2026
 
 **Theme: 🏛 Reco and Production line become true canvas pages; filter

@@ -1848,6 +1848,13 @@ const CONTROL_DOCS: Array<{ id: string; title: string; what: string; base: strin
 const ProductionPage: React.FC<{ initialStep?: Step }> = ({ initialStep }) => {
   const { data, setData, allEntities, currentUser, mode, apiBaseUrl } = useData();
   const [step, setStep] = useState<Step>(initialStep ?? 'scope');
+  // The /production and /production/reco routes render this SAME component,
+  // so React keeps the instance across the navigation — sync the view with
+  // the route instead of relying on the initial state (v3.25.1 fix: the
+  // Reco page showed the stale step otherwise).
+  useEffect(() => {
+    setStep(initialStep ?? 'scope');
+  }, [initialStep]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
