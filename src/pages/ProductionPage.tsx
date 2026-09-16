@@ -466,6 +466,10 @@ const AdjustmentsCard: React.FC<{
     const [genericRating, setGenericRating] = useState('');
     const [showSettings, setShowSettings] = useState(false);
     const [showManualLine, setShowManualLine] = useState(false);
+    // v3.26 (canvas target): once the file is loaded and the scope comes from
+    // the top bar, the file/scope sections fold away — a checklist chip
+    // reopens them. You land straight in the inbox.
+    const [showSources, setShowSources] = useState(false);
     const [showCollectionPicker, setShowCollectionPicker] = useState(false);
     const [expandedRow, setExpandedRow] = useState<number | null>(null);
     const [adjFilter, setAdjFilter] = useState<'' | 'matched' | 'ambiguous' | 'new'>('');
@@ -919,16 +923,21 @@ const AdjustmentsCard: React.FC<{
             ['Adjustments file', lines.length > 0, lines.length > 0 ? `${lines.length} line(s)` : 'the accounting extract (LIGNE / REFERENCE / CLIENT / MONTANT…)'],
             ['Load collection', collLoadIds.length > 0 || !!loadId, collLoadIds.length > 0 ? `load(s) ${collLoadIds.join(', ')}` : 'from the Scope step, or a loadid below'],
           ] as Array<[string, boolean, string]>).map(([label, ok, hint]) => (
-            <span key={label} title={hint}
-              className={`px-2.5 py-1 rounded-full border ${ok
-                ? 'border-status-green/40 bg-status-green/5 text-status-green'
-                : 'border-status-amber/40 bg-status-amber/5 text-status-amber'}`}>
+            <button key={label} title={`${hint} — click to open the file & scope sections`}
+              onClick={() => setShowSources(v => !v)}
+              className={`px-2.5 py-1 rounded-full border transition-colors ${ok
+                ? 'border-status-green/40 bg-status-green/5 text-status-green hover:border-status-green'
+                : 'border-status-amber/40 bg-status-amber/5 text-status-amber hover:border-status-amber'}`}>
               {ok ? '✓' : '○'} {label}
-            </span>
+            </button>
           ))}
-          <span className="px-2.5 py-1 rounded-full border border-efg-line text-brand-text-secondary font-normal">
-            Flow: files ready → 🔍 matching → pick candidates (or new/generic positions) → 📊 impact → one-shot .sql / Excel
+          <span className="hidden lg:inline px-2.5 py-1 rounded-full border border-efg-line text-brand-text-secondary font-normal">
+            Flow: files ready → 🔍 matching → pick candidates → 📊 impact → one-shot .sql / Excel
           </span>
+          <button onClick={() => setShowSettings(v => !v)}
+            className="ml-auto text-[11px] underline text-brand-text-secondary hover:text-brand-primary font-normal">
+            {showSettings ? 'hide settings' : '⚙ settings'}
+          </button>
         </div>
 
         {/* Mappings & options live behind the settings toggle — the workbook is
@@ -963,21 +972,33 @@ const AdjustmentsCard: React.FC<{
         </div>
         )}
 
-        {/* 1 — Adjustments file (matching runs automatically) */}
-        <div className="border border-efg-line rounded-lg p-3 mb-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <p className={`${stepTitle} !mb-0`}>1 · Load your adjustments file</p>
-            <span className="text-[11px] text-brand-text-secondary">the matching against MERCURY runs automatically</span>
-            <button onClick={() => setShowSettings(v => !v)}
-              className="ml-auto text-[11px] underline text-brand-text-secondary hover:text-brand-primary">
-              {showSettings ? 'hide settings' : '⚙ settings (mappings, booking center, generics)'}
-            </button>
+        {/* 1 — Adjustments file. No file yet: a welcoming drop zone. File
+            loaded: folded away (a checklist chip reopens it). */}
+        {lines.length === 0 ? (
+          <div className="border-2 border-dashed border-brand-accent/70 rounded-xl p-6 mb-3 text-center bg-white/50"
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); onLinesFile(e.dataTransfer.files?.[0]); }}>
+            <p className="text-sm font-semibold mb-1">Drop your adjustments file here</p>
+            <p className="text-[11.5px] text-brand-text-secondary mb-3">
+              the accounting extract (LIGNE / REFERENCE / CLIENT / MONTANT…) — the matching against MERCURY runs automatically
+            </p>
+            <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])}
+              className={`${fileBtn} inline-block`} />
           </div>
-          <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={`${fileBtn} mt-2`} />
-          {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}{busy ? ' — matching…' : results ? ' — matched' : ''}</p>}
-        </div>
+        ) : showSources && (
+          <div className="border border-efg-line rounded-lg p-3 mb-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className={`${stepTitle} !mb-0`}>Adjustments file</p>
+              <span className="text-[11px] text-brand-text-secondary">load another file — the matching re-runs automatically</span>
+            </div>
+            <input type="file" accept=".xlsx,.xls,.xlsb,.csv" onChange={e => onLinesFile(e.target.files?.[0])} className={`${fileBtn} mt-2`} />
+            {linesInfo && <p className="text-[11px] text-status-green mt-1">✓ {linesInfo}{busy ? ' — matching…' : results ? ' — matched' : ''}</p>}
+          </div>
+        )}
 
-        {/* 2 — Scope (load collection) */}
+        {/* 2 — Scope (load collection). Folded once a collection is set (the
+            top-bar scope pre-picks it); the chip row or "change" reopens. */}
+        {(!collection || showCollectionPicker || showSources) && (
         <div className="border border-efg-line rounded-lg p-3 mb-3">
           {collection && !showCollectionPicker && (
             <div className="flex flex-wrap items-center gap-2">
@@ -1087,6 +1108,7 @@ const AdjustmentsCard: React.FC<{
             </>)}
           </div>
         </div>
+        )}
 
         {results && (
         <div className="flex flex-wrap items-center gap-3 mb-3">

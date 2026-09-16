@@ -6,6 +6,27 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.26.0 — 16 September 2026
+
+**Theme: 🏛 Reco lands straight in the inbox; Analytics follows the
+top-bar period.** Frontend only, no schema migration.
+
+- **Reco & adjustments — the target flow**: with the mapping stored, a
+  file loaded and the collection coming from the top-bar scope, the page
+  goes straight to the inbox. The file and scope sections fold away —
+  click any checklist chip (✓ Mapping · ✓ Adjustments file · ✓ Load
+  collection) to reopen them; ⚙ settings moved next to the chips. With
+  no file yet, a drag-and-drop zone welcomes the accounting extract
+  (drop the file or browse).
+- **Balance sheet analytics — anchored on the global scope**: the
+  analyzed period is now the one picked in the top bar; earlier load
+  collections stay on the axis as comparatives (trend, currency,
+  booking-center, residence, top movements), later ones are dropped.
+  Switching the top-bar period re-anchors every chart.
+- No schema migration.
+
+---
+
 ## v3.25.1 — 16 September 2026
 
 **Fix: the Reco page showed a stale view.** `/production` and

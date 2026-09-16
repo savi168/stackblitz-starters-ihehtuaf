@@ -119,7 +119,10 @@ const BalanceAnalyticsPage: React.FC = () => {
   const baselines = useMemo(() =>
     (data.prodBaselines || []).filter(b => b.entity === entity), [data.prodBaselines, entity]);
 
-  // One period per reporting date (master collections win), last 8, oldest first.
+  // One period per reporting date (master collections win), oldest first.
+  // v3.26: the ANALYZED period is the one picked in the top bar (global
+  // scope) — earlier dates stay on the axis for the comparatives, later
+  // ones are dropped so "latest" is always the scope period.
   const periods = useMemo(() => {
     const byDate = new Map<string, CollectionInfo>();
     for (const c of collections) {
@@ -129,8 +132,10 @@ const BalanceAnalyticsPage: React.FC = () => {
       const cur = byDate.get(d);
       if (!cur || (c.isMaster && !cur.isMaster)) byDate.set(d, c);
     }
-    return Array.from(byDate.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
+    let arr = Array.from(byDate.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const anchor = arr.findIndex(([d]) => d === globalScope.period);
+    if (anchor >= 0) arr = arr.slice(0, anchor + 1);
+    return arr
       .slice(-8)
       .map(([date, c]) => ({
         date, label: periodLabel(date),
@@ -138,7 +143,7 @@ const BalanceAnalyticsPage: React.FC = () => {
         collectionId: String(c.loadCollectionId),
         certified: baselines.some(b => b.date === date),
       }));
-  }, [collections, entity, baselines]);
+  }, [collections, entity, baselines, globalScope.period]);
 
   // Fetch each period's balance once (sequentially — a handful of aggregates).
   useEffect(() => {
@@ -397,7 +402,7 @@ const BalanceAnalyticsPage: React.FC = () => {
       <BackButton />
       <PageHeader
         title="Balance sheet analytics"
-        subtitle="The consolidated balance sheet as a BI reading — one point per load collection, certified baselines marked, scope and intra-scope interco applied like everywhere else."
+        subtitle="The consolidated balance sheet as a BI reading — analyzed period = the one picked in the top bar, earlier collections feed the comparatives; scope and intra-scope interco applied like everywhere else."
       />
       <div className="flex flex-wrap items-end gap-3">
         <div>
