@@ -473,7 +473,7 @@ const BalanceAnalyticsPage: React.FC = () => {
 
           <Card>
             <div className="flex flex-wrap items-center gap-3 mb-3">
-              <SectionHeader title="🌍 Geographic footprint" suffix={`assets · ${latest?.p || ''} — zoom, hover, click a country to pin its detail`} />
+              <SectionHeader title="🌍 Geographic footprint" suffix={`assets · ${latest?.p || ''}${prev?.p ? ` vs ${prev.p}` : ''} — click a row or a bubble for the country detail`} />
               <span className="ml-auto inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold">
                 {([['residence', 'Counterparty residence'], ['bc', 'Booking center']] as const).map(([k, lbl]) => (
                   <button key={k} onClick={() => setGeoMode(k)}

@@ -6,6 +6,36 @@ and anything to know before or after upgrading.
 
 ---
 
+## v3.29.0 — 17 September 2026
+
+**Theme: 🌍 Geographic footprint — ranking first, compact map.**
+Frontend only, no schema migration, no database impact. Matches the
+canvas planche validated on the design board (Version 8).
+
+- **The map is now a compact vignette** (right column, ~440 px, framed
+  card) instead of a full-width world that was mostly empty ocean. It
+  opens **framed on Europe** by default; World / APAC / Americas / MEA
+  stay one pill away, and a **"→ 🇭🇰 🇺🇸 🇸🇬 outside this frame · N mCHF"
+  chip** lists what the current frame hides (click it for the world
+  view). Zoom controls moved to a compact bottom-right cluster.
+- **The analysis moved into a country ranking** (left): rank, flag +
+  name, share-of-assets bar, mCHF, **Δ vs the previous period** (▲
+  green / ▼ red). Top 7 shown, the rest folded behind
+  "＋ N more · X mCHF ▾".
+- **The selected country expands in place** — click a row or a bubble
+  and the row opens with the per-rubrique breakdown (bars + Δ),
+  🔍 Zoom to country and ✕ close. The separate side "Country detail"
+  panel is gone; nothing it showed was lost.
+- **Stat chips** on top: N countries · Top 3 concentration · 🇨🇭 Home
+  share · Biggest move.
+- Everyday short country names (United Kingdom, United States…)
+  replace the official ISO mouthfuls in the list.
+- All map interactions kept: wheel zoom, drag pan, double-click to
+  frame, hover tooltip, choropleth + bubbles, HK/SG/MC point markers,
+  offline world-atlas boundaries.
+
+---
+
 ## v3.28.1 — 16 September 2026
 
 Footnote accuracy fix on the Live balance impact card: the Account view

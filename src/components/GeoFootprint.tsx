@@ -45,7 +45,16 @@ const MIN_K = 1, MAX_K = 40;
 const projection = geoNaturalEarth1().fitExtent([[4, 4], [W - 4, H - 4]], { type: 'Sphere' });
 const path = geoPath(projection);
 
-export const countryName = (a2: string): string => A2_NAME.get(a2) ?? a2;
+/** Everyday short names — the ISO 3166 official names are too long for the
+ * ranking list ("United Kingdom of Great Britain and Northern Ireland"). */
+const SHORT_NAMES: Record<string, string> = {
+  GB: 'United Kingdom', US: 'United States', RU: 'Russia', KR: 'South Korea',
+  KP: 'North Korea', TW: 'Taiwan', VN: 'Vietnam', IR: 'Iran', SY: 'Syria',
+  LA: 'Laos', MD: 'Moldova', TZ: 'Tanzania', BO: 'Bolivia', VE: 'Venezuela',
+  NL: 'Netherlands', CD: 'DR Congo', CZ: 'Czechia', MK: 'North Macedonia',
+  BN: 'Brunei', FM: 'Micronesia', TR: 'Türkiye',
+};
+export const countryName = (a2: string): string => SHORT_NAMES[a2] ?? A2_NAME.get(a2) ?? a2;
 
 /** 🇨🇭-style flag emoji from an ISO2 code (regional indicator letters). */
 const flagOf = (a2: string): string =>
@@ -84,11 +93,11 @@ const fitLonLat = (lon0: number, lat0: number, lon1: number, lat1: number): Tran
 };
 
 const REGIONS: Array<{ id: string; label: string; t: () => Transform }> = [
-  { id: 'world', label: '🌐 World', t: () => IDENTITY },
+  { id: 'world', label: 'World', t: () => IDENTITY },
   { id: 'europe', label: 'Europe', t: () => fitLonLat(-11, 34, 33, 62) },
-  { id: 'apac', label: 'Asia-Pacific', t: () => fitLonLat(60, -14, 155, 55) },
+  { id: 'apac', label: 'APAC', t: () => fitLonLat(60, -14, 155, 55) },
   { id: 'americas', label: 'Americas', t: () => fitLonLat(-130, -40, -30, 62) },
-  { id: 'mea', label: 'Middle East & Africa', t: () => fitLonLat(-20, -36, 62, 42) },
+  { id: 'mea', label: 'MEA', t: () => fitLonLat(-20, -36, 62, 42) },
 ];
 
 export type GeoDetailRow = { k: string; label?: string; now: number; prev?: number };
@@ -109,7 +118,10 @@ export const GeoFootprint: React.FC<{
 }> = ({ data, prevData, detailOf, fmt, unit, periodLabel, prevPeriodLabel }) => {
   const [hover, setHover] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
-  const [t, setT] = useState<Transform>(IDENTITY);
+  // Default frame: Europe — where the exposure usually is. World stays one
+  // click away (region pill, ⤢ reset, or the off-frame chip).
+  const [t, setT] = useState<Transform>(() => fitLonLat(-11, 34, 33, 62));
+  const [showAll, setShowAll] = useState(false);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -140,13 +152,55 @@ export const GeoFootprint: React.FC<{
   }, [data]);
 
   const rankOf = useMemo(() => new Map(ranked.map(([a2], i) => [a2, i + 1])), [ranked]);
-  const top = ranked.slice(0, 10);
 
-  // client px → base SVG coordinates (before the zoom transform).
+  // Base-coordinate anchor of every country with data (polygon centroid, or
+  // the point-fallback position) — used for the off-frame indicator.
+  const anchors = useMemo(() => {
+    const m = new Map<string, [number, number]>();
+    for (const [, hit] of byFeature) {
+      const f = A2_FEATURE.get(hit.a2);
+      if (!f) continue;
+      const c = path.centroid(f);
+      if (isFinite(c[0]) && isFinite(c[1])) m.set(hit.a2, [c[0], c[1]]);
+    }
+    for (const pt of points) m.set(pt.a2, [pt.x, pt.y]);
+    return m;
+  }, [byFeature, points]);
+
+  // Countries with data whose anchor is outside the current frame.
+  const offFrame = useMemo(() => {
+    if (t.k <= 1.01) return [] as Array<[string, number]>;
+    const out: Array<[string, number]> = [];
+    for (const [a2, v] of ranked) {
+      const c = anchors.get(a2);
+      if (!c) continue;
+      const sx = t.x + t.k * c[0], sy = t.y + t.k * c[1];
+      if (sx < 0 || sx > W || sy < 0 || sy > H) out.push([a2, v]);
+    }
+    return out;
+  }, [ranked, anchors, t]);
+
+  const top3Share = total ? (ranked.slice(0, 3).reduce((s, [, v]) => s + v, 0) / total) * 100 : 0;
+  const homeShare = total && data.get('CH') ? ((data.get('CH') ?? 0) / total) * 100 : null;
+  const bigMove = useMemo(() => {
+    if (!prevData) return null;
+    let best: { a2: string; d: number } | null = null;
+    for (const a2 of new Set([...data.keys(), ...prevData.keys()])) {
+      const d = (data.get(a2) ?? 0) - (prevData.get(a2) ?? 0);
+      if (!best || Math.abs(d) > Math.abs(best.d)) best = { a2, d };
+    }
+    return best && best.d !== 0 ? best : null;
+  }, [data, prevData]);
+
+  // client px → base SVG coordinates (before the zoom transform). The svg
+  // renders with preserveAspectRatio "slice", so the scale is the max of the
+  // two axis ratios and the overflow is centered.
+  const sliceScale = (r: DOMRect) => Math.max(r.width / W, r.height / H);
   const svgPoint = (clientX: number, clientY: number): [number, number] => {
     const r = svgRef.current?.getBoundingClientRect();
     if (!r || r.width === 0) return [0, 0];
-    return [((clientX - r.left) / r.width) * W, ((clientY - r.top) / r.height) * H];
+    const s = sliceScale(r);
+    return [(clientX - r.left - (r.width - W * s) / 2) / s, (clientY - r.top - (r.height - H * s) / 2) / s];
   };
 
   const zoomBy = (factor: number, cx = W / 2, cy = H / 2) =>
@@ -192,7 +246,7 @@ export const GeoFootprint: React.FC<{
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     const r = svgRef.current?.getBoundingClientRect();
-    const s = r && r.width > 0 ? W / r.width : 1;
+    const s = r && r.width > 0 ? 1 / sliceScale(r) : 1;
     const dx = (e.clientX - d.x) * s, dy = (e.clientY - d.y) * s;
     d.moved += Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y);
     d.x = e.clientX; d.y = e.clientY;
@@ -215,8 +269,6 @@ export const GeoFootprint: React.FC<{
   };
 
   const sel = pinned ?? hover;
-  const selValue = sel !== null ? data.get(sel) : undefined;
-  const detail = pinned !== null && detailOf ? detailOf(pinned) : null;
 
   const deltaChip = (a2: string) => {
     if (!prevData) return null;
@@ -260,18 +312,28 @@ export const GeoFootprint: React.FC<{
   );
 
   return (
-    <div className="md:grid md:grid-cols-[minmax(0,1fr)_240px] md:gap-4">
-      <div ref={wrapRef} className="relative min-w-0">
-        {/* Zoom + region controls */}
-        <div className="absolute left-2 top-2 z-10 flex flex-col gap-1">
-          {[['+', () => zoomBy(1.5)], ['−', () => zoomBy(1 / 1.5)], ['⤢', () => { setT(IDENTITY); setPinned(null); }]].map(([lbl, fn]) => (
-            <button key={String(lbl)} onClick={fn as () => void} title={lbl === '⤢' ? 'Reset view' : lbl === '+' ? 'Zoom in' : 'Zoom out'}
-              className="w-7 h-7 rounded-md border border-gray-300 bg-white/95 shadow-sm text-sm font-bold text-brand-text-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
-              {String(lbl)}
-            </button>
-          ))}
-        </div>
-        <div className="absolute right-2 top-2 z-10 flex flex-wrap justify-end gap-1 max-w-[70%]">
+    <div>
+      {/* Stat chips — the headline numbers, before map or list */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <span className="text-[11px] font-semibold text-brand-secondary bg-brand-bg-body rounded-full px-2.5 py-1">{ranked.length} countries</span>
+        {ranked.length >= 3 && (
+          <span className="text-[11px] font-semibold text-brand-secondary bg-brand-bg-body rounded-full px-2.5 py-1">Top 3 = {top3Share.toFixed(0)}% of assets</span>
+        )}
+        {homeShare !== null && (
+          <span className="text-[11px] font-semibold text-brand-secondary bg-brand-bg-body rounded-full px-2.5 py-1">🇨🇭 Home share {homeShare.toFixed(1)}%</span>
+        )}
+        {bigMove && (
+          <span className={`text-[11px] font-semibold rounded-full px-2.5 py-1 ${bigMove.d > 0 ? 'text-status-green bg-status-green/10' : 'text-status-red bg-status-red/10'}`}>
+            Biggest move {flagOf(bigMove.a2)} {bigMove.d > 0 ? '+' : '−'}{fmt(Math.abs(bigMove.d))}
+          </span>
+        )}
+      </div>
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_440px] lg:gap-5 lg:items-start">
+      {/* Compact map vignette — right column on wide screens */}
+      <div className="lg:col-start-2 lg:row-start-1">
+      <div ref={wrapRef} className="relative min-w-0 h-[300px] lg:h-[340px] rounded-lg border border-efg-line overflow-hidden bg-brand-bg-body/30">
+        {/* Region pills top-left, off-frame chip under them, zoom bottom-right */}
+        <div className="absolute left-2 top-2 z-10 flex flex-wrap gap-1">
           {REGIONS.map(r => (
             <button key={r.id} onClick={() => setT(r.t())}
               className="px-2 py-0.5 rounded-full border border-gray-300 bg-white/95 shadow-sm text-[10px] font-semibold text-brand-text-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
@@ -279,8 +341,22 @@ export const GeoFootprint: React.FC<{
             </button>
           ))}
         </div>
-        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="World map of exposures"
-          className={`w-full h-auto select-none touch-none ${drag.current ? 'cursor-grabbing' : 'cursor-grab'}`}
+        {offFrame.length > 0 && (
+          <button onClick={() => setT(IDENTITY)} title="Countries outside the current frame — click for the world view"
+            className="absolute left-2 top-9 z-10 px-2 py-0.5 rounded-full border border-gray-300 bg-white/95 shadow-sm text-[10px] font-semibold text-brand-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
+            → {offFrame.slice(0, 3).map(([a2]) => flagOf(a2)).join(' ')}{offFrame.length > 3 ? ` +${offFrame.length - 3}` : ''} outside this frame · {fmt(offFrame.reduce((s, [, v]) => s + v, 0))} {unit}
+          </button>
+        )}
+        <div className="absolute right-2 bottom-6 z-10 flex gap-1">
+          {[['+', () => zoomBy(1.5)], ['−', () => zoomBy(1 / 1.5)], ['⤢', () => { setT(IDENTITY); setPinned(null); }]].map(([lbl, fn]) => (
+            <button key={String(lbl)} onClick={fn as () => void} title={lbl === '⤢' ? 'Reset view' : lbl === '+' ? 'Zoom in' : 'Zoom out'}
+              className="w-6 h-6 rounded-md border border-gray-300 bg-white/95 shadow-sm text-[12px] font-bold text-brand-text-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
+              {String(lbl)}
+            </button>
+          ))}
+        </div>
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice" role="img" aria-label="World map of exposures"
+          className={`w-full h-full select-none touch-none ${drag.current ? 'cursor-grabbing' : 'cursor-grab'}`}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove}
           onPointerUp={onPointerUp} onPointerLeave={e => { onPointerUp(e); setCursor(null); setHover(null); }}
           onDoubleClick={onDblClick}>
@@ -340,87 +416,106 @@ export const GeoFootprint: React.FC<{
           </g>
         </svg>
         {hoverTip}
-        <p className="text-[10px] text-brand-text-secondary mt-1">
-          Scroll to zoom · drag to pan · double-click a country to frame it (background resets) · {t.k > 1.01 ? `${t.k.toFixed(1)}×` : '1×'}
+        <p className="absolute left-2 bottom-1 z-10 text-[10px] text-brand-text-secondary pointer-events-none">
+          Scroll to zoom · drag to pan · double-click to frame · {t.k > 1.01 ? `${t.k.toFixed(1)}×` : '1×'}
         </p>
       </div>
+      </div>
 
-      <div className="mt-3 md:mt-0">
-        {pinned !== null ? (
-          <>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary">Country detail</p>
-              <button onClick={() => setPinned(null)} className="text-[11px] text-brand-text-secondary hover:text-brand-primary font-semibold">✕ close</button>
-            </div>
-            <div className="rounded-lg border border-efg-line p-2.5">
-              <p className="text-[13px] font-bold">{flagOf(pinned)} {pinned ? countryName(pinned) : 'Unassigned'}</p>
-              <p className="text-lg font-bold tabular-nums text-brand-primary">{fmt(selValue ?? 0)} {unit}</p>
-              <p className="text-[11px] tabular-nums">
-                {total ? ((selValue ?? 0) / total * 100).toFixed(1) : '0'}% of assets · #{rankOf.get(pinned) ?? '—'} of {ranked.length}
-              </p>
-              <p className="text-[11px] tabular-nums mt-0.5">{deltaChip(pinned)}</p>
-              {detail && detail.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-efg-line space-y-1">
-                  <p className="text-[10px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">By rubrique</p>
-                  {detail.map(d => {
-                    const dmax = Math.max(1, ...detail.map(x => Math.abs(x.now)));
-                    const dd = d.prev !== undefined ? d.now - d.prev : null;
-                    return (
-                      <div key={d.k}>
-                        <div className="flex justify-between gap-2 text-[11px]">
-                          <span className="truncate" title={d.label || d.k}><b>{d.k}</b>{d.label ? ` · ${d.label}` : ''}</span>
-                          <span className="tabular-nums whitespace-nowrap">{fmt(d.now)}</span>
-                        </div>
-                        <div className="h-1 rounded-full bg-brand-bg-body overflow-hidden">
-                          <div className="h-full bg-brand-secondary" style={{ width: `${Math.min(100, (Math.abs(d.now) / dmax) * 100)}%` }} />
-                        </div>
-                        {dd !== null && dd !== 0 && (
-                          <p className={`text-[10px] tabular-nums ${dd > 0 ? 'text-status-green' : 'text-status-red'}`}>
-                            {dd > 0 ? '▲' : '▼'} {fmt(Math.abs(dd))} vs {prevPeriodLabel || 'prev'}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <button onClick={() => pinned && zoomToA2(pinned)}
-                className="mt-2 w-full text-[11px] font-semibold rounded-md border border-gray-300 py-1 text-brand-text-secondary hover:text-brand-primary hover:border-brand-primary transition-colors">
-                🔍 Zoom to country
-              </button>
-            </div>
-          </>
+      {/* Country ranking — the analysis lives here; the selected country
+          expands in place with its per-rubrique breakdown. */}
+      <div className="lg:col-start-1 lg:row-start-1 mt-4 lg:mt-0 min-w-0">
+        {ranked.length === 0 ? (
+          <p className="text-[12px] text-brand-text-secondary">No geographic data for this period.</p>
         ) : (
-          <>
-            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-brand-text-secondary mb-1.5">
-              Top countries
-            </p>
-            {top.length === 0 ? (
-              <p className="text-[12px] text-brand-text-secondary">No geographic data for this period.</p>
-            ) : (
-              <div className="space-y-1">
-                {top.map(([a2, v]) => {
-                  const share = total ? (v / total) * 100 : 0;
-                  return (
-                    <button key={a2 || '—'} type="button"
-                      onMouseEnter={() => setHover(a2)} onMouseLeave={() => setHover(null)}
-                      onClick={() => { setPinned(a2); if (a2) zoomToA2(a2); }}
-                      className={`w-full text-left rounded-md px-2 py-1 border transition-colors ${hover === a2 ? 'border-brand-primary bg-brand-primary/5' : 'border-transparent'}`}>
-                      <div className="flex justify-between text-[12px]">
-                        <span className="font-semibold truncate">{a2 ? `${flagOf(a2)} ${a2} · ${countryName(a2)}` : 'Unassigned'}</span>
-                        <span className="tabular-nums whitespace-nowrap">{fmt(v)}</span>
-                      </div>
-                      <div className="h-1 rounded-full bg-brand-bg-body overflow-hidden">
-                        <div className="h-full bg-brand-secondary" style={{ width: `${Math.min(100, Math.abs(share))}%` }} />
-                      </div>
-                    </button>
-                  );
-                })}
-                <p className="text-[10px] text-brand-text-secondary pt-1">Click a country (map or list) to pin its detail.</p>
-              </div>
-            )}
-          </>
+          <div>
+            <div className="grid grid-cols-[24px_minmax(110px,150px)_minmax(0,1fr)_78px_74px] gap-2 items-center px-2 pb-1.5 border-b border-efg-line text-[9.5px] uppercase tracking-[0.1em] font-semibold text-brand-text-secondary">
+              <span>#</span><span>Country</span><span>Share of assets</span><span className="text-right">{unit}</span><span className="text-right">Δ vs {prevPeriodLabel || 'prev'}</span>
+            </div>
+            {(showAll ? ranked : ranked.slice(0, 7)).map(([a2, v], i) => {
+              const share = total ? (v / total) * 100 : 0;
+              const maxShare = total && ranked[0] ? Math.abs((ranked[0][1] / total) * 100) : 100;
+              const isSel = pinned === a2;
+              const d = prevData ? v - (prevData.get(a2) ?? 0) : null;
+              const row = (
+                <div className="grid grid-cols-[24px_minmax(110px,150px)_minmax(0,1fr)_78px_74px] gap-2 items-center text-[12px]">
+                  <span className={`font-semibold ${isSel ? 'text-brand-primary' : 'text-brand-text-secondary'}`}>{i + 1}</span>
+                  <span className="truncate" title={a2 ? countryName(a2) : 'Unassigned'}>
+                    {a2 ? `${flagOf(a2)} ` : '🌐 '}
+                    <span className={isSel || i === 0 ? 'font-bold' : ''}>{a2 ? countryName(a2) : 'Unassigned'}</span>
+                  </span>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={`flex-grow h-[7px] rounded-full overflow-hidden ${isSel ? 'bg-white/80 dark:bg-white/15' : 'bg-brand-bg-body'}`}>
+                      <span className={`block h-full ${isSel ? 'bg-brand-primary' : 'bg-brand-secondary'}`}
+                        style={{ width: `${Math.min(100, (Math.abs(share) / Math.max(1, maxShare)) * 100)}%` }} />
+                    </span>
+                    <span className="text-[10.5px] text-brand-text-secondary tabular-nums w-10 text-right">{share.toFixed(1)}%</span>
+                  </span>
+                  <span className="text-right tabular-nums font-semibold">{fmt(v)}</span>
+                  <span className={`text-right tabular-nums text-[11.5px] ${d === null || d === 0 ? 'text-brand-accent' : d > 0 ? 'text-status-green font-bold' : 'text-status-red font-bold'}`}>
+                    {d === null ? '—' : d === 0 ? '=' : `${d > 0 ? '▲' : '▼'} ${fmt(Math.abs(d))}`}
+                  </span>
+                </div>
+              );
+              const det = isSel && detailOf ? detailOf(a2) : null;
+              return isSel ? (
+                <div key={a2 || '—'} className="my-0.5 rounded-lg border border-brand-primary/25 bg-brand-primary/5 px-2 py-1.5">
+                  <button type="button" className="w-full text-left" onClick={() => setPinned(null)}
+                    onMouseEnter={() => setHover(a2)} onMouseLeave={() => setHover(null)}>
+                    {row}
+                  </button>
+                  {det && det.length > 0 && (
+                    <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5 mt-1.5 pl-6 pr-2 pb-1">
+                      {det.map(dr => {
+                        const dmax = Math.max(1, ...det.map(x => Math.abs(x.now)));
+                        const dd = dr.prev !== undefined ? dr.now - dr.prev : null;
+                        return (
+                          <div key={dr.k}>
+                            <div className="flex justify-between gap-2 text-[10.5px]">
+                              <span className="truncate" title={dr.label || dr.k}><b>{dr.k}</b>{dr.label ? ` ${dr.label}` : ''}</span>
+                              <span className="tabular-nums whitespace-nowrap">
+                                {fmt(dr.now)}
+                                {dd !== null && dd !== 0 && (
+                                  <span className={`ml-1 font-semibold ${dd > 0 ? 'text-status-green' : 'text-status-red'}`}>{dd > 0 ? '▲' : '▼'}{fmt(Math.abs(dd))}</span>
+                                )}
+                              </span>
+                            </div>
+                            <div className="h-1 rounded-full bg-white/85 dark:bg-white/15 overflow-hidden">
+                              <div className="h-full bg-brand-secondary" style={{ width: `${Math.min(100, (Math.abs(dr.now) / dmax) * 100)}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="flex gap-3 pl-6 pb-0.5 pt-0.5">
+                    <button onClick={() => a2 && zoomToA2(a2)}
+                      className="text-[10.5px] font-semibold text-brand-text-secondary hover:text-brand-primary transition-colors">🔍 Zoom to country</button>
+                    <button onClick={() => setPinned(null)}
+                      className="text-[10.5px] font-semibold text-brand-text-secondary hover:text-brand-primary transition-colors">✕ close</button>
+                  </div>
+                </div>
+              ) : (
+                <button key={a2 || '—'} type="button"
+                  onMouseEnter={() => setHover(a2)} onMouseLeave={() => setHover(null)}
+                  onClick={() => { setPinned(a2); if (a2) zoomToA2(a2); }}
+                  className={`w-full text-left px-2 py-[7px] border-b border-efg-line/60 transition-colors ${hover === a2 ? 'bg-brand-primary/5' : ''}`}>
+                  {row}
+                </button>
+              );
+            })}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2 pt-2 text-[11px] text-brand-text-secondary">
+              {ranked.length > 7 ? (
+                <button onClick={() => setShowAll(s => !s)}
+                  className="font-semibold text-brand-secondary hover:text-brand-primary transition-colors whitespace-nowrap">
+                  {showAll ? '− show top 7 only ▴' : `＋ ${ranked.length - 7} more · ${fmt(ranked.slice(7).reduce((s, [, v]) => s + v, 0))} ${unit} ▾`}
+                </button>
+              ) : <span />}
+              <span>{unit} · click a row or a bubble to pin{periodLabel ? ` · ${periodLabel}` : ''}{prevPeriodLabel ? ` vs ${prevPeriodLabel} ✔` : ''}</span>
+            </div>
+          </div>
         )}
+      </div>
       </div>
     </div>
   );
